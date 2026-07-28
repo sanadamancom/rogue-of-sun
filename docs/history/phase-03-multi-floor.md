@@ -90,9 +90,17 @@ its layout or position.
 
 ## Verification results
 
-- 100 run seeds × 3 floors = 300 floors: 300/300 generated successfully,
-  0 shape violations (existing Phase 02 geometry tests re-run unchanged
-  and pass at 1000-seed scale too).
+- 100 run seeds × 3 floors = 300 floors: 300/300 generated successfully.
+  Every floor was checked against the full set of Phase 02 shape
+  constraints (reusing the same validation logic as `robustness.test.ts`):
+  room count in range, full floor connectivity via flood fill from the
+  floor's actual player start tile, the exit reachable from that start
+  tile, zero forbidden 2×2 floor blocks, start/exit/enemy each on a floor
+  tile, and no overlap between start/exit/enemy. 0 shape violations across
+  all 300 floors. (An earlier version of this test only checked
+  generation success and determinism, not shape; it was extended to run
+  the full Phase 02 validation per floor, per the Phase 03 verification
+  follow-up.)
 - Determinism recheck: the same 100 run seeds regenerated twice produced
   0 mismatches in map terrain.
 - Type check: pass (`tsc -b --noEmit`).
@@ -107,20 +115,33 @@ its layout or position.
   `FLOOR 1/3`, run seed, and floor seed; movement/attack keys and the
   Enter/N restart keys were exercised with no errors; screenshots
   confirmed the map, player, enemy, and camera-follow rendered correctly.
+- User manual verification (2026-07-29, real browser, interactive play):
+  the user played the build directly and confirmed the following worked
+  correctly: the staircase does not advance the floor while its enemy is
+  alive; defeating the enemy alone does not trigger Victory; reaching the
+  staircase after defeating the enemy advances floor 1→2 and 2→3; on
+  floor 3, reaching the staircase after defeating its enemy triggers
+  Victory; current HP is not restored on floor transitions; the map,
+  enemy, staircase, and camera all switch correctly per floor; Enter
+  restarts the same run seed from floor 1; N starts a new run seed from
+  floor 1; and movement, attacks, taking damage, and Game Over all behave
+  correctly.
 
 ## Unverified / remaining items
 
 - The manual-verification checklist's specific run seed 2780624551 was
-  regression-tested at the map-generation level (unchanged shape), but
-  was not driven through a full interactive playthrough in the browser:
-  forcing `Math.random` to yield that exact run seed in the browser
+  regression-tested at the map-generation level (unchanged shape) but not
+  driven through a full interactive playthrough under that exact seed:
+  forcing `Math.random` to yield a specific run seed in the browser
   breaks Phaser's own internal use of `Math.random` for texture keys
-  (observed directly: this crashes the scene), so it was not safe to
-  force a specific seed through the real UI. The natural-random-seed
-  browser pass above exercised the same code paths (HUD, movement,
-  attack, restart keys) without errors instead.
-- Only one browser pass was run; the full 5-run-seed manual checklist
-  (floor 1 → 2 → 3 → Victory, HP carry-over, Game Over, Enter/N from
-  every phase, all observed on-screen) was not performed as an
-  interactive human session and should still be spot-checked before
-  relying on this build.
+  (observed directly: this crashes the scene), so a specific seed was not
+  forced through the real UI. The user's manual verification (see above)
+  was performed with naturally-generated random run seeds instead, and
+  covered the same behaviors the checklist calls for.
+- Sprite display sizing was adjusted after the initial Phase 03
+  implementation (multiple iterations, ending with the player and enemy
+  sprites both displayed at a square 48×48 via a non-uniform render-time
+  scale, with the source sprite sheets left unmodified). This is a
+  cosmetic change with no effect on game logic, map generation, or the
+  floor/run system, and does not affect any of the verification results
+  above.
