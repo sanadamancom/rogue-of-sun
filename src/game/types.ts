@@ -66,7 +66,11 @@ export interface Actor {
   alive: boolean;
 }
 
-export type GamePhase = 'playing' | 'gameover' | 'victory' | 'floor_reached';
+// 'floor_cleared' is a transient signal set for a single processTurn call
+// when the player reaches an unlocked (enemy-defeated) staircase on a
+// non-final floor; the caller regenerates the next floor immediately and
+// the phase returns to 'playing' before any further input is handled.
+export type GamePhase = 'playing' | 'floor_cleared' | 'gameover' | 'victory';
 
 export interface GameState {
   map: GameMap;
@@ -74,7 +78,14 @@ export interface GameState {
   enemy: Actor;
   turn: number;
   phase: GamePhase;
+  /** Seed used to generate this floor's map (derived from runSeed + floor). */
   seed: number;
+  /** Seed identifying the whole run; the same runSeed always yields the same 3 floors. */
+  runSeed: number;
+  /** Current floor number, 1-indexed. */
+  floor: number;
+  /** Total floors in this run. */
+  totalFloors: number;
   exit: Vec2;
 }
 

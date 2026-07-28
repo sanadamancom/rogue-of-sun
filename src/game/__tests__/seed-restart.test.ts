@@ -22,8 +22,11 @@ describe('seed-based restart semantics', () => {
     expect(identical).toBe(false);
   });
 
-  it('exposes the seed on state for on-screen display', () => {
+  it('exposes the run seed and derived floor seed on state for on-screen display', () => {
+    // As of Phase 03, `seed` is the *floor* seed (derived from runSeed and
+    // floor number), not the run seed itself; `runSeed` identifies the run.
     const state = createInitialState(4242);
-    expect(state.seed).toBe(4242);
+    expect(state.runSeed).toBe(4242);
+    expect(typeof state.seed).toBe('number');
   });
 });

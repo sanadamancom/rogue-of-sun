@@ -32,6 +32,9 @@ function freshState(): GameState {
     turn: 0,
     phase: 'playing',
     seed: 1,
+    runSeed: 1,
+    floor: 1,
+    totalFloors: 3,
     exit: { x: 99, y: 99 },
   };
 }

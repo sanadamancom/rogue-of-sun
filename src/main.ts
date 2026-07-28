@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { toDirection4 } from './game/direction';
 import { actionForKey } from './game/input';
-import { createInitialState, randomSeed } from './game/state';
+import { advanceToNextFloor, createInitialState, randomSeed } from './game/state';
 import { processTurn } from './game/turn';
 import { GameState } from './game/types';
 
@@ -159,7 +159,7 @@ class MainScene extends Phaser.Scene {
   private handleKey(key: string): void {
     if (this.state.phase !== 'playing') {
       if (key === 'Enter') {
-        this.restart(this.state.seed);
+        this.restart(this.state.runSeed);
       } else if (key === 'n' || key === 'N') {
         this.restart(randomSeed());
       }
@@ -178,6 +178,15 @@ class MainScene extends Phaser.Scene {
     const enemyBefore = { ...this.state.enemy.pos };
 
     processTurn(this.state, action);
+    const phaseAfterTurn = this.state.phase as import('./game/types').GamePhase;
+
+    if (phaseAfterTurn === 'floor_cleared') {
+      // Immediate, no interstitial: regenerate the next floor synchronously
+      // within this same key handling call, before any further input.
+      this.state = advanceToNextFloor(this.state);
+      this.resetSceneToCurrentState();
+      return;
+    }
 
     const playerMoved =
       this.state.player.pos.x !== playerBefore.x || this.state.player.pos.y !== playerBefore.y;
@@ -199,9 +208,14 @@ class MainScene extends Phaser.Scene {
     }
   }
 
-  /** Rebuilds the whole scene state for `seed` (same seed = same map/placement; new seed = new floor). */
-  private restart(seed: number): void {
-    this.state = createInitialState(seed);
+  /** Starts a brand-new run (floor 1) for `runSeed`; same runSeed always yields the same 3 floors. */
+  private restart(runSeed: number): void {
+    this.state = createInitialState(runSeed);
+    this.resetSceneToCurrentState();
+  }
+
+  /** Redraws map/exit/camera/sprites to match `this.state` (used for both restarts and floor transitions). */
+  private resetSceneToCurrentState(): void {
     this.drawTerrain();
     this.drawExit();
     this.cameras.main.setBounds(
@@ -278,17 +292,15 @@ class MainScene extends Phaser.Scene {
     const { player } = this.state;
 
     this.hudText.setText(
-      `HP: ${player.hp}/${player.maxHp}   Turn: ${this.state.turn}   Seed: ${this.state.seed}`,
+      `FLOOR ${this.state.floor}/${this.state.totalFloors}   HP: ${player.hp}/${player.maxHp}   Turn: ${this.state.turn}\n` +
+        `Run Seed: ${this.state.runSeed}   Floor Seed: ${this.state.seed}`,
     );
 
     if (this.state.phase === 'gameover') {
-      this.messageText.setText('GAME OVER\nEnter: same seed   N: new seed');
+      this.messageText.setText('GAME OVER\nEnter: same run   N: new run');
       this.messageText.setVisible(true);
     } else if (this.state.phase === 'victory') {
-      this.messageText.setText('ENEMY DEFEATED\nEnter: same seed   N: new seed');
-      this.messageText.setVisible(true);
-    } else if (this.state.phase === 'floor_reached') {
-      this.messageText.setText('FLOOR REACHED\nEnter: same seed   N: new seed');
+      this.messageText.setText('VICTORY\nEnter: same run   N: new run');
       this.messageText.setVisible(true);
     } else {
       this.messageText.setVisible(false);

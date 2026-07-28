@@ -150,15 +150,17 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
 
   const playerDefeated = !state.player.alive;
   const reachedExit = state.player.pos.x === state.exit.x && state.player.pos.y === state.exit.y;
+  // The staircase only unlocks once this floor's enemy has been defeated
+  // (this turn or earlier); reaching it while the enemy is alive does not
+  // advance the floor.
+  const stairsUnlocked = !state.enemy.alive;
 
   state.turn += 1;
 
   if (playerDefeated) {
     state.phase = 'gameover';
-  } else if (reachedExit) {
-    state.phase = 'floor_reached';
-  } else if (defeated) {
-    state.phase = 'victory';
+  } else if (reachedExit && stairsUnlocked) {
+    state.phase = state.floor >= state.totalFloors ? 'victory' : 'floor_cleared';
   }
 
   return {

@@ -56,7 +56,7 @@ describe('integration - generated map gameplay', () => {
     // canMove's corner rule wherever such a case is found.
   });
 
-  it('reaches floor_reached when the player steps onto the exit tile', () => {
+  it('reaches floor_cleared when the player steps onto the exit tile after defeating the enemy', () => {
     const state = createInitialState(555);
     // Directly place the player one step away from the exit (bypassing
     // pathing, since only the terminal transition is under test here) and
@@ -81,16 +81,16 @@ describe('integration - generated map gameplay', () => {
       state.enemy.alive = false;
       const result = processTurn(state, { type: 'move', direction: dir as any });
       expect(result.consumed).toBe(true);
-      expect(state.phase).toBe('floor_reached');
+      expect(state.phase).toBe('floor_cleared');
       moved = true;
       break;
     }
     expect(moved).toBe(true);
   });
 
-  it('stops normal turn operations once floor_reached', () => {
+  it('stops normal turn operations once floor_cleared', () => {
     const state = createInitialState(555);
-    state.phase = 'floor_reached';
+    state.phase = 'floor_cleared';
     const before = state.turn;
     const result = processTurn(state, { type: 'wait' });
     expect(result.consumed).toBe(false);
