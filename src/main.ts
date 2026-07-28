@@ -7,18 +7,47 @@ import { GameState } from './game/types';
 
 const TILE_SIZE = 48;
 
+// Sprite sheet layout (shared by player.png and bok_lv1.png):
+// 3 columns (frames) x 4 rows (directions), each cell 24x32 px.
+// Row order: up, right, down, left.
+const SPRITE_FRAME_WIDTH = 24;
+const SPRITE_FRAME_HEIGHT = 32;
+const SPRITE_SCALE = 1.5;
+const FRAMES_PER_ROW = 3;
+const IDLE_COLUMN = 1; // middle frame used as the standing pose
+
+const DIRECTION4_ROW: Record<'N' | 'E' | 'S' | 'W', number> = {
+  N: 0,
+  E: 1,
+  S: 2,
+  W: 3,
+};
+
+function idleFrame(dir4: 'N' | 'E' | 'S' | 'W'): number {
+  return DIRECTION4_ROW[dir4] * FRAMES_PER_ROW + IDLE_COLUMN;
+}
+
 class MainScene extends Phaser.Scene {
   private state!: GameState;
   private terrainGraphics!: Phaser.GameObjects.Graphics;
-  private playerSprite!: Phaser.GameObjects.Rectangle;
-  private playerFacingMark!: Phaser.GameObjects.Triangle;
-  private enemySprite!: Phaser.GameObjects.Rectangle;
-  private enemyFacingMark!: Phaser.GameObjects.Triangle;
+  private playerSprite!: Phaser.GameObjects.Sprite;
+  private enemySprite!: Phaser.GameObjects.Sprite;
   private hudText!: Phaser.GameObjects.Text;
   private messageText!: Phaser.GameObjects.Text;
 
   constructor() {
     super('main');
+  }
+
+  preload(): void {
+    this.load.spritesheet('player', 'assets/sprites/player.png', {
+      frameWidth: SPRITE_FRAME_WIDTH,
+      frameHeight: SPRITE_FRAME_HEIGHT,
+    });
+    this.load.spritesheet('bok_lv1', 'assets/sprites/bok_lv1.png', {
+      frameWidth: SPRITE_FRAME_WIDTH,
+      frameHeight: SPRITE_FRAME_HEIGHT,
+    });
   }
 
   create(): void {
@@ -27,10 +56,10 @@ class MainScene extends Phaser.Scene {
     this.terrainGraphics = this.add.graphics();
     this.drawTerrain();
 
-    this.playerSprite = this.add.rectangle(0, 0, TILE_SIZE - 8, TILE_SIZE - 8, 0x4da6ff);
-    this.playerFacingMark = this.add.triangle(0, 0, 0, 6, -6, -6, 6, -6, 0xffffff);
-    this.enemySprite = this.add.rectangle(0, 0, TILE_SIZE - 8, TILE_SIZE - 8, 0xff5555);
-    this.enemyFacingMark = this.add.triangle(0, 0, 0, 6, -6, -6, 6, -6, 0xffffff);
+    this.playerSprite = this.add.sprite(0, 0, 'player', idleFrame('S'));
+    this.playerSprite.setScale(SPRITE_SCALE);
+    this.enemySprite = this.add.sprite(0, 0, 'bok_lv1', idleFrame('S'));
+    this.enemySprite.setScale(SPRITE_SCALE);
 
     this.hudText = this.add.text(8, 8, '', {
       fontFamily: 'monospace',
@@ -87,19 +116,6 @@ class MainScene extends Phaser.Scene {
     this.refreshView();
   }
 
-  private facingAngle(dir4: 'N' | 'S' | 'E' | 'W'): number {
-    switch (dir4) {
-      case 'N':
-        return -90;
-      case 'S':
-        return 90;
-      case 'E':
-        return 0;
-      case 'W':
-        return 180;
-    }
-  }
-
   private refreshView(): void {
     const { player, enemy } = this.state;
 
@@ -107,17 +123,13 @@ class MainScene extends Phaser.Scene {
     const py = player.pos.y * TILE_SIZE + TILE_SIZE / 2;
     this.playerSprite.setPosition(px, py);
     this.playerSprite.setVisible(player.alive);
-    this.playerFacingMark.setPosition(px, py);
-    this.playerFacingMark.setAngle(this.facingAngle(toDirection4(player.facing)));
-    this.playerFacingMark.setVisible(player.alive);
+    this.playerSprite.setFrame(idleFrame(toDirection4(player.facing)));
 
     const ex = enemy.pos.x * TILE_SIZE + TILE_SIZE / 2;
     const ey = enemy.pos.y * TILE_SIZE + TILE_SIZE / 2;
     this.enemySprite.setPosition(ex, ey);
     this.enemySprite.setVisible(enemy.alive);
-    this.enemyFacingMark.setPosition(ex, ey);
-    this.enemyFacingMark.setAngle(this.facingAngle(toDirection4(enemy.facing)));
-    this.enemyFacingMark.setVisible(enemy.alive);
+    this.enemySprite.setFrame(idleFrame(toDirection4(enemy.facing)));
 
     this.hudText.setText(
       `HP: ${player.hp}/${player.maxHp}   Turn: ${this.state.turn}`,
