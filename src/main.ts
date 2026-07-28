@@ -27,6 +27,15 @@ function idleFrame(dir4: 'N' | 'E' | 'S' | 'W'): number {
   return DIRECTION4_ROW[dir4] * FRAMES_PER_ROW + IDLE_COLUMN;
 }
 
+function walkFrames(dir4: 'N' | 'E' | 'S' | 'W'): number[] {
+  const base = DIRECTION4_ROW[dir4] * FRAMES_PER_ROW;
+  return [base, base + 1, base + 2];
+}
+
+function walkAnimKey(spriteKey: string, dir4: 'N' | 'E' | 'S' | 'W'): string {
+  return `${spriteKey}-walk-${dir4}`;
+}
+
 class MainScene extends Phaser.Scene {
   private state!: GameState;
   private terrainGraphics!: Phaser.GameObjects.Graphics;
@@ -60,6 +69,8 @@ class MainScene extends Phaser.Scene {
     this.playerSprite.setScale(SPRITE_SCALE);
     this.enemySprite = this.add.sprite(0, 0, 'bok_lv1', idleFrame('S'));
     this.enemySprite.setScale(SPRITE_SCALE);
+    this.createWalkAnimations('player');
+    this.createWalkAnimations('bok_lv1');
 
     this.hudText = this.add.text(8, 8, '', {
       fontFamily: 'monospace',
@@ -84,6 +95,17 @@ class MainScene extends Phaser.Scene {
     });
 
     this.refreshView();
+  }
+
+  private createWalkAnimations(spriteKey: string): void {
+    (['N', 'E', 'S', 'W'] as const).forEach((dir4) => {
+      this.anims.create({
+        key: walkAnimKey(spriteKey, dir4),
+        frames: this.anims.generateFrameNumbers(spriteKey, { frames: walkFrames(dir4) }),
+        frameRate: 8,
+        repeat: 0,
+      });
+    });
   }
 
   private drawTerrain(): void {
@@ -112,8 +134,35 @@ class MainScene extends Phaser.Scene {
     const action = actionForKey(key);
     if (!action) return;
 
+    const playerBefore = { ...this.state.player.pos };
+    const enemyBefore = { ...this.state.enemy.pos };
+
     processTurn(this.state, action);
+
+    const playerMoved =
+      this.state.player.pos.x !== playerBefore.x || this.state.player.pos.y !== playerBefore.y;
+    const enemyMoved =
+      this.state.enemy.pos.x !== enemyBefore.x || this.state.enemy.pos.y !== enemyBefore.y;
+
     this.refreshView();
+
+    if (playerMoved) {
+      this.playWalkOnce(this.playerSprite, 'player', toDirection4(this.state.player.facing));
+    }
+    if (enemyMoved) {
+      this.playWalkOnce(this.enemySprite, 'bok_lv1', toDirection4(this.state.enemy.facing));
+    }
+  }
+
+  private playWalkOnce(
+    sprite: Phaser.GameObjects.Sprite,
+    spriteKey: string,
+    dir4: 'N' | 'E' | 'S' | 'W',
+  ): void {
+    sprite.play(walkAnimKey(spriteKey, dir4));
+    sprite.once('animationcomplete', () => {
+      sprite.setFrame(idleFrame(dir4));
+    });
   }
 
   private refreshView(): void {
