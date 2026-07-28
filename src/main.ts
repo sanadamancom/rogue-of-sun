@@ -29,7 +29,8 @@ function idleFrame(dir4: 'N' | 'E' | 'S' | 'W'): number {
 
 function walkFrames(dir4: 'N' | 'E' | 'S' | 'W'): number[] {
   const base = DIRECTION4_ROW[dir4] * FRAMES_PER_ROW;
-  return [base, base + 1, base + 2];
+  // 1 -> 2 -> 3 -> 2 (looping mid-stride pattern), shown while moving.
+  return [base, base + 1, base + 2, base + 1];
 }
 
 function walkAnimKey(spriteKey: string, dir4: 'N' | 'E' | 'S' | 'W'): string {
@@ -94,7 +95,9 @@ class MainScene extends Phaser.Scene {
       this.handleKey(event.key);
     });
 
-    this.refreshView();
+    this.refreshStaticView();
+    this.snapActor(this.playerSprite, this.state.player);
+    this.snapActor(this.enemySprite, this.state.enemy);
   }
 
   private createWalkAnimations(spriteKey: string): void {
@@ -102,8 +105,8 @@ class MainScene extends Phaser.Scene {
       this.anims.create({
         key: walkAnimKey(spriteKey, dir4),
         frames: this.anims.generateFrameNumbers(spriteKey, { frames: walkFrames(dir4) }),
-        frameRate: 8,
-        repeat: 0,
+        frameRate: 10,
+        repeat: -1,
       });
     });
   }
@@ -122,11 +125,15 @@ class MainScene extends Phaser.Scene {
     }
   }
 
+  private readonly MOVE_DURATION = 220;
+
   private handleKey(key: string): void {
     if (this.state.phase !== 'playing') {
       if (key === 'Enter') {
         this.state = createInitialState();
-        this.refreshView();
+        this.refreshStaticView();
+        this.snapActor(this.playerSprite, this.state.player);
+        this.snapActor(this.enemySprite, this.state.enemy);
       }
       return;
     }
@@ -144,41 +151,65 @@ class MainScene extends Phaser.Scene {
     const enemyMoved =
       this.state.enemy.pos.x !== enemyBefore.x || this.state.enemy.pos.y !== enemyBefore.y;
 
-    this.refreshView();
+    this.refreshStaticView();
 
     if (playerMoved) {
-      this.playWalkOnce(this.playerSprite, 'player', toDirection4(this.state.player.facing));
+      this.animateMove(this.playerSprite, 'player', this.state.player, playerBefore);
+    } else {
+      this.snapActor(this.playerSprite, this.state.player);
     }
+
     if (enemyMoved) {
-      this.playWalkOnce(this.enemySprite, 'bok_lv1', toDirection4(this.state.enemy.facing));
+      this.animateMove(this.enemySprite, 'bok_lv1', this.state.enemy, enemyBefore);
+    } else {
+      this.snapActor(this.enemySprite, this.state.enemy);
     }
   }
 
-  private playWalkOnce(
+  /** Immediately places a non-moving actor's sprite at its current tile with an idle frame. */
+  private snapActor(
+    sprite: Phaser.GameObjects.Sprite,
+    actor: GameState['player'],
+  ): void {
+    const x = actor.pos.x * TILE_SIZE + TILE_SIZE / 2;
+    const y = actor.pos.y * TILE_SIZE + TILE_SIZE / 2;
+    sprite.setPosition(x, y);
+    sprite.setVisible(actor.alive);
+    sprite.setFrame(idleFrame(toDirection4(actor.facing)));
+  }
+
+  /** Tweens the sprite from its previous tile to its new tile while looping the walk animation. */
+  private animateMove(
     sprite: Phaser.GameObjects.Sprite,
     spriteKey: string,
-    dir4: 'N' | 'E' | 'S' | 'W',
+    actor: GameState['player'],
+    fromTile: { x: number; y: number },
   ): void {
+    const dir4 = toDirection4(actor.facing);
+    const fromX = fromTile.x * TILE_SIZE + TILE_SIZE / 2;
+    const fromY = fromTile.y * TILE_SIZE + TILE_SIZE / 2;
+    const toX = actor.pos.x * TILE_SIZE + TILE_SIZE / 2;
+    const toY = actor.pos.y * TILE_SIZE + TILE_SIZE / 2;
+
+    sprite.setPosition(fromX, fromY);
+    sprite.setVisible(true);
     sprite.play(walkAnimKey(spriteKey, dir4));
-    sprite.once('animationcomplete', () => {
-      sprite.setFrame(idleFrame(dir4));
+
+    this.tweens.add({
+      targets: sprite,
+      x: toX,
+      y: toY,
+      duration: this.MOVE_DURATION,
+      onComplete: () => {
+        sprite.anims.stop();
+        sprite.setFrame(idleFrame(dir4));
+        sprite.setVisible(actor.alive);
+      },
     });
   }
 
-  private refreshView(): void {
-    const { player, enemy } = this.state;
-
-    const px = player.pos.x * TILE_SIZE + TILE_SIZE / 2;
-    const py = player.pos.y * TILE_SIZE + TILE_SIZE / 2;
-    this.playerSprite.setPosition(px, py);
-    this.playerSprite.setVisible(player.alive);
-    this.playerSprite.setFrame(idleFrame(toDirection4(player.facing)));
-
-    const ex = enemy.pos.x * TILE_SIZE + TILE_SIZE / 2;
-    const ey = enemy.pos.y * TILE_SIZE + TILE_SIZE / 2;
-    this.enemySprite.setPosition(ex, ey);
-    this.enemySprite.setVisible(enemy.alive);
-    this.enemySprite.setFrame(idleFrame(toDirection4(enemy.facing)));
+  private refreshStaticView(): void {
+    const { player } = this.state;
 
     this.hudText.setText(
       `HP: ${player.hp}/${player.maxHp}   Turn: ${this.state.turn}`,
