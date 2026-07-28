@@ -1,6 +1,28 @@
 import { describe, expect, it } from 'vitest';
-import { canMove, createFixedMap } from '../map';
-import { DIRECTION_VECTORS, ALL_DIRECTIONS } from '../types';
+import { canMove } from '../map';
+import { ALL_DIRECTIONS, DIRECTION_VECTORS, GameMap, Tile } from '../types';
+
+// Small fixed layout retained only for these canMove/wall-adjacency unit
+// tests; production maps now come from mapgen.ts (see mapgen*.test.ts).
+const TEST_LAYOUT: string[] = [
+  '##########',
+  '#........#',
+  '#..####..#',
+  '#..#..#..#',
+  '#..#..#..#',
+  '#..####..#',
+  '#........#',
+  '##########',
+];
+
+function createFixedMap(): GameMap {
+  const height = TEST_LAYOUT.length;
+  const width = TEST_LAYOUT[0].length;
+  const terrain: Tile[][] = TEST_LAYOUT.map((row) =>
+    row.split('').map((ch) => (ch === '#' ? 'wall' : 'floor')),
+  );
+  return { width, height, terrain, rooms: [], exit: { x: 1, y: 1 } };
+}
 
 describe('map movement', () => {
   it('produces the correct movement vector for all 8 directions', () => {

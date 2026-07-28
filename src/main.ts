@@ -1,11 +1,15 @@
 import Phaser from 'phaser';
 import { toDirection4 } from './game/direction';
 import { actionForKey } from './game/input';
-import { createInitialState } from './game/state';
+import { createInitialState, randomSeed } from './game/state';
 import { processTurn } from './game/turn';
 import { GameState } from './game/types';
 
 const TILE_SIZE = 48;
+// Fixed viewport smaller than the full 40x30 map so the camera can follow
+// the player instead of shrinking the whole map into view.
+const VIEWPORT_TILES_WIDE = 16;
+const VIEWPORT_TILES_HIGH = 12;
 
 // Sprite sheet layout (shared by player.png and bok_lv1.png):
 // 3 columns (frames) x 4 rows (directions), each cell 24x32 px.
@@ -40,6 +44,7 @@ function walkAnimKey(spriteKey: string, dir4: 'N' | 'E' | 'S' | 'W'): string {
 class MainScene extends Phaser.Scene {
   private state!: GameState;
   private terrainGraphics!: Phaser.GameObjects.Graphics;
+  private exitGraphics!: Phaser.GameObjects.Graphics;
   private playerSprite!: Phaser.GameObjects.Sprite;
   private enemySprite!: Phaser.GameObjects.Sprite;
   private hudText!: Phaser.GameObjects.Text;
@@ -61,10 +66,16 @@ class MainScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.state = createInitialState();
+    this.state = createInitialState(randomSeed());
 
     this.terrainGraphics = this.add.graphics();
+    this.exitGraphics = this.add.graphics();
     this.drawTerrain();
+    this.drawExit();
+
+    const mapPixelWidth = this.state.map.width * TILE_SIZE;
+    const mapPixelHeight = this.state.map.height * TILE_SIZE;
+    this.cameras.main.setBounds(0, 0, mapPixelWidth, mapPixelHeight);
 
     this.playerSprite = this.add.sprite(0, 0, 'player', idleFrame('S'));
     this.playerSprite.setScale(SPRITE_SCALE);
@@ -73,11 +84,13 @@ class MainScene extends Phaser.Scene {
     this.createWalkAnimations('player');
     this.createWalkAnimations('bok_lv1');
 
-    this.hudText = this.add.text(8, 8, '', {
-      fontFamily: 'monospace',
-      fontSize: '16px',
-      color: '#ffffff',
-    });
+    this.hudText = this.add
+      .text(8, 8, '', {
+        fontFamily: 'monospace',
+        fontSize: '16px',
+        color: '#ffffff',
+      })
+      .setScrollFactor(0);
 
     this.messageText = this.add
       .text(this.scale.width / 2, this.scale.height / 2, '', {
@@ -89,11 +102,14 @@ class MainScene extends Phaser.Scene {
         align: 'center',
       })
       .setOrigin(0.5)
+      .setScrollFactor(0)
       .setVisible(false);
 
     this.input.keyboard!.on('keydown', (event: KeyboardEvent) => {
       this.handleKey(event.key);
     });
+
+    this.cameras.main.startFollow(this.playerSprite, true, 0.15, 0.15);
 
     this.refreshStaticView();
     this.snapActor(this.playerSprite, this.state.player);
@@ -125,16 +141,27 @@ class MainScene extends Phaser.Scene {
     }
   }
 
+  private drawExit(): void {
+    const { exit } = this.state;
+    this.exitGraphics.clear();
+    this.exitGraphics.fillStyle(0xffd54a, 1);
+    this.exitGraphics.fillRect(
+      exit.x * TILE_SIZE + TILE_SIZE * 0.15,
+      exit.y * TILE_SIZE + TILE_SIZE * 0.15,
+      TILE_SIZE * 0.7,
+      TILE_SIZE * 0.7,
+    );
+  }
+
   private readonly MOVE_DURATION = 220;
   private activeAnimations = 0;
 
   private handleKey(key: string): void {
     if (this.state.phase !== 'playing') {
       if (key === 'Enter') {
-        this.state = createInitialState();
-        this.refreshStaticView();
-        this.snapActor(this.playerSprite, this.state.player);
-        this.snapActor(this.enemySprite, this.state.enemy);
+        this.restart(this.state.seed);
+      } else if (key === 'n' || key === 'N') {
+        this.restart(randomSeed());
       }
       return;
     }
@@ -170,6 +197,22 @@ class MainScene extends Phaser.Scene {
     } else {
       this.snapActor(this.enemySprite, this.state.enemy);
     }
+  }
+
+  /** Rebuilds the whole scene state for `seed` (same seed = same map/placement; new seed = new floor). */
+  private restart(seed: number): void {
+    this.state = createInitialState(seed);
+    this.drawTerrain();
+    this.drawExit();
+    this.cameras.main.setBounds(
+      0,
+      0,
+      this.state.map.width * TILE_SIZE,
+      this.state.map.height * TILE_SIZE,
+    );
+    this.refreshStaticView();
+    this.snapActor(this.playerSprite, this.state.player);
+    this.snapActor(this.enemySprite, this.state.enemy);
   }
 
   /** Snaps a non-moving actor's sprite to its tile; it keeps idle-stepping in place. */
@@ -235,14 +278,17 @@ class MainScene extends Phaser.Scene {
     const { player } = this.state;
 
     this.hudText.setText(
-      `HP: ${player.hp}/${player.maxHp}   Turn: ${this.state.turn}`,
+      `HP: ${player.hp}/${player.maxHp}   Turn: ${this.state.turn}   Seed: ${this.state.seed}`,
     );
 
     if (this.state.phase === 'gameover') {
-      this.messageText.setText('GAME OVER\nPress Enter to restart');
+      this.messageText.setText('GAME OVER\nEnter: same seed   N: new seed');
       this.messageText.setVisible(true);
     } else if (this.state.phase === 'victory') {
-      this.messageText.setText('VICTORY\nPress Enter to restart');
+      this.messageText.setText('ENEMY DEFEATED\nEnter: same seed   N: new seed');
+      this.messageText.setVisible(true);
+    } else if (this.state.phase === 'floor_reached') {
+      this.messageText.setText('FLOOR REACHED\nEnter: same seed   N: new seed');
       this.messageText.setVisible(true);
     } else {
       this.messageText.setVisible(false);
@@ -250,9 +296,8 @@ class MainScene extends Phaser.Scene {
   }
 }
 
-const state = createInitialState();
-const width = state.map.width * TILE_SIZE;
-const height = state.map.height * TILE_SIZE;
+const width = VIEWPORT_TILES_WIDE * TILE_SIZE;
+const height = VIEWPORT_TILES_HIGH * TILE_SIZE;
 
 new Phaser.Game({
   type: Phaser.AUTO,

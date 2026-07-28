@@ -1,0 +1,102 @@
+# Phase 02: ランダム1フロア生成
+
+## フェーズの目的
+Phase 01のターン制移動・近接戦闘を維持したまま、部屋と通路で構成された、シード再現可能なランダム1フロアを実装する。今回はマップ生成方式とカメラ追従の成立確認に限定する。
+
+## 開始時のリポジトリ状態
+- リポジトリ: https://github.com/sanadamancom/rogue-of-sun
+- ブランチ: main
+- 開始時HEAD: `706fe001b39182f98f26a137c684999e01f7578b`(expected_base_headと一致)
+- local main / origin/main: 一致
+- working tree: clean
+- Phase 01既存テスト: 4ファイル20件全pass(開始時点で失敗なし)
+
+## 採用した生成方式
+部屋(重ならない長方形)+ 通路(1マス幅、水平/垂直区間のみ)方式。BSP・洞窟・WFCなど他方式は採用していない(out_of_scopeに準拠)。
+
+- シード付き疑似乱数生成器: Mulberry32(32bit整数シードから決定論的な浮動小数列を生成)
+- 部屋配置: ランダムな位置・サイズを試行し、既存部屋と重ならないものだけ採用(最大試行回数あり)
+- 連結: 各部屋の中心点をノードとしたグラフに対しPrim法で最小全域木を構築し、そのエッジに沿って通路を掘る
+- 追加接続: MSTに含まれないエッジのうち距離が近いものから1〜2本を追加し、環状経路を作る
+- 生成失敗時の扱い: 部屋数が目標最小値に届かない場合は同一シードから内部試行カウンタをシードに混合して決定論的に再試行し、上限(50回)に達した場合は明示的な生成失敗として扱う(`generateMap`が`{ ok: false }`を返す)
+
+## マップ生成手順
+1. `createRng(seed)`でPRNGを生成
+2. 目標部屋数(6〜9)を決定し、各部屋のサイズ(幅4〜9、高さ4〜7)と位置をランダムに試行、重なり判定に合格したものだけ採用
+3. 全部屋を'wall'で埋めた地形配列に対して'floor'として彫る
+4. 部屋中心点間のMSTを構築し、通路を彫る(水平→垂直、または垂直→水平のいずれかをランダムに選択、斜めなし)
+5. MST外のエッジから1〜2本を追加接続として彫る
+6. 開始地点(最初の部屋の中心)からBFSで全床マスへの距離を計算し、最も遠い部屋を出口部屋として選定
+7. 開始地点・出口と重ならず、開始地点に隣接しない到達可能な床マスをランダムに1つ選び敵位置とする
+
+## 実装した内容
+- `src/game/mapgen.ts`(新規): Phaser非依存の純粋なマップ生成モジュール。PRNG、部屋生成、通路生成、MST接続、配置(`choosePlacement`)を含む
+- `src/game/types.ts`: `GameMap`に`rooms`・`exit`を追加、`GamePhase`に`floor_reached`を追加、`GameState`に`seed`・`exit`を追加
+- `src/game/map.ts`: 固定マップ(`createFixedMap`)を削除。`canMove`等の判定ロジックは維持
+- `src/game/state.ts`: `createInitialState(seed)`へ変更(シード必須引数)、`randomSeed()`を追加
+- `src/game/turn.ts`: プレイヤーが出口マスに到達した場合、`phase`を`floor_reached`へ遷移させる処理を追加。以後`processTurn`は通常入力を受け付けない(`state.phase !== 'playing'`のガードは既存のまま機能)
+- `src/main.ts`:
+  - 初期化時にランダムシードで`createInitialState`を呼び出す
+  - カメラを`VIEWPORT_TILES_WIDE x VIEWPORT_TILES_HIGH`(16x12)の固定ビューポートにし、`setBounds`+`startFollow`でプレイヤーへ追従させる(マップ全体の縮小表示はしない)
+  - 出口タイルを黄色の四角で描画
+  - HUDへ現在のシードを表示
+  - 終了状態(`gameover`/`victory`/`floor_reached`)でEnter=同一シード再開、N/n=新規シードで再開するよう`handleKey`を変更(Rキーは未使用のまま)
+
+## 主要な仕様判断
+- 出口部屋の選定は「開始地点からのBFS距離が最大の部屋」とし、必ず開始地点と異なる部屋になる
+- 敵配置は「開始地点・出口と別マスかつ開始地点に非隣接」という制約を満たす床マスからランダムに選択。制約を満たす候補がない極端なケースのみ出口マスへのフォールバックとしたが、実際のマップサイズ・部屋数では発生していない
+- 生成失敗時の再試行は、外部状態(時刻・Math.random)を使わず、シードと試行回数を合成した値で新たなPRMを作ることで決定論性を保った
+- 敵の追跡・戦闘ロジック(Phase 01のシンプル追跡)はそのまま維持し、置き換えは行っていない(著しい不具合が確認されなかったため)
+
+## 追加・変更したファイル
+- 追加: `src/game/mapgen.ts`
+- 追加: `src/game/__tests__/mapgen.test.ts`
+- 追加: `src/game/__tests__/mapgen-connectivity.test.ts`
+- 追加: `src/game/__tests__/placement.test.ts`
+- 追加: `src/game/__tests__/integration.test.ts`
+- 追加: `src/game/__tests__/seed-restart.test.ts`
+- 追加: `docs/history/phase-02-random-map.md`(本ファイル)
+- 変更: `src/game/types.ts`, `src/game/map.ts`, `src/game/state.ts`, `src/game/turn.ts`, `src/main.ts`
+- 変更(既存テストの構造対応): `src/game/__tests__/map.test.ts`, `src/game/__tests__/turn.test.ts`, `src/game/__tests__/state.test.ts`
+
+## 自動テスト結果
+- テストファイル数: 9
+- テスト件数: 39件、全pass
+- 内訳:
+  - `mapgen.test.ts`(決定論的生成): 2件
+  - `mapgen-connectivity.test.ts`(部屋・連結性、100シード検査含む): 6件
+  - `placement.test.ts`(配置制約、100シード検査): 2件
+  - `integration.test.ts`(生成マップ上の移動・出口到達・戦闘維持): 6件
+  - `seed-restart.test.ts`(シード再現性): 3件
+  - 既存(`turn.test.ts` 9件、`map.test.ts` 6件、`input.test.ts` 4件、`state.test.ts` 1件): 維持
+
+## 手動確認結果
+実ブラウザでの確認は行っていない(未確認)。以下は自動テストのみで検証済み:
+- マップ生成の決定論性・連結性・部屋数の範囲
+- 開始地点・出口・敵の配置制約
+- 出口到達によるfloor_reached遷移とその後の入力停止
+- 既存の戦闘・撃破ロジックの維持
+
+以下は未確認のまま:
+- カメラ追従の見た目上の自然さ、画面端での崩れの有無
+- 実際のキー入力(N/Enter)による画面上の再描画
+- ブラウザコンソールのエラー有無
+- スプライト・アニメーション表示
+
+## 実装しなかった範囲
+- 複数フロア、階段による次フロア生成
+- 罠・宝箱・鍵
+- 複数敵、敵レベルアップ、遠距離攻撃
+- アイテム・インベントリ・武器
+- 視界制限・未探索領域・ミニマップ
+- 任意シード入力UI
+- Rキーの機能割り当て
+
+## 判明した問題・制約
+- ビルド成果物(`.js`, `.tsbuildinfo`)が`tsc -b`実行時に`src`配下へ生成される既存のtsconfig構成のため、build確認後に手動削除する対応を取った。commit対象からは除外済み
+- 実ブラウザでの見た目・操作感は未検証であり、カメラ追従やUI表示の微調整が必要になる可能性がある
+
+## 次フェーズ以降の候補
+- 実ブラウザでの手動確認(カメラ追従、シード表示、キー操作)
+- 複数フロア・階段の追加(Phase 03候補、out_of_scope解除が前提)
+- ビルド成果物がsrc配下に出力されない設定への見直し(Phase外の改善のため今回は対応せず)

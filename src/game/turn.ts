@@ -149,11 +149,14 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
   }
 
   const playerDefeated = !state.player.alive;
+  const reachedExit = state.player.pos.x === state.exit.x && state.player.pos.y === state.exit.y;
 
   state.turn += 1;
 
   if (playerDefeated) {
     state.phase = 'gameover';
+  } else if (reachedExit) {
+    state.phase = 'floor_reached';
   } else if (defeated) {
     state.phase = 'victory';
   }

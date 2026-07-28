@@ -37,11 +37,24 @@ export const ALL_DIRECTIONS: Direction8[] = [
 
 export type Tile = 'floor' | 'wall';
 
+// Fixture values placed on top of terrain. Only 'exit' is used in Phase 02;
+// 'trap' and 'chest' are reserved for future phases and are not generated.
+export type Fixture = 'exit' | 'trap' | 'chest';
+
+export interface Room {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface GameMap {
   width: number;
   height: number;
   // terrain[y][x]
   terrain: Tile[][];
+  rooms: Room[];
+  exit: Vec2;
 }
 
 export interface Actor {
@@ -53,7 +66,7 @@ export interface Actor {
   alive: boolean;
 }
 
-export type GamePhase = 'playing' | 'gameover' | 'victory';
+export type GamePhase = 'playing' | 'gameover' | 'victory' | 'floor_reached';
 
 export interface GameState {
   map: GameMap;
@@ -61,6 +74,8 @@ export interface GameState {
   enemy: Actor;
   turn: number;
   phase: GamePhase;
+  seed: number;
+  exit: Vec2;
 }
 
 export type PlayerAction =

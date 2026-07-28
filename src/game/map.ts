@@ -1,26 +1,4 @@
-import { DIRECTION_VECTORS, Direction8, GameMap, Tile, Vec2 } from './types';
-
-// Fixed rectangular map for Phase 01.
-// '.' = floor, '#' = wall
-const MAP_LAYOUT: string[] = [
-  '##########',
-  '#........#',
-  '#..####..#',
-  '#..#..#..#',
-  '#..#..#..#',
-  '#..####..#',
-  '#........#',
-  '##########',
-];
-
-export function createFixedMap(): GameMap {
-  const height = MAP_LAYOUT.length;
-  const width = MAP_LAYOUT[0].length;
-  const terrain: Tile[][] = MAP_LAYOUT.map((row) =>
-    row.split('').map((ch) => (ch === '#' ? 'wall' : 'floor')),
-  );
-  return { width, height, terrain };
-}
+import { DIRECTION_VECTORS, Direction8, GameMap, Vec2 } from './types';
 
 export function isInBounds(map: GameMap, pos: Vec2): boolean {
   return pos.x >= 0 && pos.y >= 0 && pos.x < map.width && pos.y < map.height;

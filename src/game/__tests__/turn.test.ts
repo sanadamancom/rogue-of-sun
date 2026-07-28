@@ -1,15 +1,38 @@
 import { describe, expect, it } from 'vitest';
-import { createFixedMap } from '../map';
 import { createInitialActor, processTurn } from '../turn';
-import { GameState } from '../types';
+import { GameMap, GameState, Tile } from '../types';
+
+// Small fixed layout retained only for these turn-processing unit tests;
+// production maps now come from mapgen.ts.
+const TEST_LAYOUT: string[] = [
+  '##########',
+  '#........#',
+  '#..####..#',
+  '#..#..#..#',
+  '#..#..#..#',
+  '#..####..#',
+  '#........#',
+  '##########',
+];
+
+function testMap(): GameMap {
+  const height = TEST_LAYOUT.length;
+  const width = TEST_LAYOUT[0].length;
+  const terrain: Tile[][] = TEST_LAYOUT.map((row) =>
+    row.split('').map((ch) => (ch === '#' ? 'wall' : 'floor')),
+  );
+  return { width, height, terrain, rooms: [], exit: { x: 99, y: 99 } };
+}
 
 function freshState(): GameState {
   return {
-    map: createFixedMap(),
+    map: testMap(),
     player: createInitialActor({ x: 2, y: 1 }, 3, 1),
     enemy: createInitialActor({ x: 7, y: 6 }, 2, 1),
     turn: 0,
     phase: 'playing',
+    seed: 1,
+    exit: { x: 99, y: 99 },
   };
 }
 
