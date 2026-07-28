@@ -78,23 +78,146 @@ function carveRoom(terrain: Tile[][], room: Room): void {
   }
 }
 
-/** Carves a 1-wide corridor between two points using one horizontal and one vertical segment (no diagonals). */
-function carveCorridor(terrain: Tile[][], from: Vec2, to: Vec2, horizontalFirst: boolean): void {
-  const carveH = (y: number, x1: number, x2: number) => {
-    const [lo, hi] = x1 <= x2 ? [x1, x2] : [x2, x1];
-    for (let x = lo; x <= hi; x++) terrain[y][x] = 'floor';
-  };
-  const carveV = (x: number, y1: number, y2: number) => {
-    const [lo, hi] = y1 <= y2 ? [y1, y2] : [y2, y1];
-    for (let y = lo; y <= hi; y++) terrain[y][x] = 'floor';
+function inAnyRoom(rooms: Room[], x: number, y: number): boolean {
+  return rooms.some((r) => x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height);
+}
+
+/** Builds the ordered tile sequence for an L-shaped corridor between two points (inclusive of endpoints). */
+function buildLPath(from: Vec2, to: Vec2, horizontalFirst: boolean): Vec2[] {
+  const path: Vec2[] = [];
+  const pushRange = (fixed: number, a: number, b: number, vertical: boolean) => {
+    const [lo, hi] = a <= b ? [a, b] : [b, a];
+    for (let v = lo; v <= hi; v++) {
+      path.push(vertical ? { x: fixed, y: v } : { x: v, y: fixed });
+    }
   };
 
   if (horizontalFirst) {
-    carveH(from.y, from.x, to.x);
-    carveV(to.x, from.y, to.y);
+    pushRange(from.y, from.x, to.x, false);
+    pushRange(to.x, from.y, to.y, true);
   } else {
-    carveV(from.x, from.y, to.y);
-    carveH(to.y, from.x, to.x);
+    pushRange(from.x, from.y, to.y, true);
+    pushRange(to.y, from.x, to.x, false);
+  }
+
+  // De-duplicate the shared elbow tile while preserving order.
+  const seen = new Set<string>();
+  return path.filter((p) => {
+    const k = `${p.x},${p.y}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+}
+
+/**
+ * Checks whether carving `path` would create unwanted side-by-side contact
+ * with a *different*, already-carved corridor. Room floor is always an
+ * allowed neighbor (expected near entrances). A tile that already coincides
+ * with existing floor is treated as an intentional crossing/junction and is
+ * not checked for adjacency conflicts. Neighbors that are part of this same
+ * path (including the immediately preceding/following tile) are exempt.
+ */
+function isRouteValid(terrain: Tile[][], rooms: Room[], path: Vec2[], width: number, height: number): boolean {
+  const pathSet = new Set(path.map((p) => `${p.x},${p.y}`));
+
+  for (const tile of path) {
+    if (inAnyRoom(rooms, tile.x, tile.y)) continue; // room interior, never a new carve target
+    if (terrain[tile.y][tile.x] === 'floor') continue; // existing floor here: intentional crossing/junction
+
+    const neighbors: Vec2[] = [
+      { x: tile.x + 1, y: tile.y },
+      { x: tile.x - 1, y: tile.y },
+      { x: tile.x, y: tile.y + 1 },
+      { x: tile.x, y: tile.y - 1 },
+    ];
+
+    for (const n of neighbors) {
+      if (n.x < 0 || n.y < 0 || n.x >= width || n.y >= height) continue;
+      if (inAnyRoom(rooms, n.x, n.y)) continue; // entrance-adjacent contact is expected
+      if (pathSet.has(`${n.x},${n.y}`)) continue; // this corridor's own tile (bend, prev/next)
+      if (terrain[n.y][n.x] === 'floor') return false; // side-by-side contact with a different corridor
+    }
+  }
+
+  return true;
+}
+
+/** Small set of alternate connection points inside a room, used when the room-center route is blocked. */
+function connectionCandidates(room: Room): Vec2[] {
+  const center = roomCenter(room);
+  const points: Vec2[] = [center];
+  const offsets: [number, number][] = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ];
+  for (const [dx, dy] of offsets) {
+    const x = center.x + dx;
+    const y = center.y + dy;
+    if (x >= room.x && x < room.x + room.width && y >= room.y && y < room.y + room.height) {
+      points.push({ x, y });
+    }
+  }
+  return points;
+}
+
+/**
+ * Finds a corridor path between two rooms that doesn't run alongside an
+ * existing, different corridor. Tries both L-shape orientations from the
+ * room centers first; if neither is valid, tries a bounded set of alternate
+ * connection points within each room. Returns null (a deterministic,
+ * bounded "no route found" result) rather than forcing an unconditional
+ * carve or deleting floor after the fact.
+ */
+function findValidCorridorPath(
+  terrain: Tile[][],
+  rooms: Room[],
+  roomA: Room,
+  roomB: Room,
+  rng: () => number,
+  width: number,
+  height: number,
+): Vec2[] | null {
+  const primaryFrom = roomCenter(roomA);
+  const primaryTo = roomCenter(roomB);
+  const primaryOrder: boolean[] = rng() < 0.5 ? [true, false] : [false, true];
+
+  const tryOrientations = (from: Vec2, to: Vec2, orientations: boolean[]): Vec2[] | null => {
+    for (const horizontalFirst of orientations) {
+      const path = buildLPath(from, to, horizontalFirst);
+      if (isRouteValid(terrain, rooms, path, width, height)) return path;
+    }
+    return null;
+  };
+
+  const primary = tryOrientations(primaryFrom, primaryTo, primaryOrder);
+  if (primary) return primary;
+
+  // Bounded fallback: try a small set of alternate entry/exit points within
+  // each room (deterministic given the seeded rng's already-consumed state).
+  const candidatesA = connectionCandidates(roomA);
+  const candidatesB = connectionCandidates(roomB);
+  let attempts = 0;
+  const maxAttempts = 24;
+
+  for (const a of candidatesA) {
+    for (const b of candidatesB) {
+      if (a.x === primaryFrom.x && a.y === primaryFrom.y && b.x === primaryTo.x && b.y === primaryTo.y) continue;
+      if (attempts >= maxAttempts) return null;
+      attempts += 1;
+      const found = tryOrientations(a, b, [true, false]);
+      if (found) return found;
+    }
+  }
+
+  return null;
+}
+
+function carvePath(terrain: Tile[][], path: Vec2[]): void {
+  for (const tile of path) {
+    terrain[tile.y][tile.x] = 'floor';
   }
 }
 
@@ -144,6 +267,8 @@ export interface MapGenResult {
   ok: boolean;
   map?: GameMap;
   roomCount?: number;
+  /** True only when this attempt failed because a corridor route could not be found without unwanted contact. */
+  corridorRouteFailure?: boolean;
 }
 
 function tryGenerateOnce(rng: () => number): MapGenResult {
@@ -164,8 +289,11 @@ function tryGenerateOnce(rng: () => number): MapGenResult {
   const mstEdges = minimumSpanningTree(centers);
 
   for (const [a, b] of mstEdges) {
-    const horizontalFirst = rng() < 0.5;
-    carveCorridor(terrain, centers[a], centers[b], horizontalFirst);
+    const path = findValidCorridorPath(terrain, rooms, rooms[a], rooms[b], rng, p.width, p.height);
+    if (!path) {
+      return { ok: false, roomCount: rooms.length, corridorRouteFailure: true };
+    }
+    carvePath(terrain, path);
   }
 
   // Extra connections to introduce loops: pick from edges not already in the MST.
@@ -180,8 +308,11 @@ function tryGenerateOnce(rng: () => number): MapGenResult {
   );
   for (let i = 0; i < extraCount; i++) {
     const edge = remainingEdges[i];
-    const horizontalFirst = rng() < 0.5;
-    carveCorridor(terrain, centers[edge.a], centers[edge.b], horizontalFirst);
+    const path = findValidCorridorPath(terrain, rooms, rooms[edge.a], rooms[edge.b], rng, p.width, p.height);
+    // Extra connections are optional loops, not required for connectivity;
+    // skip silently (no unconditional carve, no floor deletion) if no
+    // contact-free route is found rather than failing the whole attempt.
+    if (path) carvePath(terrain, path);
   }
 
   const exit = roomCenter(rooms[rooms.length - 1]);
