@@ -105,7 +105,7 @@ class MainScene extends Phaser.Scene {
       this.anims.create({
         key: walkAnimKey(spriteKey, dir4),
         frames: this.anims.generateFrameNumbers(spriteKey, { frames: walkFrames(dir4) }),
-        frameRate: 10,
+        frameRate: 4,
         repeat: -1,
       });
     });
@@ -126,6 +126,7 @@ class MainScene extends Phaser.Scene {
   }
 
   private readonly MOVE_DURATION = 220;
+  private activeAnimations = 0;
 
   private handleKey(key: string): void {
     if (this.state.phase !== 'playing') {
@@ -140,6 +141,11 @@ class MainScene extends Phaser.Scene {
 
     const action = actionForKey(key);
     if (!action) return;
+
+    // While a move tween is in flight, ignore further input (including OS
+    // key-repeat from a held key) so overlapping tweens can't make a sprite
+    // appear to skip through tiles/walls.
+    if (this.activeAnimations > 0) return;
 
     const playerBefore = { ...this.state.player.pos };
     const enemyBefore = { ...this.state.enemy.pos };
@@ -212,6 +218,7 @@ class MainScene extends Phaser.Scene {
     sprite.setVisible(true);
     this.ensureWalking(sprite, spriteKey, dir4);
 
+    this.activeAnimations += 1;
     this.tweens.add({
       targets: sprite,
       x: toX,
@@ -219,6 +226,7 @@ class MainScene extends Phaser.Scene {
       duration: this.MOVE_DURATION,
       onComplete: () => {
         sprite.setVisible(actor.alive);
+        this.activeAnimations -= 1;
       },
     });
   }
