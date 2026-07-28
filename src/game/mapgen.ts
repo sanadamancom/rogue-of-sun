@@ -1,19 +1,34 @@
 import { GameMap, Room, Tile, Vec2 } from './types';
 
-// Pure, deterministic map generation. This module has no rendering
-// dependency (no Phaser import) and never reads Date/Math.random state
-// implicitly: all randomness flows from the seed passed in.
+// Section-based, deterministic dungeon generation. This module has no
+// rendering dependency and never reads Date/Math.random state implicitly:
+// all randomness flows from the seed passed in.
+//
+// Design reference: the section-first partitioning idea (split the map into
+// a grid of sections, place at most one room per section, connect only
+// orthogonally-adjacent sections, route corridors through section-local
+// border points) is inspired by the general structure described in
+// "いい感じにランダムで、いい感じに恣意的なランダムダンジョンを生成する"
+// (https://qiita.com/kyooooooooma/items/a8ee1157b89b7f744098) and the
+// accompanying sample repository RandomDungeonWithBluePrint
+// (https://github.com/kyoma0220/RandomDungeonWithBluePrint). No code from
+// either source was copied or ported; this file is an independent
+// TypeScript implementation built around rogue-of-sun's own types, tests,
+// and gameplay rules.
 
 export const MAP_GEN_PARAMS = {
   width: 40,
   height: 30,
-  targetRoomCount: { min: 6, max: 9 },
-  roomInteriorSize: { minWidth: 4, maxWidth: 9, minHeight: 4, maxHeight: 7 },
-  corridorWidth: 1,
+  outerWall: 1,
+  sectionColumns: 3,
+  sectionRows: 3,
+  roomCount: { min: 6, max: 9 },
+  roomWidth: { min: 4, max: 9 },
+  roomHeight: { min: 4, max: 7 },
+  sectionMargin: 1, // buffer kept between a room and its section's border
   extraConnections: { min: 1, max: 2 },
-  roomMargin: 1,
-  maxPlacementAttempts: 500,
-  maxGenerationAttempts: 50,
+  maxGenerationAttempts: 50, // whole-map retries (new internal attempt number, same seed)
+  maxConnectionAttempts: 20, // bounded alternate border points per connection
 } as const;
 
 /** Mulberry32 seeded PRNG: same seed + calls -> same sequence, always. */
@@ -32,64 +47,262 @@ function randInt(rng: () => number, min: number, max: number): number {
   return Math.floor(rng() * (max - min + 1)) + min;
 }
 
-function roomsOverlap(a: Room, b: Room, margin: number): boolean {
-  return (
-    a.x - margin < b.x + b.width &&
-    a.x + a.width + margin > b.x &&
-    a.y - margin < b.y + b.height &&
-    a.y + a.height + margin > b.y
-  );
+function shuffle<T>(items: T[], rng: () => number): T[] {
+  const copy = items.slice();
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
 }
 
-function generateRooms(rng: () => number): Room[] {
+// ---------------------------------------------------------------------
+// Section partitioning
+// ---------------------------------------------------------------------
+
+export interface Section {
+  id: number;
+  col: number;
+  row: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Splits `total` into `parts` sizes as evenly as possible, with any remainder assigned to the earliest parts. */
+function partitionSizes(total: number, parts: number): number[] {
+  const base = Math.floor(total / parts);
+  const remainder = total % parts;
+  const sizes: number[] = [];
+  for (let i = 0; i < parts; i++) {
+    sizes.push(base + (i < remainder ? 1 : 0));
+  }
+  return sizes;
+}
+
+/** Deterministically divides the interior (inside the outer wall) into a sectionColumns x sectionRows grid. */
+function buildSections(): Section[] {
   const p = MAP_GEN_PARAMS;
-  const targetCount = randInt(rng, p.targetRoomCount.min, p.targetRoomCount.max);
-  const rooms: Room[] = [];
+  const interiorX = p.outerWall;
+  const interiorY = p.outerWall;
+  const interiorWidth = p.width - p.outerWall * 2;
+  const interiorHeight = p.height - p.outerWall * 2;
 
-  for (let i = 0; i < p.maxPlacementAttempts && rooms.length < targetCount; i++) {
-    const width = randInt(rng, p.roomInteriorSize.minWidth, p.roomInteriorSize.maxWidth);
-    const height = randInt(rng, p.roomInteriorSize.minHeight, p.roomInteriorSize.maxHeight);
-    // Leave 1-tile wall border around the whole map.
-    const x = randInt(rng, 1, p.width - width - 1);
-    const y = randInt(rng, 1, p.height - height - 1);
-    const candidate: Room = { x, y, width, height };
+  const colWidths = partitionSizes(interiorWidth, p.sectionColumns);
+  const rowHeights = partitionSizes(interiorHeight, p.sectionRows);
 
-    const overlaps = rooms.some((r) => roomsOverlap(candidate, r, p.roomMargin));
-    if (!overlaps) {
-      rooms.push(candidate);
+  const colOffsets: number[] = [interiorX];
+  for (let i = 0; i < colWidths.length; i++) colOffsets.push(colOffsets[i] + colWidths[i]);
+  const rowOffsets: number[] = [interiorY];
+  for (let i = 0; i < rowHeights.length; i++) rowOffsets.push(rowOffsets[i] + rowHeights[i]);
+
+  const sections: Section[] = [];
+  for (let row = 0; row < p.sectionRows; row++) {
+    for (let col = 0; col < p.sectionColumns; col++) {
+      sections.push({
+        id: row * p.sectionColumns + col,
+        col,
+        row,
+        x: colOffsets[col],
+        y: rowOffsets[row],
+        width: colWidths[col],
+        height: rowHeights[row],
+      });
+    }
+  }
+  return sections;
+}
+
+function sectionAt(sections: Section[], col: number, row: number): Section | undefined {
+  return sections.find((s) => s.col === col && s.row === row);
+}
+
+// ---------------------------------------------------------------------
+// Rooms and relays
+// ---------------------------------------------------------------------
+
+/** A relay is a single-tile routing waypoint placed in a section that has no room. */
+export type Relay = Vec2;
+
+export interface SectionContent {
+  section: Section;
+  room: Room | null;
+  relay: Relay | null;
+}
+
+/** Attempts to place a room inside `section`, respecting the section margin. Returns null if the section is too small. */
+function placeRoomInSection(section: Section, rng: () => number): Room | null {
+  const p = MAP_GEN_PARAMS;
+  const availableWidth = section.width - p.sectionMargin * 2;
+  const availableHeight = section.height - p.sectionMargin * 2;
+
+  if (availableWidth < p.roomWidth.min || availableHeight < p.roomHeight.min) {
+    return null; // section too small to fit even the minimum room size
+  }
+
+  const maxWidth = Math.min(p.roomWidth.max, availableWidth);
+  const maxHeight = Math.min(p.roomHeight.max, availableHeight);
+  const width = randInt(rng, p.roomWidth.min, maxWidth);
+  const height = randInt(rng, p.roomHeight.min, maxHeight);
+
+  const slackX = availableWidth - width;
+  const slackY = availableHeight - height;
+  const x = section.x + p.sectionMargin + (slackX > 0 ? randInt(rng, 0, slackX) : 0);
+  const y = section.y + p.sectionMargin + (slackY > 0 ? randInt(rng, 0, slackY) : 0);
+
+  return { x, y, width, height };
+}
+
+function placeRelayInSection(section: Section, rng: () => number): Relay | null {
+  // Keep the relay off the section's outer edge so routing has room to move.
+  if (section.width < 3 || section.height < 3) return null;
+  const x = randInt(rng, section.x + 1, section.x + section.width - 2);
+  const y = randInt(rng, section.y + 1, section.y + section.height - 2);
+  return { x, y };
+}
+
+/** Decides which sections get a room (roomCount of them) and gives the rest a relay. Returns null on failure. */
+function buildSectionContents(sections: Section[], rng: () => number): SectionContent[] | null {
+  const p = MAP_GEN_PARAMS;
+  const roomCount = randInt(rng, p.roomCount.min, p.roomCount.max);
+  const order = shuffle(sections, rng);
+
+  const contents = new Map<number, SectionContent>();
+  let placed = 0;
+
+  for (const section of order) {
+    if (placed < roomCount) {
+      const room = placeRoomInSection(section, rng);
+      if (room) {
+        contents.set(section.id, { section, room, relay: null });
+        placed += 1;
+        continue;
+      }
+      // Section too small for a room: fall through to relay instead, and
+      // this section no longer counts toward the room target.
+    }
+    const relay = placeRelayInSection(section, rng);
+    if (!relay) return null; // section too small for even a relay: explicit failure
+    contents.set(section.id, { section, room: null, relay });
+  }
+
+  if (placed < p.roomCount.min) return null; // could not place the minimum required rooms
+
+  return sections.map((s) => contents.get(s.id)!);
+}
+
+// ---------------------------------------------------------------------
+// Connection graph (section adjacency)
+// ---------------------------------------------------------------------
+
+export interface SectionEdge {
+  a: number;
+  b: number;
+}
+
+function buildAdjacencyEdges(sections: Section[]): SectionEdge[] {
+  const edges: SectionEdge[] = [];
+  for (const section of sections) {
+    const east = sectionAt(sections, section.col + 1, section.row);
+    if (east) edges.push({ a: section.id, b: east.id });
+    const south = sectionAt(sections, section.col, section.row + 1);
+    if (south) edges.push({ a: section.id, b: south.id });
+  }
+  return edges;
+}
+
+class UnionFind {
+  private parent: number[];
+  constructor(size: number) {
+    this.parent = Array.from({ length: size }, (_, i) => i);
+  }
+  find(x: number): number {
+    if (this.parent[x] !== x) this.parent[x] = this.find(this.parent[x]);
+    return this.parent[x];
+  }
+  union(a: number, b: number): boolean {
+    const ra = this.find(a);
+    const rb = this.find(b);
+    if (ra === rb) return false;
+    this.parent[ra] = rb;
+    return true;
+  }
+}
+
+/** Builds a random spanning tree over the section adjacency graph (all 9 sections), plus 1-2 extra edges. */
+function buildConnections(sections: Section[], rng: () => number): SectionEdge[] {
+  const p = MAP_GEN_PARAMS;
+  const allEdges = buildAdjacencyEdges(sections);
+  const shuffled = shuffle(allEdges, rng);
+
+  const uf = new UnionFind(sections.length);
+  const treeEdges: SectionEdge[] = [];
+  const treeKeys = new Set<string>();
+
+  const edgeKey = (e: SectionEdge) => `${Math.min(e.a, e.b)}-${Math.max(e.a, e.b)}`;
+
+  for (const edge of shuffled) {
+    if (uf.union(edge.a, edge.b)) {
+      treeEdges.push(edge);
+      treeKeys.add(edgeKey(edge));
     }
   }
 
-  return rooms;
+  const remaining = allEdges.filter((e) => !treeKeys.has(edgeKey(e)));
+  const shuffledRemaining = shuffle(remaining, rng);
+  const extraCount = Math.min(randInt(rng, p.extraConnections.min, p.extraConnections.max), remaining.length);
+  const extraEdges = shuffledRemaining.slice(0, extraCount);
+
+  return [...treeEdges, ...extraEdges];
 }
 
-export function roomCenter(room: Room): Vec2 {
-  return {
-    x: room.x + Math.floor(room.width / 2),
-    y: room.y + Math.floor(room.height / 2),
-  };
+// ---------------------------------------------------------------------
+// Corridor routing (section-local)
+// ---------------------------------------------------------------------
+
+type Direction4 = 'N' | 'S' | 'E' | 'W';
+
+function directionBetween(a: Section, b: Section): Direction4 {
+  if (b.col === a.col + 1) return 'E';
+  if (b.col === a.col - 1) return 'W';
+  if (b.row === a.row + 1) return 'S';
+  return 'N';
 }
 
-function carveRoom(terrain: Tile[][], room: Room): void {
-  for (let y = room.y; y < room.y + room.height; y++) {
-    for (let x = room.x; x < room.x + room.width; x++) {
-      terrain[y][x] = 'floor';
+const OPPOSITE: Record<Direction4, Direction4> = { N: 'S', S: 'N', E: 'W', W: 'E' };
+
+/** The single point where a corridor leaves a room's wall toward `direction`, or the relay point itself. */
+function anchorPoint(content: SectionContent, direction: Direction4): Vec2 {
+  if (content.room) {
+    const room = content.room;
+    const midY = Math.min(Math.max(room.y + Math.floor(room.height / 2), room.y + 1), room.y + room.height - 2);
+    const midX = Math.min(Math.max(room.x + Math.floor(room.width / 2), room.x + 1), room.x + room.width - 2);
+    switch (direction) {
+      case 'E':
+        return { x: room.x + room.width, y: midY };
+      case 'W':
+        return { x: room.x - 1, y: midY };
+      case 'S':
+        return { x: midX, y: room.y + room.height };
+      case 'N':
+        return { x: midX, y: room.y - 1 };
     }
   }
+  // Relay: no walls, the relay tile itself is the anchor.
+  return { ...content.relay! };
 }
 
 function inAnyRoom(rooms: Room[], x: number, y: number): boolean {
   return rooms.some((r) => x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height);
 }
 
-/** Builds the ordered tile sequence for an L-shaped corridor between two points (inclusive of endpoints). */
+/** Builds the ordered tile sequence for an L-shaped path between two points (inclusive of endpoints, de-duplicated). */
 function buildLPath(from: Vec2, to: Vec2, horizontalFirst: boolean): Vec2[] {
   const path: Vec2[] = [];
   const pushRange = (fixed: number, a: number, b: number, vertical: boolean) => {
     const [lo, hi] = a <= b ? [a, b] : [b, a];
-    for (let v = lo; v <= hi; v++) {
-      path.push(vertical ? { x: fixed, y: v } : { x: v, y: fixed });
-    }
+    for (let v = lo; v <= hi; v++) path.push(vertical ? { x: fixed, y: v } : { x: v, y: fixed });
   };
 
   if (horizontalFirst) {
@@ -100,7 +313,6 @@ function buildLPath(from: Vec2, to: Vec2, horizontalFirst: boolean): Vec2[] {
     pushRange(to.y, from.x, to.x, false);
   }
 
-  // De-duplicate the shared elbow tile while preserving order.
   const seen = new Set<string>();
   return path.filter((p) => {
     const k = `${p.x},${p.y}`;
@@ -112,18 +324,27 @@ function buildLPath(from: Vec2, to: Vec2, horizontalFirst: boolean): Vec2[] {
 
 /**
  * Checks whether carving `path` would create unwanted side-by-side contact
- * with a *different*, already-carved corridor. Room floor is always an
+ * with a different, already-carved corridor. Room interiors are always an
  * allowed neighbor (expected near entrances). A tile that already coincides
- * with existing floor is treated as an intentional crossing/junction and is
- * not checked for adjacency conflicts. Neighbors that are part of this same
- * path (including the immediately preceding/following tile) are exempt.
+ * with existing floor is treated as an intentional crossing/relay junction
+ * and is not checked for adjacency conflicts. Neighbors that are part of
+ * this same path are exempt.
  */
-function isRouteValid(terrain: Tile[][], rooms: Room[], path: Vec2[], width: number, height: number): boolean {
+function isRouteValid(
+  terrain: Tile[][],
+  rooms: Room[],
+  path: Vec2[],
+  width: number,
+  height: number,
+  extraOwnTiles: Vec2[] = [],
+): boolean {
   const pathSet = new Set(path.map((p) => `${p.x},${p.y}`));
+  for (const t of extraOwnTiles) pathSet.add(`${t.x},${t.y}`);
 
   for (const tile of path) {
-    if (inAnyRoom(rooms, tile.x, tile.y)) continue; // room interior, never a new carve target
-    if (terrain[tile.y][tile.x] === 'floor') continue; // existing floor here: intentional crossing/junction
+    if (tile.x < 0 || tile.y < 0 || tile.x >= width || tile.y >= height) return false;
+    if (inAnyRoom(rooms, tile.x, tile.y)) continue;
+    if (terrain[tile.y][tile.x] === 'floor') continue; // existing floor: intentional crossing/relay junction
 
     const neighbors: Vec2[] = [
       { x: tile.x + 1, y: tile.y },
@@ -131,201 +352,169 @@ function isRouteValid(terrain: Tile[][], rooms: Room[], path: Vec2[], width: num
       { x: tile.x, y: tile.y + 1 },
       { x: tile.x, y: tile.y - 1 },
     ];
-
     for (const n of neighbors) {
       if (n.x < 0 || n.y < 0 || n.x >= width || n.y >= height) continue;
-      if (inAnyRoom(rooms, n.x, n.y)) continue; // entrance-adjacent contact is expected
-      if (pathSet.has(`${n.x},${n.y}`)) continue; // this corridor's own tile (bend, prev/next)
-      if (terrain[n.y][n.x] === 'floor') return false; // side-by-side contact with a different corridor
+      if (inAnyRoom(rooms, n.x, n.y)) continue;
+      if (pathSet.has(`${n.x},${n.y}`)) continue;
+      if (terrain[n.y][n.x] === 'floor') return false;
     }
   }
-
   return true;
 }
 
-/** Small set of alternate connection points inside a room, used when the room-center route is blocked. */
-function connectionCandidates(room: Room): Vec2[] {
-  const center = roomCenter(room);
-  const points: Vec2[] = [center];
-  const offsets: [number, number][] = [
-    [1, 0],
-    [-1, 0],
-    [0, 1],
-    [0, -1],
-  ];
-  for (const [dx, dy] of offsets) {
-    const x = center.x + dx;
-    const y = center.y + dy;
-    if (x >= room.x && x < room.x + room.width && y >= room.y && y < room.y + room.height) {
-      points.push({ x, y });
-    }
-  }
-  return points;
+function carvePath(terrain: Tile[][], path: Vec2[]): void {
+  for (const tile of path) terrain[tile.y][tile.x] = 'floor';
 }
 
 /**
- * Finds a corridor path between two rooms that doesn't run alongside an
- * existing, different corridor. Tries both L-shape orientations from the
- * room centers first; if neither is valid, tries a bounded set of alternate
- * connection points within each room. Returns null (a deterministic,
- * bounded "no route found" result) rather than forcing an unconditional
- * carve or deleting floor after the fact.
+ * Routes a single section-to-section connection. The corridor travels from
+ * the source anchor to a border point inside the source section, crosses
+ * directly into the neighboring section (adjacent tiles, since sections
+ * tile the map with no gap), then travels from the border to the
+ * destination anchor inside the destination section. All bends happen
+ * within their own section. Tries a bounded number of alternate border
+ * points/orientations before giving up (returns null).
  */
-function findValidCorridorPath(
+function routeConnection(
   terrain: Tile[][],
   rooms: Room[],
-  roomA: Room,
-  roomB: Room,
+  sectionA: Section,
+  sectionB: Section,
+  contentA: SectionContent,
+  contentB: SectionContent,
   rng: () => number,
   width: number,
   height: number,
 ): Vec2[] | null {
-  const primaryFrom = roomCenter(roomA);
-  const primaryTo = roomCenter(roomB);
-  const primaryOrder: boolean[] = rng() < 0.5 ? [true, false] : [false, true];
+  const dirAtoB = directionBetween(sectionA, sectionB);
+  const dirBtoA = OPPOSITE[dirAtoB];
+  const anchorA = anchorPoint(contentA, dirAtoB);
+  const anchorB = anchorPoint(contentB, dirBtoA);
 
-  const tryOrientations = (from: Vec2, to: Vec2, orientations: boolean[]): Vec2[] | null => {
-    for (const horizontalFirst of orientations) {
-      const path = buildLPath(from, to, horizontalFirst);
-      if (isRouteValid(terrain, rooms, path, width, height)) return path;
-    }
-    return null;
-  };
+  const horizontal = dirAtoB === 'E' || dirAtoB === 'W';
 
-  const primary = tryOrientations(primaryFrom, primaryTo, primaryOrder);
-  if (primary) return primary;
+  const rangeLo = horizontal ? Math.max(sectionA.y, sectionB.y) + 1 : Math.max(sectionA.x, sectionB.x) + 1;
+  const rangeHi = horizontal
+    ? Math.min(sectionA.y + sectionA.height, sectionB.y + sectionB.height) - 2
+    : Math.min(sectionA.x + sectionA.width, sectionB.x + sectionB.width) - 2;
 
-  // Bounded fallback: try a small set of alternate entry/exit points within
-  // each room (deterministic given the seeded rng's already-consumed state).
-  const candidatesA = connectionCandidates(roomA);
-  const candidatesB = connectionCandidates(roomB);
-  let attempts = 0;
-  const maxAttempts = 24;
+  if (rangeLo > rangeHi) return null;
 
-  for (const a of candidatesA) {
-    for (const b of candidatesB) {
-      if (a.x === primaryFrom.x && a.y === primaryFrom.y && b.x === primaryTo.x && b.y === primaryTo.y) continue;
-      if (attempts >= maxAttempts) return null;
-      attempts += 1;
-      const found = tryOrientations(a, b, [true, false]);
-      if (found) return found;
+  const borderColA = dirAtoB === 'E' ? sectionA.x + sectionA.width - 1 : sectionA.x;
+  const borderColB = dirAtoB === 'E' ? sectionB.x : sectionB.x + sectionB.width - 1;
+  const borderRowA = dirAtoB === 'S' ? sectionA.y + sectionA.height - 1 : sectionA.y;
+  const borderRowB = dirAtoB === 'S' ? sectionB.y : sectionB.y + sectionB.height - 1;
+
+  const p = MAP_GEN_PARAMS;
+
+  for (let attempt = 0; attempt < p.maxConnectionAttempts; attempt++) {
+    const coord = rangeHi === rangeLo ? rangeLo : randInt(rng, rangeLo, rangeHi);
+
+    const borderPointA: Vec2 = horizontal ? { x: borderColA, y: coord } : { x: coord, y: borderRowA };
+    const borderPointB: Vec2 = horizontal ? { x: borderColB, y: coord } : { x: coord, y: borderRowB };
+
+    for (const orientA of [true, false]) {
+      const pathA = buildLPath(anchorA, borderPointA, orientA);
+      if (!isRouteValid(terrain, rooms, pathA, width, height)) continue;
+
+      // Validate pathB against a terrain copy that already includes pathA,
+      // so contact between the two segments of *this same* connection is
+      // caught exactly like contact with any other, unrelated corridor.
+      // The single tile where they are meant to touch (the border
+      // crossing, borderPointA <-> borderPointB) is explicitly exempted;
+      // every other adjacency between pathA and pathB is a genuine
+      // unwanted parallel run and must be rejected.
+      const tempTerrain = terrain.map((row) => row.slice());
+      carvePath(tempTerrain, pathA);
+
+      for (const orientB of [true, false]) {
+        const pathB = buildLPath(borderPointB, anchorB, orientB);
+        if (!isRouteValid(tempTerrain, rooms, pathB, width, height, [borderPointA])) continue;
+
+        return [...pathA, ...pathB];
+      }
     }
   }
 
   return null;
 }
 
-function carvePath(terrain: Tile[][], path: Vec2[]): void {
-  for (const tile of path) {
-    terrain[tile.y][tile.x] = 'floor';
-  }
-}
+// ---------------------------------------------------------------------
+// Full generation
+// ---------------------------------------------------------------------
 
-interface Edge {
-  a: number;
-  b: number;
-  dist: number;
-}
-
-function buildEdges(centers: Vec2[]): Edge[] {
-  const edges: Edge[] = [];
-  for (let i = 0; i < centers.length; i++) {
-    for (let j = i + 1; j < centers.length; j++) {
-      const dx = centers[i].x - centers[j].x;
-      const dy = centers[i].y - centers[j].y;
-      edges.push({ a: i, b: j, dist: Math.abs(dx) + Math.abs(dy) });
-    }
-  }
-  return edges;
-}
-
-/** Builds a minimum spanning tree (Prim's algorithm) connecting all room indices. */
-function minimumSpanningTree(centers: Vec2[]): [number, number][] {
-  const edges = buildEdges(centers);
-  const connected = new Set<number>([0]);
-  const mstEdges: [number, number][] = [];
-
-  while (connected.size < centers.length) {
-    let best: Edge | null = null;
-    for (const edge of edges) {
-      const aIn = connected.has(edge.a);
-      const bIn = connected.has(edge.b);
-      if (aIn === bIn) continue; // need exactly one endpoint already connected
-      if (!best || edge.dist < best.dist) best = edge;
-    }
-    if (!best) break; // should not happen with a complete graph
-    mstEdges.push([best.a, best.b]);
-    connected.add(best.a);
-    connected.add(best.b);
-  }
-
-  return mstEdges;
-}
-
-/** Result of a single generation attempt; `ok: false` means it should be retried or reported as a failure. */
 export interface MapGenResult {
   ok: boolean;
   map?: GameMap;
   roomCount?: number;
-  /** True only when this attempt failed because a corridor route could not be found without unwanted contact. */
-  corridorRouteFailure?: boolean;
 }
 
-function tryGenerateOnce(rng: () => number): MapGenResult {
-  const p = MAP_GEN_PARAMS;
-  const rooms = generateRooms(rng);
+/** Internal generation state, exposed read-only for tests that need to inspect sections/relays/connections directly. */
+export interface GenerationDebugInfo {
+  ok: boolean;
+  sections: Section[];
+  contents: SectionContent[] | null;
+  connections: SectionEdge[] | null;
+  map?: GameMap;
+}
 
-  if (rooms.length < p.targetRoomCount.min) {
-    return { ok: false, roomCount: rooms.length };
-  }
+function tryGenerateOnceDebug(rng: () => number): GenerationDebugInfo {
+  const p = MAP_GEN_PARAMS;
+  const sections = buildSections();
+  const contents = buildSectionContents(sections, rng);
+  if (!contents) return { ok: false, sections, contents: null, connections: null };
+
+  const rooms: Room[] = contents.filter((c) => c.room).map((c) => c.room!);
+  if (rooms.length < p.roomCount.min) return { ok: false, sections, contents, connections: null };
 
   const terrain: Tile[][] = Array.from({ length: p.height }, () =>
     Array.from({ length: p.width }, () => 'wall' as Tile),
   );
-
-  for (const room of rooms) carveRoom(terrain, room);
-
-  const centers = rooms.map(roomCenter);
-  const mstEdges = minimumSpanningTree(centers);
-
-  for (const [a, b] of mstEdges) {
-    const path = findValidCorridorPath(terrain, rooms, rooms[a], rooms[b], rng, p.width, p.height);
-    if (!path) {
-      return { ok: false, roomCount: rooms.length, corridorRouteFailure: true };
+  for (const room of rooms) {
+    for (let y = room.y; y < room.y + room.height; y++) {
+      for (let x = room.x; x < room.x + room.width; x++) terrain[y][x] = 'floor';
     }
+  }
+  for (const content of contents) {
+    if (content.relay) terrain[content.relay.y][content.relay.x] = 'floor';
+  }
+
+  const connections = buildConnections(sections, rng);
+  const contentBySection = new Map(contents.map((c) => [c.section.id, c]));
+
+  for (const edge of connections) {
+    const sectionA = sections[edge.a];
+    const sectionB = sections[edge.b];
+    const contentA = contentBySection.get(edge.a)!;
+    const contentB = contentBySection.get(edge.b)!;
+    const path = routeConnection(terrain, rooms, sectionA, sectionB, contentA, contentB, rng, p.width, p.height);
+    if (!path) return { ok: false, sections, contents, connections };
     carvePath(terrain, path);
   }
 
-  // Extra connections to introduce loops: pick from edges not already in the MST.
-  const mstKeySet = new Set(mstEdges.map(([a, b]) => `${Math.min(a, b)}-${Math.max(a, b)}`));
-  const remainingEdges = buildEdges(centers)
-    .filter((e) => !mstKeySet.has(`${Math.min(e.a, e.b)}-${Math.max(e.a, e.b)}`))
-    .sort((x, y) => x.dist - y.dist);
-
-  const extraCount = Math.min(
-    randInt(rng, p.extraConnections.min, p.extraConnections.max),
-    remainingEdges.length,
-  );
-  for (let i = 0; i < extraCount; i++) {
-    const edge = remainingEdges[i];
-    const path = findValidCorridorPath(terrain, rooms, rooms[edge.a], rooms[edge.b], rng, p.width, p.height);
-    // Extra connections are optional loops, not required for connectivity;
-    // skip silently (no unconditional carve, no floor deletion) if no
-    // contact-free route is found rather than failing the whole attempt.
-    if (path) carvePath(terrain, path);
-  }
-
   const exit = roomCenter(rooms[rooms.length - 1]);
+  const map: GameMap = { width: p.width, height: p.height, terrain, rooms, exit };
+  return { ok: true, sections, contents, connections, map };
+}
 
-  const map: GameMap = {
-    width: p.width,
-    height: p.height,
-    terrain,
-    rooms,
-    exit,
+/** Test/debug entry point: runs a single (non-retrying) generation attempt for `seed` and returns internal state. */
+export function generateMapDebug(seed: number): GenerationDebugInfo {
+  const rng = createRng(seed);
+  return tryGenerateOnceDebug(rng);
+}
+
+function tryGenerateOnce(rng: () => number): MapGenResult {
+  const debugInfo = tryGenerateOnceDebug(rng);
+  const roomCount = debugInfo.contents?.filter((c) => c.room).length;
+  if (!debugInfo.ok) return { ok: false, roomCount };
+  return { ok: true, map: debugInfo.map, roomCount };
+}
+
+export function roomCenter(room: Room): Vec2 {
+  return {
+    x: room.x + Math.floor(room.width / 2),
+    y: room.y + Math.floor(room.height / 2),
   };
-
-  return { ok: true, map, roomCount: rooms.length };
 }
 
 /** BFS distance map (in floor steps) from `start`, keyed by "x,y"; unreachable tiles are absent. */
@@ -391,37 +580,32 @@ export function choosePlacement(map: GameMap, rng: () => number): Placement {
   for (let y = 0; y < map.height; y++) {
     for (let x = 0; x < map.width; x++) {
       if (map.terrain[y][x] !== 'floor') continue;
-      const p = { x, y };
-      if (!distFromStart.has(key(p))) continue;
-      if (p.x === start.x && p.y === start.y) continue;
-      if (p.x === exit.x && p.y === exit.y) continue;
-      const dx = Math.abs(p.x - start.x);
-      const dy = Math.abs(p.y - start.y);
+      const pos = { x, y };
+      if (!distFromStart.has(key(pos))) continue;
+      if (pos.x === start.x && pos.y === start.y) continue;
+      if (pos.x === exit.x && pos.y === exit.y) continue;
+      const dx = Math.abs(pos.x - start.x);
+      const dy = Math.abs(pos.y - start.y);
       const adjacentToStart = dx <= 1 && dy <= 1;
       if (adjacentToStart) continue;
-      candidates.push(p);
+      candidates.push(pos);
     }
   }
 
-  const enemy =
-    candidates.length > 0
-      ? candidates[Math.floor(rng() * candidates.length)]
-      : exit;
+  const enemy = candidates.length > 0 ? candidates[Math.floor(rng() * candidates.length)] : exit;
 
   return { start, exit, enemy };
 }
 
 /**
- * Generates a room-and-corridor map deterministically from `seed`.
- * Retries deterministically (seed does not change, only an internal
- * attempt counter mixed in) up to maxGenerationAttempts before returning
- * an explicit failure.
+ * Generates a section-based room-and-corridor map deterministically from
+ * `seed`. Retries deterministically (seed does not change, only an internal
+ * attempt counter mixed in) up to maxGenerationAttempts before returning an
+ * explicit failure. Seed compatibility with the previous (pre-section)
+ * generator is not maintained or required.
  */
 export function generateMap(seed: number): MapGenResult {
   for (let attempt = 0; attempt < MAP_GEN_PARAMS.maxGenerationAttempts; attempt++) {
-    // Mix the attempt index into the seed so retries are deterministic
-    // (same seed -> same sequence of attempts -> same eventual result)
-    // without depending on Date.now() or Math.random().
     const rng = createRng(seed + attempt * 0x9e3779b1);
     const result = tryGenerateOnce(rng);
     if (result.ok) return result;

@@ -68,8 +68,8 @@ describe('generateMap - rooms', () => {
 
   it('generates a room count within the configured range', () => {
     const { map } = generateMap(42);
-    expect(map!.rooms.length).toBeGreaterThanOrEqual(MAP_GEN_PARAMS.targetRoomCount.min);
-    expect(map!.rooms.length).toBeLessThanOrEqual(MAP_GEN_PARAMS.targetRoomCount.max);
+    expect(map!.rooms.length).toBeGreaterThanOrEqual(MAP_GEN_PARAMS.roomCount.min);
+    expect(map!.rooms.length).toBeLessThanOrEqual(MAP_GEN_PARAMS.roomCount.max);
   });
 });
 
