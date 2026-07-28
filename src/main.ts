@@ -12,17 +12,15 @@ const VIEWPORT_TILES_WIDE = 16;
 const VIEWPORT_TILES_HIGH = 12;
 
 // Sprite sheet layout (shared by player.png and bok_lv1.png):
-// 3 columns (frames) x 4 rows (directions), each cell 24x32 px.
+// 3 columns (frames) x 4 rows (directions), each cell 32x32 px.
+// (The source art is native 24x32 per frame; each frame was pre-stretched
+// to a 32x32 square in the asset itself, so slicing here never pulls in
+// pixels from an adjacent frame — the stretch already happened before
+// slicing, not after.)
 // Row order: up, right, down, left.
-const SPRITE_FRAME_WIDTH = 24;
+const SPRITE_FRAME_WIDTH = 32;
 const SPRITE_FRAME_HEIGHT = 32;
-// Display size differs from the crop size: crop stays at the sheet's
-// native 24x32 per-frame region (so slicing never pulls in pixels from an
-// adjacent frame), and only the *display* width is stretched afterward to
-// 32px via a non-uniform scale. Height keeps its existing scale factor.
-const SPRITE_SCALE_Y = 1.5;
-const SPRITE_DISPLAY_WIDTH = 32;
-const SPRITE_SCALE_X = SPRITE_DISPLAY_WIDTH / SPRITE_FRAME_WIDTH;
+const SPRITE_SCALE = 1.5;
 const FRAMES_PER_ROW = 3;
 const IDLE_COLUMN = 1; // middle frame used as the standing pose
 
@@ -84,9 +82,9 @@ class MainScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, mapPixelWidth, mapPixelHeight);
 
     this.playerSprite = this.add.sprite(0, 0, 'player', idleFrame('S'));
-    this.playerSprite.setScale(SPRITE_SCALE_X, SPRITE_SCALE_Y);
+    this.playerSprite.setScale(SPRITE_SCALE);
     this.enemySprite = this.add.sprite(0, 0, 'bok_lv1', idleFrame('S'));
-    this.enemySprite.setScale(SPRITE_SCALE_X, SPRITE_SCALE_Y);
+    this.enemySprite.setScale(SPRITE_SCALE);
     this.createWalkAnimations('player');
     this.createWalkAnimations('bok_lv1');
 
