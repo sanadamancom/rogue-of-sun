@@ -166,7 +166,7 @@ class MainScene extends Phaser.Scene {
     }
   }
 
-  /** Immediately places a non-moving actor's sprite at its current tile with an idle frame. */
+  /** Snaps a non-moving actor's sprite to its tile; it keeps idle-stepping in place. */
   private snapActor(
     sprite: Phaser.GameObjects.Sprite,
     actor: GameState['player'],
@@ -175,10 +175,27 @@ class MainScene extends Phaser.Scene {
     const y = actor.pos.y * TILE_SIZE + TILE_SIZE / 2;
     sprite.setPosition(x, y);
     sprite.setVisible(actor.alive);
-    sprite.setFrame(idleFrame(toDirection4(actor.facing)));
+    if (actor.alive) {
+      this.ensureWalking(sprite, sprite === this.playerSprite ? 'player' : 'bok_lv1', toDirection4(actor.facing));
+    } else {
+      sprite.anims.stop();
+    }
   }
 
-  /** Tweens the sprite from its previous tile to its new tile while looping the walk animation. */
+  /** Plays (or keeps playing) the walk loop for the given facing, avoiding animation restarts. */
+  private ensureWalking(
+    sprite: Phaser.GameObjects.Sprite,
+    spriteKey: string,
+    dir4: 'N' | 'E' | 'S' | 'W',
+  ): void {
+    const key = walkAnimKey(spriteKey, dir4);
+    const current = sprite.anims.currentAnim;
+    if (!current || current.key !== key) {
+      sprite.play(key);
+    }
+  }
+
+  /** Tweens the sprite from its previous tile to its new tile while the walk loop keeps playing. */
   private animateMove(
     sprite: Phaser.GameObjects.Sprite,
     spriteKey: string,
@@ -193,7 +210,7 @@ class MainScene extends Phaser.Scene {
 
     sprite.setPosition(fromX, fromY);
     sprite.setVisible(true);
-    sprite.play(walkAnimKey(spriteKey, dir4));
+    this.ensureWalking(sprite, spriteKey, dir4);
 
     this.tweens.add({
       targets: sprite,
@@ -201,8 +218,6 @@ class MainScene extends Phaser.Scene {
       y: toY,
       duration: this.MOVE_DURATION,
       onComplete: () => {
-        sprite.anims.stop();
-        sprite.setFrame(idleFrame(dir4));
         sprite.setVisible(actor.alive);
       },
     });
