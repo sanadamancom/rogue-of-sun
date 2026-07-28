@@ -22,7 +22,10 @@ const VIEWPORT_TILES_HIGH = 12;
 const SPRITE_FRAME_WIDTH = 24;
 const SPRITE_FRAME_HEIGHT = 32;
 const SPRITE_SCALE_Y = 1.5;
-const SPRITE_DISPLAY_WIDTH = 32;
+// Target display width equal to the display height (SPRITE_FRAME_HEIGHT *
+// SPRITE_SCALE_Y = 48), i.e. a square final sprite — not just 32 raw
+// pixels, which would end up *narrower* than the original 24*1.5=36.
+const SPRITE_DISPLAY_WIDTH = SPRITE_FRAME_HEIGHT * SPRITE_SCALE_Y;
 const SPRITE_SCALE_X = SPRITE_DISPLAY_WIDTH / SPRITE_FRAME_WIDTH;
 const FRAMES_PER_ROW = 3;
 const IDLE_COLUMN = 1; // middle frame used as the standing pose
