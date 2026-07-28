@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { choosePlacement, createRng, generateMap } from '../mapgen';
-import { GameMap, Room, Vec2 } from '../types';
-
-function inAnyRoom(rooms: Room[], x: number, y: number): boolean {
-  return rooms.some((r) => x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height);
-}
+import { GameMap, Vec2 } from '../types';
 
 function floodFillFloors(map: GameMap, start: Vec2): Set<string> {
   const key = (p: Vec2) => `${p.x},${p.y}`;
@@ -41,20 +37,21 @@ function allFloorTiles(map: GameMap): Vec2[] {
   return floors;
 }
 
-function findParallelContactBlocks(map: GameMap): string[] {
+function findForbiddenFloorBlocks(map: GameMap): string[] {
+  const inSingleRoom = (x: number, y: number, x2: number, y2: number): boolean =>
+    map.rooms.some((r) => x >= r.x && x2 < r.x + r.width && y >= r.y && y2 < r.y + r.height);
+
   const hits: string[] = [];
   for (let y = 0; y < map.height - 1; y++) {
     for (let x = 0; x < map.width - 1; x++) {
-      const corners: [number, number][] = [
-        [x, y],
-        [x + 1, y],
-        [x, y + 1],
-        [x + 1, y + 1],
-      ];
-      const allFloorOutsideRooms = corners.every(
-        ([cx, cy]) => map.terrain[cy][cx] === 'floor' && !inAnyRoom(map.rooms, cx, cy),
-      );
-      if (allFloorOutsideRooms) hits.push(`${x},${y}`);
+      const allFloor =
+        map.terrain[y][x] === 'floor' &&
+        map.terrain[y][x + 1] === 'floor' &&
+        map.terrain[y + 1][x] === 'floor' &&
+        map.terrain[y + 1][x + 1] === 'floor';
+      if (!allFloor) continue;
+      if (inSingleRoom(x, y, x + 1, y + 1)) continue;
+      hits.push(`${x},${y}`);
     }
   }
   return hits;
@@ -84,13 +81,9 @@ function runRobustnessCheck(seedCount: number) {
       continue;
     }
 
-    const contactHits = findParallelContactBlocks(map);
-    // Relay convergence is allowed to produce isolated 2x2 contact right at
-    // the hub; a robustness sweep at this scale tolerates a small number of
-    // such isolated points but flags anything beyond a token few, since a
-    // real parallel-run defect produces many contiguous hits, not 1-2 isolated ones.
-    if (contactHits.length > 3) {
-      failedSeeds.push({ seed, reason: `excessive corridor contact: ${contactHits.length} blocks` });
+    const forbiddenBlocks = findForbiddenFloorBlocks(map);
+    if (forbiddenBlocks.length > 0) {
+      failedSeeds.push({ seed, reason: `forbidden 2x2 floor blocks: ${forbiddenBlocks.length}` });
       continue;
     }
 

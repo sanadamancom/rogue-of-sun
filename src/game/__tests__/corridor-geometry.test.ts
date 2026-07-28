@@ -1,37 +1,30 @@
 import { describe, expect, it } from 'vitest';
-import { generateMap, generateMapDebug } from '../mapgen';
-import { GameMap, Room, Tile, Vec2 } from '../types';
-
-function inAnyRoom(rooms: Room[], x: number, y: number): boolean {
-  return rooms.some((r) => x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height);
-}
+import { generateMap } from '../mapgen';
+import { GameMap, Room, Tile } from '../types';
 
 /**
- * Detects unwanted side-by-side corridor contact: a solid 2x2 block of
- * floor tiles entirely outside any room and not touching a relay tile. A
- * normal 1-wide straight corridor, L-bend, or T-junction never fills all
- * four corners of a 2x2 block outside a room; a relay hub is explicitly
- * allowed to have several corridors converge on it (which can locally look
- * like a small 2x2 patch right at the hub), so blocks that include a relay
- * tile are excluded from this check.
+ * A 2x2 block of four floor tiles is only allowed when it lies entirely
+ * within a single room's interior. Any other all-floor 2x2 block (outside
+ * any room, straddling a room boundary, touching a relay, or formed by two
+ * different corridor segments) is forbidden. This mirrors the stricter rule
+ * in floor-block-geometry.test.ts; there is intentionally no special-case
+ * exemption for relay tiles, since a relay convergence must be a single-tile
+ * T/X junction, not a 2x2 patch.
  */
-function findParallelContactBlocks(map: GameMap, relays: Vec2[]): string[] {
-  const relaySet = new Set(relays.map((r) => `${r.x},${r.y}`));
+function findParallelContactBlocks(map: GameMap): string[] {
+  const inSingleRoom = (x: number, y: number, x2: number, y2: number): boolean =>
+    map.rooms.some((r) => x >= r.x && x2 < r.x + r.width && y >= r.y && y2 < r.y + r.height);
+
   const hits: string[] = [];
   for (let y = 0; y < map.height - 1; y++) {
     for (let x = 0; x < map.width - 1; x++) {
-      const corners: [number, number][] = [
-        [x, y],
-        [x + 1, y],
-        [x, y + 1],
-        [x + 1, y + 1],
-      ];
-      const allFloorOutsideRooms = corners.every(
-        ([cx, cy]) => map.terrain[cy][cx] === 'floor' && !inAnyRoom(map.rooms, cx, cy),
-      );
-      if (!allFloorOutsideRooms) continue;
-      const touchesRelay = corners.some(([cx, cy]) => relaySet.has(`${cx},${cy}`));
-      if (touchesRelay) continue; // allowed: relay convergence point
+      const allFloor =
+        map.terrain[y][x] === 'floor' &&
+        map.terrain[y][x + 1] === 'floor' &&
+        map.terrain[y + 1][x] === 'floor' &&
+        map.terrain[y + 1][x + 1] === 'floor';
+      if (!allFloor) continue;
+      if (inSingleRoom(x, y, x + 1, y + 1)) continue;
       hits.push(`(${x},${y})`);
     }
   }
@@ -41,15 +34,12 @@ function findParallelContactBlocks(map: GameMap, relays: Vec2[]): string[] {
 const SEEDS_100 = Array.from({ length: 100 }, (_, i) => i * 53 + 11);
 
 describe('corridor geometry - no unwanted parallel contact', () => {
-  it('produces no side-by-side corridor contact across 100 seeds (relay convergence excluded)', () => {
+  it('produces no forbidden 2x2 floor blocks across 100 seeds (no relay exemption)', () => {
     const failures: { seed: number; hits: string[] }[] = [];
     for (const seed of SEEDS_100) {
-      const debugInfo = generateMapDebug(seed);
-      const { ok } = generateMap(seed);
+      const { ok, map } = generateMap(seed);
       expect(ok).toBe(true);
-      if (!debugInfo.ok || !debugInfo.map || !debugInfo.contents) continue; // debug uses a single attempt; skip if it needed a retry
-      const relays = debugInfo.contents.filter((c) => c.relay).map((c) => c.relay!);
-      const hits = findParallelContactBlocks(debugInfo.map, relays);
+      const hits = findParallelContactBlocks(map!);
       if (hits.length > 0) failures.push({ seed, hits });
     }
     expect(failures).toEqual([]);
@@ -65,6 +55,10 @@ describe('corridor geometry - no unwanted parallel contact', () => {
  * connected region's bounding box; a thin path has low density, while a
  * filled block approaches 1.0.
  */
+function inAnyRoom(rooms: Room[], x: number, y: number): boolean {
+  return rooms.some((r) => x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height);
+}
+
 function findDenseFloorBlobs(map: GameMap, maxDensity: number): { size: number; density: number }[] {
   const visited = new Set<string>();
   const flagged: { size: number; density: number }[] = [];
@@ -154,7 +148,7 @@ describe('corridor geometry - does not over-detect normal shapes (sanity checks)
       exit: { x: 16, y: 4 },
     };
 
-    expect(findParallelContactBlocks(map, [])).toEqual([]);
+    expect(findParallelContactBlocks(map)).toEqual([]);
   });
 
   it('does flag a genuine hand-built parallel run (sanity check the detector still works)', () => {
@@ -166,7 +160,7 @@ describe('corridor geometry - does not over-detect normal shapes (sanity checks)
       terrain[y][5] = 'floor';
     }
     const map: GameMap = { width, height, terrain, rooms: [], exit: { x: 4, y: 0 } };
-    expect(findParallelContactBlocks(map, []).length).toBeGreaterThan(0);
+    expect(findParallelContactBlocks(map).length).toBeGreaterThan(0);
   });
 });
 

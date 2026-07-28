@@ -293,8 +293,55 @@ function anchorPoint(content: SectionContent, direction: Direction4): Vec2 {
   return { ...content.relay! };
 }
 
-function inAnyRoom(rooms: Room[], x: number, y: number): boolean {
-  return rooms.some((r) => x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height);
+/**
+ * Returns true if the 2x2 block whose top-left corner is (x, y) is fully
+ * floor AND fully contained within a single room. A 2x2 block is allowed
+ * only when this holds; every other all-floor 2x2 block (outside any room,
+ * straddling a room boundary, touching a relay, or formed by two different
+ * corridor segments) is forbidden. Normal 1-wide lines, L-bends, and
+ * single-tile T/X junctions never fill all four corners of a 2x2 block, so
+ * this check does not over-flag ordinary corridor shapes.
+ */
+function isAllowed2x2Block(terrain: Tile[][], rooms: Room[], x: number, y: number, width: number, height: number): boolean {
+  if (x < 0 || y < 0 || x + 1 >= width || y + 1 >= height) return true; // out of range: nothing to check
+  const allFloor =
+    terrain[y][x] === 'floor' &&
+    terrain[y][x + 1] === 'floor' &&
+    terrain[y + 1][x] === 'floor' &&
+    terrain[y + 1][x + 1] === 'floor';
+  if (!allFloor) return true;
+  return rooms.some((r) => x >= r.x && x + 1 < r.x + r.width && y >= r.y && y + 1 < r.y + r.height);
+}
+
+/**
+ * Checks whether carving `path` onto `terrain` (which already reflects all
+ * previously-carved rooms, relays, and corridors) would create any
+ * forbidden 2x2 floor block touching one of the new tiles. Only blocks
+ * touching a newly-carved tile need checking, since pre-existing terrain
+ * was already validated when it was carved.
+ */
+function isRouteValid(terrain: Tile[][], rooms: Room[], path: Vec2[], width: number, height: number): boolean {
+  for (const tile of path) {
+    if (tile.x < 0 || tile.y < 0 || tile.x >= width || tile.y >= height) return false;
+  }
+
+  const tempTerrain = terrain.map((row) => row.slice());
+  carvePath(tempTerrain, path);
+
+  const checked = new Set<string>();
+  for (const tile of path) {
+    for (const dx of [-1, 0]) {
+      for (const dy of [-1, 0]) {
+        const bx = tile.x + dx;
+        const by = tile.y + dy;
+        const key = `${bx},${by}`;
+        if (checked.has(key)) continue;
+        checked.add(key);
+        if (!isAllowed2x2Block(tempTerrain, rooms, bx, by, width, height)) return false;
+      }
+    }
+  }
+  return true;
 }
 
 /** Builds the ordered tile sequence for an L-shaped path between two points (inclusive of endpoints, de-duplicated). */
@@ -320,46 +367,6 @@ function buildLPath(from: Vec2, to: Vec2, horizontalFirst: boolean): Vec2[] {
     seen.add(k);
     return true;
   });
-}
-
-/**
- * Checks whether carving `path` would create unwanted side-by-side contact
- * with a different, already-carved corridor. Room interiors are always an
- * allowed neighbor (expected near entrances). A tile that already coincides
- * with existing floor is treated as an intentional crossing/relay junction
- * and is not checked for adjacency conflicts. Neighbors that are part of
- * this same path are exempt.
- */
-function isRouteValid(
-  terrain: Tile[][],
-  rooms: Room[],
-  path: Vec2[],
-  width: number,
-  height: number,
-  extraOwnTiles: Vec2[] = [],
-): boolean {
-  const pathSet = new Set(path.map((p) => `${p.x},${p.y}`));
-  for (const t of extraOwnTiles) pathSet.add(`${t.x},${t.y}`);
-
-  for (const tile of path) {
-    if (tile.x < 0 || tile.y < 0 || tile.x >= width || tile.y >= height) return false;
-    if (inAnyRoom(rooms, tile.x, tile.y)) continue;
-    if (terrain[tile.y][tile.x] === 'floor') continue; // existing floor: intentional crossing/relay junction
-
-    const neighbors: Vec2[] = [
-      { x: tile.x + 1, y: tile.y },
-      { x: tile.x - 1, y: tile.y },
-      { x: tile.x, y: tile.y + 1 },
-      { x: tile.x, y: tile.y - 1 },
-    ];
-    for (const n of neighbors) {
-      if (n.x < 0 || n.y < 0 || n.x >= width || n.y >= height) continue;
-      if (inAnyRoom(rooms, n.x, n.y)) continue;
-      if (pathSet.has(`${n.x},${n.y}`)) continue;
-      if (terrain[n.y][n.x] === 'floor') return false;
-    }
-  }
-  return true;
 }
 
 function carvePath(terrain: Tile[][], path: Vec2[]): void {
@@ -407,29 +414,34 @@ function routeConnection(
 
   const p = MAP_GEN_PARAMS;
 
+  // For a room-anchored side, the orientation is not a free choice: the
+  // wall-normal axis (the anchor's fixed coordinate) must be the *last*
+  // step taken, so the corridor only ever touches the room at the single
+  // intended doorway tile instead of running alongside its wall. A
+  // relay has no wall to hug, so both orientations remain safe to try.
+  const orientsA: boolean[] = contentA.room ? [horizontal] : [true, false];
+  const orientsB: boolean[] = contentB.room ? [!horizontal] : [true, false];
+
   for (let attempt = 0; attempt < p.maxConnectionAttempts; attempt++) {
     const coord = rangeHi === rangeLo ? rangeLo : randInt(rng, rangeLo, rangeHi);
 
     const borderPointA: Vec2 = horizontal ? { x: borderColA, y: coord } : { x: coord, y: borderRowA };
     const borderPointB: Vec2 = horizontal ? { x: borderColB, y: coord } : { x: coord, y: borderRowB };
 
-    for (const orientA of [true, false]) {
+    for (const orientA of orientsA) {
       const pathA = buildLPath(anchorA, borderPointA, orientA);
       if (!isRouteValid(terrain, rooms, pathA, width, height)) continue;
 
       // Validate pathB against a terrain copy that already includes pathA,
-      // so contact between the two segments of *this same* connection is
-      // caught exactly like contact with any other, unrelated corridor.
-      // The single tile where they are meant to touch (the border
-      // crossing, borderPointA <-> borderPointB) is explicitly exempted;
-      // every other adjacency between pathA and pathB is a genuine
-      // unwanted parallel run and must be rejected.
+      // so contact between the two segments of *this same* connection
+      // (including the historical pathA/pathB parallel-run bug) is caught
+      // exactly like contact with any other, unrelated corridor or room.
       const tempTerrain = terrain.map((row) => row.slice());
       carvePath(tempTerrain, pathA);
 
-      for (const orientB of [true, false]) {
+      for (const orientB of orientsB) {
         const pathB = buildLPath(borderPointB, anchorB, orientB);
-        if (!isRouteValid(tempTerrain, rooms, pathB, width, height, [borderPointA])) continue;
+        if (!isRouteValid(tempTerrain, rooms, pathB, width, height)) continue;
 
         return [...pathA, ...pathB];
       }

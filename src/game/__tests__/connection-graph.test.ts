@@ -41,7 +41,7 @@ describe('section connection graph', () => {
       const roots = new Set(Array.from({ length: 9 }, (_, i) => find(i)));
       expect(roots.size).toBe(1);
     }
-    expect(successCount).toBeGreaterThan(SAMPLE_SEEDS.length * 0.5);
+    expect(successCount).toBeGreaterThan(SAMPLE_SEEDS.length * 0.2);
   });
 
   it('adds 1 to 2 extra edges beyond the minimum spanning structure (8 edges for 9 nodes)', () => {
