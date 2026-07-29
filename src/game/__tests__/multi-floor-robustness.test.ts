@@ -108,13 +108,16 @@ function checkFloor(runSeed: number, floor: number): FloorFailure | null {
 
   if (map.terrain[placement.start.y][placement.start.x] !== 'floor') return fail('start not on floor');
   if (map.terrain[placement.exit.y][placement.exit.x] !== 'floor') return fail('exit not on floor');
-  if (map.terrain[placement.enemy.y][placement.enemy.x] !== 'floor') return fail('enemy not on floor');
+  if (placement.enemies.length !== 2) return fail(`expected 2 enemies, got ${placement.enemies.length}`);
+  for (const enemy of placement.enemies) {
+    if (map.terrain[enemy.y][enemy.x] !== 'floor') return fail('enemy not on floor');
+  }
 
   const samePos = (a: Vec2, b: Vec2) => a.x === b.x && a.y === b.y;
   if (
     samePos(placement.start, placement.exit) ||
-    samePos(placement.start, placement.enemy) ||
-    samePos(placement.exit, placement.enemy)
+    placement.enemies.some((e) => samePos(placement.start, e) || samePos(placement.exit, e)) ||
+    samePos(placement.enemies[0], placement.enemies[1])
   ) {
     return fail('placement overlap');
   }

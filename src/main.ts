@@ -56,7 +56,7 @@ class MainScene extends Phaser.Scene {
   private terrainGraphics!: Phaser.GameObjects.Graphics;
   private exitGraphics!: Phaser.GameObjects.Graphics;
   private playerSprite!: Phaser.GameObjects.Sprite;
-  private enemySprite!: Phaser.GameObjects.Sprite;
+  private enemySprites: Phaser.GameObjects.Sprite[] = [];
   private hudText!: Phaser.GameObjects.Text;
   private messageText!: Phaser.GameObjects.Text;
 
@@ -89,10 +89,9 @@ class MainScene extends Phaser.Scene {
 
     this.playerSprite = this.add.sprite(0, 0, 'player', idleFrame('S'));
     this.playerSprite.setScale(SPRITE_SCALE_X, SPRITE_SCALE_Y);
-    this.enemySprite = this.add.sprite(0, 0, 'bok_lv1', idleFrame('S'));
-    this.enemySprite.setScale(SPRITE_SCALE_X, SPRITE_SCALE_Y);
     this.createWalkAnimations('player');
     this.createWalkAnimations('bok_lv1');
+    this.rebuildEnemySprites();
 
     this.hudText = this.add
       .text(8, 8, '', {
@@ -123,7 +122,24 @@ class MainScene extends Phaser.Scene {
 
     this.refreshStaticView();
     this.snapActor(this.playerSprite, this.state.player);
-    this.snapActor(this.enemySprite, this.state.enemy);
+    this.snapAllEnemies();
+  }
+
+  /** (Re)creates one bok_lv1 sprite per current enemy, discarding any previous sprites/tweens. */
+  private rebuildEnemySprites(): void {
+    for (const sprite of this.enemySprites) {
+      this.tweens.killTweensOf(sprite);
+      sprite.destroy();
+    }
+    this.enemySprites = this.state.enemies.map(() => {
+      const sprite = this.add.sprite(0, 0, 'bok_lv1', idleFrame('S'));
+      sprite.setScale(SPRITE_SCALE_X, SPRITE_SCALE_Y);
+      return sprite;
+    });
+  }
+
+  private snapAllEnemies(): void {
+    this.state.enemies.forEach((enemy, i) => this.snapActor(this.enemySprites[i], enemy));
   }
 
   private createWalkAnimations(spriteKey: string): void {
@@ -185,7 +201,7 @@ class MainScene extends Phaser.Scene {
     if (this.activeAnimations > 0) return;
 
     const playerBefore = { ...this.state.player.pos };
-    const enemyBefore = { ...this.state.enemy.pos };
+    const enemiesBefore = this.state.enemies.map((enemy) => ({ ...enemy.pos }));
 
     processTurn(this.state, action);
     const phaseAfterTurn = this.state.phase as import('./game/types').GamePhase;
@@ -200,8 +216,6 @@ class MainScene extends Phaser.Scene {
 
     const playerMoved =
       this.state.player.pos.x !== playerBefore.x || this.state.player.pos.y !== playerBefore.y;
-    const enemyMoved =
-      this.state.enemy.pos.x !== enemyBefore.x || this.state.enemy.pos.y !== enemyBefore.y;
 
     this.refreshStaticView();
 
@@ -211,11 +225,16 @@ class MainScene extends Phaser.Scene {
       this.snapActor(this.playerSprite, this.state.player);
     }
 
-    if (enemyMoved) {
-      this.animateMove(this.enemySprite, 'bok_lv1', this.state.enemy, enemyBefore);
-    } else {
-      this.snapActor(this.enemySprite, this.state.enemy);
-    }
+    this.state.enemies.forEach((enemy, i) => {
+      const before = enemiesBefore[i];
+      const sprite = this.enemySprites[i];
+      const moved = enemy.pos.x !== before.x || enemy.pos.y !== before.y;
+      if (moved) {
+        this.animateMove(sprite, 'bok_lv1', enemy, before);
+      } else {
+        this.snapActor(sprite, enemy);
+      }
+    });
   }
 
   /** Starts a brand-new run (floor 1) for `runSeed`; same runSeed always yields the same 3 floors. */
@@ -234,9 +253,10 @@ class MainScene extends Phaser.Scene {
       this.state.map.width * TILE_SIZE,
       this.state.map.height * TILE_SIZE,
     );
+    this.rebuildEnemySprites();
     this.refreshStaticView();
     this.snapActor(this.playerSprite, this.state.player);
-    this.snapActor(this.enemySprite, this.state.enemy);
+    this.snapAllEnemies();
   }
 
   /** Snaps a non-moving actor's sprite to its tile; it keeps idle-stepping in place. */

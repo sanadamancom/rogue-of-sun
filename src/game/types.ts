@@ -75,7 +75,8 @@ export type GamePhase = 'playing' | 'floor_cleared' | 'gameover' | 'victory';
 export interface GameState {
   map: GameMap;
   player: Actor;
-  enemy: Actor;
+  /** Fixed-order list of this floor's enemies; dead enemies stay in the array with alive=false. */
+  enemies: Actor[];
   turn: number;
   phase: GamePhase;
   /** Seed used to generate this floor's map (derived from runSeed + floor). */
@@ -87,6 +88,8 @@ export interface GameState {
   /** Total floors in this run. */
   totalFloors: number;
   exit: Vec2;
+  /** Consumed-turn counter toward the player's next natural HP regeneration tick (0..REGEN_TURNS_PER_HP-1). */
+  regenProgress: number;
 }
 
 export type PlayerAction =

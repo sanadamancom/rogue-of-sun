@@ -20,6 +20,12 @@ function stepOntoExit(state: GameState): void {
   processTurn(state, { type: 'move', direction: 'S' });
 }
 
+function killAllEnemies(state: GameState): void {
+  state.enemies.forEach((enemy) => {
+    enemy.alive = false;
+  });
+}
+
 describe('multi-floor progression', () => {
   it('starts at floor 1 of 3', () => {
     const state = createInitialState(2780624551);
@@ -27,17 +33,24 @@ describe('multi-floor progression', () => {
     expect(state.totalFloors).toBe(3);
   });
 
-  it('does not advance the floor when the enemy is still alive at the exit', () => {
+  it('does not advance the floor when any enemy is still alive at the exit', () => {
     const state = createInitialState(11);
-    state.enemy.alive = true;
     stepOntoExit(state);
     expect(state.floor).toBe(1);
     expect(state.phase).not.toBe('victory');
   });
 
+  it('does not advance the floor when only one of two enemies has been defeated', () => {
+    const state = createInitialState(11);
+    state.enemies[0].alive = false;
+    stepOntoExit(state);
+    expect(state.floor).toBe(1);
+    expect(state.phase).toBe('playing');
+  });
+
   it('signals floor_cleared (not victory) when floor 1 or 2 is cleared', () => {
     const state = createInitialState(11);
-    state.enemy.alive = false;
+    killAllEnemies(state);
     stepOntoExit(state);
     expect(state.phase).toBe('floor_cleared');
   });
@@ -46,7 +59,7 @@ describe('multi-floor progression', () => {
     let state = createInitialState(2780624551);
     state.player.maxHp = 3;
     state.player.hp = 2; // damaged, should not be healed by floor transitions
-    state.enemy.alive = false;
+    killAllEnemies(state);
 
     expect(state.floor).toBe(1);
     stepOntoExit(state);
@@ -56,36 +69,39 @@ describe('multi-floor progression', () => {
     expect(state.phase).toBe('playing');
     expect(state.player.hp).toBe(2);
     expect(state.player.maxHp).toBe(3);
+    expect(state.enemies).toHaveLength(2);
+    expect(state.enemies.every((e) => e.alive)).toBe(true);
     // A new floor's map should use the deterministic floor seed.
     expect(state.seed).toBe(deriveFloorSeed(2780624551, 2));
 
-    state.enemy.alive = false;
+    killAllEnemies(state);
     stepOntoExit(state);
     expect(state.phase).toBe('floor_cleared');
     state = advanceToNextFloor(state);
     expect(state.floor).toBe(3);
     expect(state.player.hp).toBe(2);
 
-    state.enemy.alive = false;
+    killAllEnemies(state);
     stepOntoExit(state);
     expect(state.phase).toBe('victory');
     // Victory does not itself regenerate a floor 4.
     expect(state.floor).toBe(3);
   });
 
-  it('defeating the enemy on floors 1 or 2 without reaching the exit does not end the run', () => {
+  it('defeating both enemies on floors 1 or 2 without reaching the exit does not end the run', () => {
     const state = createInitialState(22);
-    state.enemy.pos = { x: state.player.pos.x + 1, y: state.player.pos.y };
-    state.enemy.hp = 1;
+    state.enemies[0].pos = { x: state.player.pos.x + 1, y: state.player.pos.y };
+    state.enemies[0].hp = 1;
+    state.enemies[1].pos = { x: 0, y: 0 };
     processTurn(state, { type: 'move', direction: 'E' });
-    expect(state.enemy.alive).toBe(false);
+    expect(state.enemies[0].alive).toBe(false);
     expect(state.phase).toBe('playing');
     expect(state.floor).toBe(1);
   });
 
   it('a single exit contact never advances more than one floor', () => {
     const state = createInitialState(11);
-    state.enemy.alive = false;
+    killAllEnemies(state);
     stepOntoExit(state);
     expect(state.phase).toBe('floor_cleared');
     // Further turns are ignored while phase is not 'playing'.
@@ -100,17 +116,40 @@ describe('multi-floor progression', () => {
     let state = createInitialState(33);
     state.player.maxHp = 5;
     state.player.hp = 5;
-    state.enemy.alive = false;
+    killAllEnemies(state);
     stepOntoExit(state);
     state = advanceToNextFloor(state);
     expect(state.floor).toBe(2);
 
-    state.enemy.pos = { x: state.player.pos.x + 1, y: state.player.pos.y };
-    state.enemy.alive = true;
-    state.enemy.hp = 99;
-    state.enemy.attack = 999;
+    state.enemies[0].pos = { x: state.player.pos.x + 1, y: state.player.pos.y };
+    state.enemies[0].alive = true;
+    state.enemies[0].hp = 99;
+    state.enemies[0].attack = 999;
+    state.enemies[1].pos = { x: 0, y: 0 };
     processTurn(state, { type: 'wait' });
     expect(state.phase).toBe('gameover');
+  });
+
+  it('generates a fresh pair of living enemies on the next floor', () => {
+    let state = createInitialState(2780624551);
+    killAllEnemies(state);
+    stepOntoExit(state);
+    state = advanceToNextFloor(state);
+    expect(state.enemies).toHaveLength(2);
+    expect(state.enemies.every((e) => e.alive)).toBe(true);
+  });
+
+  it('carries current HP and regenProgress to the next floor without an immediate heal', () => {
+    let state = createInitialState(2780624551);
+    state.player.maxHp = 5;
+    state.player.hp = 2;
+    state.regenProgress = 3;
+    killAllEnemies(state);
+    // stepOntoExit itself consumes one counted action, advancing regenProgress by 1.
+    stepOntoExit(state);
+    state = advanceToNextFloor(state);
+    expect(state.player.hp).toBe(2);
+    expect(state.regenProgress).toBe(4);
   });
 });
 
@@ -125,7 +164,7 @@ describe('restart semantics across floors', () => {
   it('a fresh run from the same runSeed starts back at floor 1 with full HP', () => {
     let state = createInitialState(44);
     state.player.hp = 1;
-    state.enemy.alive = false;
+    killAllEnemies(state);
     stepOntoExit(state);
     state = advanceToNextFloor(state);
     expect(state.floor).toBe(2);
@@ -134,5 +173,6 @@ describe('restart semantics across floors', () => {
     const restarted = createInitialState(state.runSeed);
     expect(restarted.floor).toBe(1);
     expect(restarted.player.hp).toBe(restarted.player.maxHp);
+    expect(restarted.regenProgress).toBe(0);
   });
 });

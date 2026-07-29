@@ -77,8 +77,10 @@ describe('integration - generated map gameplay', () => {
       if (state.map.terrain[from.y][from.x] !== 'floor') continue;
       if (!canMove(state.map, from, dir as any)) continue;
       state.player.pos = from;
-      state.enemy.pos = { x: 0, y: 0 }; // move enemy far away, off any floor check path
-      state.enemy.alive = false;
+      state.enemies.forEach((enemy, i) => {
+        enemy.pos = { x: 0, y: i }; // move enemies far away, off any floor check path
+        enemy.alive = false;
+      });
       const result = processTurn(state, { type: 'move', direction: dir as any });
       expect(result.consumed).toBe(true);
       expect(state.phase).toBe('floor_cleared');
@@ -99,16 +101,18 @@ describe('integration - generated map gameplay', () => {
 
   it('keeps Phase 01 combat behavior on a generated map (enemy takes 2 hits to defeat)', () => {
     const state = createInitialState(555);
-    state.enemy.pos = { x: state.player.pos.x + 1, y: state.player.pos.y };
-    state.enemy.alive = true;
-    state.enemy.hp = 2;
+    state.enemies[0].pos = { x: state.player.pos.x + 1, y: state.player.pos.y };
+    state.enemies[0].alive = true;
+    state.enemies[0].hp = 2;
+    state.enemies[1].pos = { x: 0, y: 0 };
+    state.enemies[1].alive = false;
 
     const r1 = processTurn(state, { type: 'move', direction: 'E' });
     expect(r1.playerAttacked).toBe(true);
-    expect(state.enemy.alive).toBe(true);
+    expect(state.enemies[0].alive).toBe(true);
 
     const r2 = processTurn(state, { type: 'move', direction: 'E' });
     expect(r2.enemyDefeated).toBe(true);
-    expect(state.enemy.alive).toBe(false);
+    expect(state.enemies[0].alive).toBe(false);
   });
 });

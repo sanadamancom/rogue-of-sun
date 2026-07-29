@@ -12,6 +12,7 @@ interface CarryOverStats {
   hp: number;
   maxHp: number;
   attack: number;
+  regenProgress: number;
 }
 
 /**
@@ -41,10 +42,12 @@ function buildFloorState(runSeed: number, floor: number, turn: number, carry?: C
     player.hp = carry.hp;
   }
 
+  const enemies = placement.enemies.map((pos) => createInitialActor(pos, 2, 1));
+
   return {
     map,
     player,
-    enemy: createInitialActor(placement.enemy, 2, 1),
+    enemies,
     turn,
     phase: 'playing',
     seed: floorSeed,
@@ -52,6 +55,7 @@ function buildFloorState(runSeed: number, floor: number, turn: number, carry?: C
     floor,
     totalFloors: TOTAL_FLOORS,
     exit: placement.exit,
+    regenProgress: carry ? carry.regenProgress : 0,
   };
 }
 
@@ -62,14 +66,15 @@ export function createInitialState(runSeed: number): GameState {
 
 /**
  * Advances to the next floor of the same run, carrying over the player's
- * current HP, max HP, and attack, and resetting all per-floor state (map,
- * position, enemy, exit).
+ * current HP, max HP, attack, and regen progress, and resetting all
+ * per-floor state (map, position, enemies, exit).
  */
 export function advanceToNextFloor(state: GameState): GameState {
   const carry: CarryOverStats = {
     hp: state.player.hp,
     maxHp: state.player.maxHp,
     attack: state.player.attack,
+    regenProgress: state.regenProgress,
   };
   return buildFloorState(state.runSeed, state.floor + 1, state.turn, carry);
 }

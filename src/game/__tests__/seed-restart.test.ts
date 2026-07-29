@@ -7,7 +7,7 @@ describe('seed-based restart semantics', () => {
     const b = createInitialState(2024);
     expect(a.map.terrain).toEqual(b.map.terrain);
     expect(a.player.pos).toEqual(b.player.pos);
-    expect(a.enemy.pos).toEqual(b.enemy.pos);
+    expect(a.enemies.map((e) => e.pos)).toEqual(b.enemies.map((e) => e.pos));
     expect(a.exit).toEqual(b.exit);
     expect(a.seed).toBe(b.seed);
   });

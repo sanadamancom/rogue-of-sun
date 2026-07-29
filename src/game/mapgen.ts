@@ -561,14 +561,21 @@ function bfsDistances(map: GameMap, start: Vec2): Map<string, number> {
 export interface Placement {
   start: Vec2;
   exit: Vec2;
-  enemy: Vec2;
+  enemies: Vec2[];
 }
+
+/** Number of enemies placed on every floor in Phase 04 (fixed, no per-floor scaling). */
+export const ENEMY_COUNT_PER_FLOOR = 2;
 
 /**
  * Chooses start (in the first room), exit (in the room whose center is
  * farthest by floor-path distance from start, guaranteed to be a
- * different room), and an enemy tile that is reachable, not on start or
- * exit, and not adjacent to start.
+ * different room), and ENEMY_COUNT_PER_FLOOR enemy tiles that are each
+ * reachable, not on start or exit, not on each other, and not adjacent to
+ * start. Selection is deterministic given `rng` (the floor's placement
+ * RNG) and never falls back to a reduced enemy count: if the map does not
+ * offer enough valid candidate tiles, this throws explicitly rather than
+ * silently placing fewer enemies.
  */
 export function choosePlacement(map: GameMap, rng: () => number): Placement {
   const start = roomCenter(map.rooms[0]);
@@ -604,9 +611,28 @@ export function choosePlacement(map: GameMap, rng: () => number): Placement {
     }
   }
 
-  const enemy = candidates.length > 0 ? candidates[Math.floor(rng() * candidates.length)] : exit;
+  if (candidates.length < ENEMY_COUNT_PER_FLOOR) {
+    throw new Error(
+      `Not enough valid enemy placement candidates: need ${ENEMY_COUNT_PER_FLOOR}, found ${candidates.length}`,
+    );
+  }
 
-  return { start, exit, enemy };
+  // Deterministic sampling without replacement: repeatedly pick a random
+  // remaining candidate and swap it to the front, consuming rng() exactly
+  // once per enemy in a fixed order, so results stay reproducible for a
+  // given rng sequence regardless of pool size.
+  const pool = candidates.slice();
+  const enemies: Vec2[] = [];
+  for (let i = 0; i < ENEMY_COUNT_PER_FLOOR; i++) {
+    const remaining = pool.length - i;
+    const pickIndex = i + Math.floor(rng() * remaining);
+    const picked = pool[pickIndex];
+    pool[pickIndex] = pool[i];
+    pool[i] = picked;
+    enemies.push(picked);
+  }
+
+  return { start, exit, enemies };
 }
 
 /**

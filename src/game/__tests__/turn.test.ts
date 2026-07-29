@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createInitialActor, processTurn } from '../turn';
+import { createInitialActor, processTurn, REGEN_TURNS_PER_HP } from '../turn';
 import { GameMap, GameState, Tile } from '../types';
 
 // Small fixed layout retained only for these turn-processing unit tests;
@@ -28,7 +28,10 @@ function freshState(): GameState {
   return {
     map: testMap(),
     player: createInitialActor({ x: 2, y: 1 }, 3, 1),
-    enemy: createInitialActor({ x: 7, y: 6 }, 2, 1),
+    enemies: [
+      createInitialActor({ x: 7, y: 6 }, 2, 1),
+      createInitialActor({ x: 8, y: 6 }, 2, 1),
+    ],
     turn: 0,
     phase: 'playing',
     seed: 1,
@@ -36,16 +39,17 @@ function freshState(): GameState {
     floor: 1,
     totalFloors: 3,
     exit: { x: 99, y: 99 },
+    regenProgress: 0,
   };
 }
 
 describe('turn processing', () => {
-  it('moves the enemy toward the player on a normal move turn', () => {
+  it('moves an enemy toward the player on a normal move turn', () => {
     const state = freshState();
-    const enemyStart = { ...state.enemy.pos };
+    const enemyStart = { ...state.enemies[0].pos };
     processTurn(state, { type: 'move', direction: 'E' });
-    const dx = Math.abs(state.enemy.pos.x - enemyStart.x);
-    const dy = Math.abs(state.enemy.pos.y - enemyStart.y);
+    const dx = Math.abs(state.enemies[0].pos.x - enemyStart.x);
+    const dy = Math.abs(state.enemies[0].pos.y - enemyStart.y);
     expect(dx + dy).toBeGreaterThan(0);
   });
 
@@ -60,32 +64,44 @@ describe('turn processing', () => {
   it('resolves an attack when moving toward an adjacent enemy', () => {
     const state = freshState();
     state.player.pos = { x: 4, y: 4 };
-    state.enemy.pos = { x: 5, y: 4 };
+    state.enemies[0].pos = { x: 5, y: 4 };
+    state.enemies[1].pos = { x: 0, y: 0 };
     const result = processTurn(state, { type: 'move', direction: 'E' });
     expect(result.playerAttacked).toBe(true);
     expect(state.player.pos).toEqual({ x: 4, y: 4 }); // player does not step in
-    expect(state.enemy.hp).toBe(1);
+    expect(state.enemies[0].hp).toBe(1);
+  });
+
+  it('attacks only the single targeted enemy, leaving the other untouched', () => {
+    const state = freshState();
+    state.player.pos = { x: 4, y: 4 };
+    state.enemies[0].pos = { x: 5, y: 4 };
+    state.enemies[1].pos = { x: 4, y: 5 };
+    processTurn(state, { type: 'move', direction: 'E' });
+    expect(state.enemies[0].hp).toBe(1);
+    expect(state.enemies[1].hp).toBe(2);
   });
 
   it('removes the enemy from the board once its HP reaches 0', () => {
     const state = freshState();
     state.player.pos = { x: 4, y: 4 };
-    state.enemy.pos = { x: 5, y: 4 };
-    state.enemy.hp = 1;
+    state.enemies[0].pos = { x: 5, y: 4 };
+    state.enemies[0].hp = 1;
+    state.enemies[1].pos = { x: 0, y: 0 };
     const result = processTurn(state, { type: 'move', direction: 'E' });
     expect(result.enemyDefeated).toBe(true);
-    expect(state.enemy.alive).toBe(false);
+    expect(state.enemies[0].alive).toBe(false);
   });
 
-  it('does not let a defeated enemy act (no counter-attack)', () => {
+  it('does not let a defeated enemy act (no counter-attack) while other enemies stay far away', () => {
     const state = freshState();
     state.player.pos = { x: 4, y: 4 };
-    state.enemy.pos = { x: 5, y: 4 };
-    state.enemy.hp = 1;
+    state.enemies[0].pos = { x: 5, y: 4 };
+    state.enemies[0].hp = 1;
+    state.enemies[1].pos = { x: 0, y: 0 };
     const result = processTurn(state, { type: 'move', direction: 'E' });
-    expect(result.enemyActed).toBe(false);
-    expect(result.enemyAttacked).toBe(false);
-    expect(state.player.hp).toBe(3);
+    expect(state.enemies[0].alive).toBe(false);
+    expect(result.playerDefeated).toBe(false);
   });
 
   it('advances the turn count on attack and wait', () => {
@@ -94,17 +110,18 @@ describe('turn processing', () => {
     expect(state.turn).toBe(1);
   });
 
-  it('lets the enemy act after a normal player move', () => {
+  it('lets a living enemy act after a normal player move', () => {
     const state = freshState();
-    const before = { ...state.enemy.pos };
+    const before = { ...state.enemies[0].pos };
     processTurn(state, { type: 'move', direction: 'E' });
-    expect(state.enemy.pos).not.toEqual(before);
+    expect(state.enemies[0].pos).not.toEqual(before);
   });
 
   it('sets gameover when player HP reaches 0', () => {
     const state = freshState();
     state.player.pos = { x: 4, y: 4 };
-    state.enemy.pos = { x: 5, y: 4 };
+    state.enemies[0].pos = { x: 5, y: 4 };
+    state.enemies[1].pos = { x: 0, y: 0 };
     state.player.hp = 1;
     // Player waits; adjacent enemy attacks and defeats the player.
     const result = processTurn(state, { type: 'wait' });
@@ -112,10 +129,107 @@ describe('turn processing', () => {
     expect(state.phase).toBe('gameover');
   });
 
+  it('stops later enemies from acting once the player is defeated mid-turn', () => {
+    const state = freshState();
+    state.player.pos = { x: 4, y: 4 };
+    state.player.hp = 1;
+    state.enemies[0].pos = { x: 5, y: 4 }; // adjacent, will defeat the player
+    state.enemies[1].pos = { x: 4, y: 3 }; // also adjacent; would attack if it got a turn
+    const before = { ...state.enemies[1] };
+    processTurn(state, { type: 'wait' });
+    expect(state.phase).toBe('gameover');
+    // The second enemy never got to act because the player died first.
+    expect(state.enemies[1].facing).toBe(before.facing);
+  });
+
   it('ignores unrelated key-derived actions without consuming a turn', () => {
     // Simulated by not calling processTurn at all for unmapped keys;
     // this is enforced at the input-mapping layer (see input.test.ts).
     const state = freshState();
     expect(state.turn).toBe(0);
+  });
+});
+
+describe('enemy collision', () => {
+  it('does not let two enemies occupy the same tile', () => {
+    const state = freshState();
+    state.player.pos = { x: 0, y: 1 };
+    state.enemies[0].pos = { x: 2, y: 1 };
+    state.enemies[1].pos = { x: 3, y: 1 };
+    for (let i = 0; i < 10; i++) {
+      processTurn(state, { type: 'wait' });
+      expect(state.enemies[0].pos).not.toEqual(state.enemies[1].pos);
+    }
+  });
+});
+
+describe('natural HP regeneration', () => {
+  it('starts with regenProgress at 0', () => {
+    const state = freshState();
+    expect(state.regenProgress).toBe(0);
+  });
+
+  it('heals 1 HP after REGEN_TURNS_PER_HP consumed actions while damaged, and resets progress', () => {
+    const state = freshState();
+    state.enemies.forEach((e) => (e.pos = { x: 0, y: 0 }));
+    state.player.maxHp = 5;
+    state.player.hp = 2;
+    let result;
+    for (let i = 0; i < REGEN_TURNS_PER_HP - 1; i++) {
+      result = processTurn(state, { type: 'wait' });
+      expect(result.playerRegenerated).toBe(false);
+    }
+    expect(state.player.hp).toBe(2);
+    result = processTurn(state, { type: 'wait' });
+    expect(result!.playerRegenerated).toBe(true);
+    expect(state.player.hp).toBe(3);
+    expect(state.regenProgress).toBe(0);
+  });
+
+  it('does not increase regenProgress on a blocked move', () => {
+    const state = freshState();
+    state.player.pos = { x: 0, y: 1 };
+    state.player.maxHp = 5;
+    state.player.hp = 2;
+    processTurn(state, { type: 'move', direction: 'W' }); // blocked by wall
+    expect(state.regenProgress).toBe(0);
+  });
+
+  it('does not exceed maxHp', () => {
+    const state = freshState();
+    state.enemies.forEach((e) => (e.pos = { x: 0, y: 0 }));
+    state.player.maxHp = 3;
+    state.player.hp = 3;
+    for (let i = 0; i < REGEN_TURNS_PER_HP; i++) {
+      processTurn(state, { type: 'wait' });
+    }
+    expect(state.player.hp).toBe(3);
+    expect(state.regenProgress).toBe(0);
+  });
+
+  it('does not reset regenProgress when the player takes damage', () => {
+    const state = freshState();
+    state.player.maxHp = 5;
+    state.player.hp = 4;
+    state.player.pos = { x: 4, y: 4 };
+    state.enemies[0].pos = { x: 5, y: 4 }; // adjacent: will attack every turn
+    state.enemies[1].pos = { x: 0, y: 0 };
+    processTurn(state, { type: 'wait' }); // progress -> 1, hp -> 3 (attacked)
+    expect(state.regenProgress).toBe(1);
+    processTurn(state, { type: 'wait' }); // progress -> 2
+    expect(state.regenProgress).toBe(2);
+  });
+
+  it('does not regenerate on the turn the player dies', () => {
+    const state = freshState();
+    state.player.maxHp = 5;
+    state.player.hp = 1;
+    state.regenProgress = REGEN_TURNS_PER_HP - 1;
+    state.player.pos = { x: 4, y: 4 };
+    state.enemies[0].pos = { x: 5, y: 4 };
+    state.enemies[1].pos = { x: 0, y: 0 };
+    const result = processTurn(state, { type: 'wait' });
+    expect(result.playerDefeated).toBe(true);
+    expect(result.playerRegenerated).toBe(false);
   });
 });

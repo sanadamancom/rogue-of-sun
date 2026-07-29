@@ -15,8 +15,12 @@ describe('restart', () => {
     expect(state.turn).toBe(0);
     expect(state.phase).toBe('playing');
     expect(state.player.hp).toBe(state.player.maxHp);
-    expect(state.enemy.hp).toBe(state.enemy.maxHp);
+    expect(state.enemies).toHaveLength(2);
+    for (const enemy of state.enemies) {
+      expect(enemy.hp).toBe(enemy.maxHp);
+      expect(enemy.alive).toBe(true);
+    }
     expect(state.player.alive).toBe(true);
-    expect(state.enemy.alive).toBe(true);
+    expect(state.regenProgress).toBe(0);
   });
 });

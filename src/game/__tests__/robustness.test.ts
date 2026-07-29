@@ -97,12 +97,20 @@ function runRobustnessCheck(seedCount: number) {
       failedSeeds.push({ seed, reason: 'exit not on floor' });
       continue;
     }
-    if (map.terrain[placement.enemy.y][placement.enemy.x] !== 'floor') {
+    let enemyOnFloor = true;
+    for (const enemy of placement.enemies) {
+      if (map.terrain[enemy.y][enemy.x] !== 'floor') enemyOnFloor = false;
+    }
+    if (!enemyOnFloor) {
       failedSeeds.push({ seed, reason: 'enemy not on floor' });
       continue;
     }
     const samePos = (a: Vec2, b: Vec2) => a.x === b.x && a.y === b.y;
-    if (samePos(placement.start, placement.exit) || samePos(placement.start, placement.enemy) || samePos(placement.exit, placement.enemy)) {
+    const overlap =
+      samePos(placement.start, placement.exit) ||
+      placement.enemies.some((e) => samePos(placement.start, e) || samePos(placement.exit, e)) ||
+      samePos(placement.enemies[0], placement.enemies[1]);
+    if (overlap) {
       failedSeeds.push({ seed, reason: 'placement overlap' });
       continue;
     }
