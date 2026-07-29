@@ -20,6 +20,13 @@ export function isAdjacent(a: Vec2, b: Vec2): boolean {
   return dx <= 1 && dy <= 1 && (dx !== 0 || dy !== 0);
 }
 
+/** True if `a` and `b` are exactly one tile apart along a single cardinal axis (not diagonal). */
+export function isOrthogonallyAdjacent(a: Vec2, b: Vec2): boolean {
+  const dx = Math.abs(a.x - b.x);
+  const dy = Math.abs(a.y - b.y);
+  return (dx === 1 && dy === 0) || (dx === 0 && dy === 1);
+}
+
 // Maps the internal 8-direction facing to a 4-direction facing, used when
 // only 4-direction sprites are available for rendering.
 export type Direction4 = 'N' | 'S' | 'E' | 'W';

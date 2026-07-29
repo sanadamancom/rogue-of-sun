@@ -66,6 +66,14 @@ export interface Actor {
   alive: boolean;
 }
 
+/** Enemy species. 'bok' chases in 8 directions; 'spider' chases in 4 directions only. */
+export type EnemyType = 'bok' | 'spider';
+
+/** An enemy Actor tagged with its species; used for AI branching and sprite/texture selection. */
+export interface EnemyActor extends Actor {
+  type: EnemyType;
+}
+
 // 'floor_cleared' is a transient signal set for a single processTurn call
 // when the player reaches an unlocked (enemy-defeated) staircase on a
 // non-final floor; the caller regenerates the next floor immediately and
@@ -75,8 +83,8 @@ export type GamePhase = 'playing' | 'floor_cleared' | 'gameover' | 'victory';
 export interface GameState {
   map: GameMap;
   player: Actor;
-  /** Fixed-order list of this floor's enemies; dead enemies stay in the array with alive=false. */
-  enemies: Actor[];
+  /** Fixed-order list of this floor's enemies (index 0 = bok, index 1 = spider); dead enemies stay in the array with alive=false. */
+  enemies: EnemyActor[];
   turn: number;
   phase: GamePhase;
   /** Seed used to generate this floor's map (derived from runSeed + floor). */

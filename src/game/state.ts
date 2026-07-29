@@ -1,5 +1,5 @@
 import { choosePlacement, createRng, generateMap, MAP_GEN_PARAMS } from './mapgen';
-import { createInitialActor } from './turn';
+import { createInitialActor, createInitialEnemy } from './turn';
 import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
 import { Actor, GameState } from './types';
 
@@ -42,7 +42,13 @@ function buildFloorState(runSeed: number, floor: number, turn: number, carry?: C
     player.hp = carry.hp;
   }
 
-  const enemies = placement.enemies.map((pos) => createInitialActor(pos, 2, 1));
+  // Fixed species assignment: index 0 is bok, index 1 is spider. Both use the
+  // same initial stats as before; assignment consumes no additional PRNG
+  // draws, so placement coordinates and determinism are unaffected.
+  const ENEMY_TYPES_IN_ORDER = ['bok', 'spider'] as const;
+  const enemies = placement.enemies.map((pos, i) =>
+    createInitialEnemy(ENEMY_TYPES_IN_ORDER[i], pos, 2, 1),
+  );
 
   return {
     map,

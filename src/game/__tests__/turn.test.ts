@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createInitialActor, processTurn, REGEN_TURNS_PER_HP } from '../turn';
+import { createInitialActor, createInitialEnemy, processTurn, REGEN_TURNS_PER_HP } from '../turn';
 import { GameMap, GameState, Tile } from '../types';
 
 // Small fixed layout retained only for these turn-processing unit tests;
@@ -29,8 +29,8 @@ function freshState(): GameState {
     map: testMap(),
     player: createInitialActor({ x: 2, y: 1 }, 3, 1),
     enemies: [
-      createInitialActor({ x: 7, y: 6 }, 2, 1),
-      createInitialActor({ x: 8, y: 6 }, 2, 1),
+      createInitialEnemy('bok', { x: 7, y: 6 }, 2, 1),
+      createInitialEnemy('bok', { x: 8, y: 6 }, 2, 1),
     ],
     turn: 0,
     phase: 'playing',

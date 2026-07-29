@@ -1,6 +1,6 @@
-import { directionBetweenAdjacent, isAdjacent } from './direction';
+import { directionBetweenAdjacent, isAdjacent, isOrthogonallyAdjacent } from './direction';
 import { canMove, destinationOf } from './map';
-import { Actor, GameState, PlayerAction, Vec2 } from './types';
+import { Actor, EnemyActor, EnemyType, GameState, PlayerAction, Vec2 } from './types';
 
 /** Consumed player actions required for one natural HP tick (Phase 04 initial setting). */
 export const REGEN_TURNS_PER_HP = 5;
@@ -61,12 +61,13 @@ function applyPlayerAction(
 }
 
 /**
- * Resolves one enemy's action (attack or chase-move-or-wait) against the
+ * Resolves one bok's action (attack or chase-move-or-wait) against the
  * current occupancy of the board: it will not step onto the player's tile
  * or onto another living enemy's current tile (already-moved enemies'
- * updated positions count; dead enemies never block).
+ * updated positions count; dead enemies never block). Unchanged from
+ * Phase 04: 8-direction adjacency and chase.
  */
-function resolveOneEnemy(state: GameState, enemy: Actor): { acted: boolean; attacked: boolean } {
+function resolveBokEnemy(state: GameState, enemy: EnemyActor): { acted: boolean; attacked: boolean } {
   const { player, map, enemies } = state;
 
   if (isAdjacent(enemy.pos, player.pos)) {
@@ -100,6 +101,71 @@ function resolveOneEnemy(state: GameState, enemy: Actor): { acted: boolean; atta
 
   // No valid step available; wait in place.
   return { acted: true, attacked: false };
+}
+
+// Fixed cardinal check order used both for the spider's move candidates and
+// as the deterministic tie-break order when multiple candidates yield the
+// same resulting distance to the player. Matches the N/S/E/W ordering used
+// throughout ALL_DIRECTIONS.
+const SPIDER_DIRECTIONS: import('./types').Direction8[] = ['N', 'S', 'E', 'W'];
+
+/**
+ * Resolves one spider's action. Spiders only ever attack or move along the
+ * four cardinal directions: diagonal adjacency never triggers an attack,
+ * and diagonal movement is never a candidate. Among legal cardinal move
+ * candidates, the one minimizing Manhattan distance to the player after
+ * the move is chosen; ties are broken by SPIDER_DIRECTIONS order (no RNG).
+ * If no legal candidate exists, the spider waits.
+ */
+function resolveSpiderEnemy(state: GameState, enemy: EnemyActor): { acted: boolean; attacked: boolean } {
+  const { player, map, enemies } = state;
+
+  if (isOrthogonallyAdjacent(enemy.pos, player.pos)) {
+    const dir = directionBetweenAdjacent(enemy.pos, player.pos);
+    if (dir) enemy.facing = dir;
+    player.hp = Math.max(0, player.hp - enemy.attack);
+    if (player.hp === 0) player.alive = false;
+    return { acted: true, attacked: true };
+  }
+
+  const isOccupied = (pos: Vec2): boolean => {
+    if (pos.x === player.pos.x && pos.y === player.pos.y) return true;
+    return enemies.some(
+      (other) => other !== enemy && other.alive && other.pos.x === pos.x && other.pos.y === pos.y,
+    );
+  };
+
+  const manhattan = (pos: Vec2): number =>
+    Math.abs(pos.x - player.pos.x) + Math.abs(pos.y - player.pos.y);
+
+  let bestDir: import('./types').Direction8 | null = null;
+  let bestDest: Vec2 | null = null;
+  let bestDist = Infinity;
+
+  for (const dir of SPIDER_DIRECTIONS) {
+    if (!canMove(map, enemy.pos, dir)) continue;
+    const dest = destinationOf(enemy.pos, dir);
+    if (isOccupied(dest)) continue;
+    const dist = manhattan(dest);
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestDir = dir;
+      bestDest = dest;
+    }
+  }
+
+  if (bestDir && bestDest) {
+    enemy.facing = bestDir;
+    enemy.pos = bestDest;
+    return { acted: true, attacked: false };
+  }
+
+  // No valid step available; wait in place.
+  return { acted: true, attacked: false };
+}
+
+function resolveOneEnemy(state: GameState, enemy: EnemyActor): { acted: boolean; attacked: boolean } {
+  return enemy.type === 'spider' ? resolveSpiderEnemy(state, enemy) : resolveBokEnemy(state, enemy);
 }
 
 /**
@@ -233,4 +299,8 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
 
 export function createInitialActor(pos: Vec2, hp: number, attack: number): Actor {
   return { pos, hp, maxHp: hp, attack, facing: 'S', alive: true };
+}
+
+export function createInitialEnemy(type: EnemyType, pos: Vec2, hp: number, attack: number): EnemyActor {
+  return { ...createInitialActor(pos, hp, attack), type };
 }

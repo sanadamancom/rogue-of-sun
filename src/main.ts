@@ -3,7 +3,7 @@ import { toDirection4 } from './game/direction';
 import { actionForKey } from './game/input';
 import { advanceToNextFloor, createInitialState, randomSeed } from './game/state';
 import { processTurn } from './game/turn';
-import { GameState } from './game/types';
+import { EnemyType, GameState } from './game/types';
 
 const TILE_SIZE = 48;
 // Fixed viewport smaller than the full 40x30 map so the camera can follow
@@ -51,6 +51,19 @@ function walkAnimKey(spriteKey: string, dir4: 'N' | 'E' | 'S' | 'W'): string {
   return `${spriteKey}-walk-${dir4}`;
 }
 
+// Chroma key color used by the supplied enemy sprite sheets (exact match
+// only; no threshold/approximate color matching).
+const CHROMA_KEY_R = 0;
+const CHROMA_KEY_G = 255;
+const CHROMA_KEY_B = 0;
+
+const SPIDER_RAW_KEY = 'spider_raw';
+const SPIDER_TEXTURE_KEY = 'spider';
+
+function textureKeyForEnemyType(type: EnemyType): string {
+  return type === 'spider' ? SPIDER_TEXTURE_KEY : 'bok_lv1';
+}
+
 class MainScene extends Phaser.Scene {
   private state!: GameState;
   private terrainGraphics!: Phaser.GameObjects.Graphics;
@@ -73,6 +86,12 @@ class MainScene extends Phaser.Scene {
       frameWidth: SPRITE_FRAME_WIDTH,
       frameHeight: SPRITE_FRAME_HEIGHT,
     });
+    // Loaded as a plain (non-spritesheet) image: the spider source PNG has
+    // an opaque chroma-key background, not real alpha transparency, so it
+    // is not usable as a renderable spritesheet directly. create() derives
+    // a transparent spritesheet texture from this raw image at runtime,
+    // without modifying the source file.
+    this.load.image(SPIDER_RAW_KEY, 'assets/sprites/spider.png');
   }
 
   create(): void {
@@ -91,6 +110,8 @@ class MainScene extends Phaser.Scene {
     this.playerSprite.setScale(SPRITE_SCALE_X, SPRITE_SCALE_Y);
     this.createWalkAnimations('player');
     this.createWalkAnimations('bok_lv1');
+    this.createSpiderTexture();
+    this.createWalkAnimations(SPIDER_TEXTURE_KEY);
     this.rebuildEnemySprites();
 
     this.hudText = this.add
@@ -125,21 +146,79 @@ class MainScene extends Phaser.Scene {
     this.snapAllEnemies();
   }
 
-  /** (Re)creates one bok_lv1 sprite per current enemy, discarding any previous sprites/tweens. */
+  /**
+   * Derives a transparent, frame-sliced 'spider' spritesheet texture from
+   * the raw 'spider_raw' image at runtime: draws it onto an offscreen
+   * canvas, zeroes the alpha of pixels matching the exact chroma-key color
+   * (no thresholding, no other pixel changes), then registers the canvas
+   * as a spritesheet texture. Runs once per Scene lifetime (guarded by a
+   * texture-existence check so restarts/floor changes never re-register
+   * it); the source PNG on disk is never touched.
+   */
+  private createSpiderTexture(): void {
+    if (this.textures.exists(SPIDER_TEXTURE_KEY)) return;
+
+    if (!this.textures.exists(SPIDER_RAW_KEY)) {
+      throw new Error(`Missing raw texture '${SPIDER_RAW_KEY}'; cannot derive spider spritesheet.`);
+    }
+    const rawImage = this.textures.get(SPIDER_RAW_KEY).getSourceImage() as
+      | HTMLImageElement
+      | HTMLCanvasElement;
+    const width = rawImage.width;
+    const height = rawImage.height;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      throw new Error('Failed to acquire 2D context for spider chroma-key texture generation.');
+    }
+
+    ctx.drawImage(rawImage, 0, 0);
+    const imageData = ctx.getImageData(0, 0, width, height);
+    const data = imageData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i] === CHROMA_KEY_R && data[i + 1] === CHROMA_KEY_G && data[i + 2] === CHROMA_KEY_B) {
+        data[i + 3] = 0;
+      }
+    }
+    ctx.putImageData(imageData, 0, 0);
+
+    // addSpriteSheet only accepts an HTMLImageElement or an existing
+    // Phaser Texture as its source (not a raw HTMLCanvasElement), so the
+    // canvas is first registered as its own texture, then re-sliced into
+    // the frame-based spritesheet texture used for rendering.
+    const canvasTexture = this.textures.addCanvas(`${SPIDER_TEXTURE_KEY}_canvas`, canvas);
+    if (!canvasTexture) {
+      throw new Error('Failed to register spider chroma-key canvas as a texture.');
+    }
+    this.textures.addSpriteSheet(SPIDER_TEXTURE_KEY, canvasTexture, {
+      frameWidth: SPRITE_FRAME_WIDTH,
+      frameHeight: SPRITE_FRAME_HEIGHT,
+    });
+    // Preserve the game's pixel-art (nearest-neighbor) filtering, matching
+    // textures loaded through the normal loader under pixelArt: true.
+    this.textures.get(SPIDER_TEXTURE_KEY).setFilter(Phaser.Textures.FilterMode.NEAREST);
+  }
+
+  /** (Re)creates one sprite per current enemy, using each enemy's own texture, discarding any previous sprites/tweens. */
   private rebuildEnemySprites(): void {
     for (const sprite of this.enemySprites) {
       this.tweens.killTweensOf(sprite);
       sprite.destroy();
     }
-    this.enemySprites = this.state.enemies.map(() => {
-      const sprite = this.add.sprite(0, 0, 'bok_lv1', idleFrame('S'));
+    this.enemySprites = this.state.enemies.map((enemy) => {
+      const sprite = this.add.sprite(0, 0, textureKeyForEnemyType(enemy.type), idleFrame('S'));
       sprite.setScale(SPRITE_SCALE_X, SPRITE_SCALE_Y);
       return sprite;
     });
   }
 
   private snapAllEnemies(): void {
-    this.state.enemies.forEach((enemy, i) => this.snapActor(this.enemySprites[i], enemy));
+    this.state.enemies.forEach((enemy, i) =>
+      this.snapActor(this.enemySprites[i], enemy, textureKeyForEnemyType(enemy.type)),
+    );
   }
 
   private createWalkAnimations(spriteKey: string): void {
@@ -228,11 +307,12 @@ class MainScene extends Phaser.Scene {
     this.state.enemies.forEach((enemy, i) => {
       const before = enemiesBefore[i];
       const sprite = this.enemySprites[i];
+      const spriteKey = textureKeyForEnemyType(enemy.type);
       const moved = enemy.pos.x !== before.x || enemy.pos.y !== before.y;
       if (moved) {
-        this.animateMove(sprite, 'bok_lv1', enemy, before);
+        this.animateMove(sprite, spriteKey, enemy, before);
       } else {
-        this.snapActor(sprite, enemy);
+        this.snapActor(sprite, enemy, spriteKey);
       }
     });
   }
@@ -263,13 +343,14 @@ class MainScene extends Phaser.Scene {
   private snapActor(
     sprite: Phaser.GameObjects.Sprite,
     actor: GameState['player'],
+    spriteKey: string = 'player',
   ): void {
     const x = actor.pos.x * TILE_SIZE + TILE_SIZE / 2;
     const y = actor.pos.y * TILE_SIZE + TILE_SIZE / 2;
     sprite.setPosition(x, y);
     sprite.setVisible(actor.alive);
     if (actor.alive) {
-      this.ensureWalking(sprite, sprite === this.playerSprite ? 'player' : 'bok_lv1', toDirection4(actor.facing));
+      this.ensureWalking(sprite, spriteKey, toDirection4(actor.facing));
     } else {
       sprite.anims.stop();
     }
