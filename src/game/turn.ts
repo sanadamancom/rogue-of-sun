@@ -2,6 +2,7 @@ import { directionBetweenAdjacent, isAdjacent, isOrthogonallyAdjacent } from './
 import { canMove, destinationOf, isWalkable } from './map';
 import { ENEMY_DEFINITIONS } from './enemy-def';
 import { canPlaceWebNow, expireWebs, placeWeb } from './web';
+import { GameEvent } from './events';
 import {
   Actor,
   Direction8,
@@ -31,11 +32,21 @@ export interface TurnResult {
   playerDefeated: boolean;
   /** Whether the player's natural HP regeneration triggered this turn. */
   playerRegenerated: boolean;
+  /**
+   * Typed events produced while resolving this turn, in the exact order
+   * the underlying actions occurred (player action first, then each
+   * living enemy's action in state.enemies array order). Empty for
+   * unconsumed/blocked inputs and for actions with nothing worth
+   * announcing (e.g. a normal move or wait). See src/game/events.ts and
+   * src/game/message-log.ts for the event shapes and their formatting.
+   */
+  events: GameEvent[];
 }
 
 function applyPlayerAction(
   state: GameState,
   action: PlayerAction,
+  events: GameEvent[],
 ): { consumed: boolean; attacked: boolean; defeated: boolean } {
   if (action.type === 'wait') {
     return { consumed: true, attacked: false, defeated: false };
@@ -51,6 +62,7 @@ function applyPlayerAction(
   // logic below.
   if (player.slowed) {
     player.slowed = false;
+    events.push({ type: 'slowed_move_cancelled' });
     return { consumed: true, attacked: false, defeated: false };
   }
 
@@ -66,8 +78,10 @@ function applyPlayerAction(
     player.facing = action.direction;
     target.hp = Math.max(0, target.hp - player.attack);
     const defeated = target.hp === 0;
+    events.push({ type: 'player_attack', enemyType: target.type, damage: player.attack });
     if (defeated) {
       target.alive = false;
+      events.push({ type: 'enemy_defeated', enemyType: target.type });
     }
     return { consumed: true, attacked: true, defeated };
   }
@@ -84,6 +98,7 @@ function applyPlayerAction(
     // increment — for clarity and safety either way).
     if (state.webs.some((web) => web.pos.x === destination.x && web.pos.y === destination.y)) {
       player.slowed = true;
+      events.push({ type: 'player_webbed' });
     }
     return { consumed: true, attacked: false, defeated: false };
   }
@@ -99,12 +114,13 @@ function applyPlayerAction(
  * behaviorType (generic_melee, slow_melee, fast_melee, recovery_melee) so
  * the attack resolution itself lives in one place.
  */
-function tryMeleeAttack(state: GameState, enemy: EnemyActor): boolean {
+function tryMeleeAttack(state: GameState, enemy: EnemyActor, events: GameEvent[]): boolean {
   const { player } = state;
   if (!isAdjacent(enemy.pos, player.pos)) return false;
   const dir = directionBetweenAdjacent(enemy.pos, player.pos);
   if (dir) enemy.facing = dir;
   player.hp = Math.max(0, player.hp - enemy.attack);
+  events.push({ type: 'enemy_attack', enemyType: enemy.type, damage: enemy.attack });
   if (player.hp === 0) player.alive = false;
   return true;
 }
@@ -147,8 +163,12 @@ function tryChaseStep(state: GameState, enemy: EnemyActor): boolean {
  * 8-direction adjacency and chase, now expressed via the shared
  * tryMeleeAttack/tryChaseStep helpers above instead of inline logic.
  */
-function resolveBokEnemy(state: GameState, enemy: EnemyActor): { acted: boolean; attacked: boolean } {
-  if (tryMeleeAttack(state, enemy)) {
+function resolveBokEnemy(
+  state: GameState,
+  enemy: EnemyActor,
+  events: GameEvent[],
+): { acted: boolean; attacked: boolean } {
+  if (tryMeleeAttack(state, enemy, events)) {
     return { acted: true, attacked: true };
   }
   tryChaseStep(state, enemy); // moves if possible; no-op (wait in place) otherwise
@@ -164,13 +184,18 @@ function resolveBokEnemy(state: GameState, enemy: EnemyActor): { acted: boolean;
  * adjacent to the player. On an acting turn it behaves exactly like bok
  * (attack if adjacent, otherwise one chase step).
  */
-function resolveGolemEnemy(state: GameState, enemy: EnemyActor): { acted: boolean; attacked: boolean } {
+function resolveGolemEnemy(
+  state: GameState,
+  enemy: EnemyActor,
+  events: GameEvent[],
+): { acted: boolean; attacked: boolean } {
   const phase = (state.turn - (enemy.spawnTurn ?? 0)) % 2;
   if (phase !== 0) {
     // Resting turn: deliberately does not attack even if adjacent.
+    events.push({ type: 'enemy_recovering', enemyType: enemy.type });
     return { acted: false, attacked: false };
   }
-  if (tryMeleeAttack(state, enemy)) {
+  if (tryMeleeAttack(state, enemy, events)) {
     return { acted: true, attacked: true };
   }
   tryChaseStep(state, enemy);
@@ -186,8 +211,12 @@ function resolveGolemEnemy(state: GameState, enemy: EnemyActor): { acted: boolea
  * becomes adjacent after the second step, it does not attack that turn.
  * At most one attack per enemy turn either way.
  */
-function resolveSwordEnemy(state: GameState, enemy: EnemyActor): { acted: boolean; attacked: boolean } {
-  if (tryMeleeAttack(state, enemy)) {
+function resolveSwordEnemy(
+  state: GameState,
+  enemy: EnemyActor,
+  events: GameEvent[],
+): { acted: boolean; attacked: boolean } {
+  if (tryMeleeAttack(state, enemy, events)) {
     return { acted: true, attacked: true };
   }
 
@@ -195,11 +224,18 @@ function resolveSwordEnemy(state: GameState, enemy: EnemyActor): { acted: boolea
   if (!movedFirstStep) {
     return { acted: true, attacked: false }; // no legal step at all; wait in place
   }
-  if (tryMeleeAttack(state, enemy)) {
+  if (tryMeleeAttack(state, enemy, events)) {
     return { acted: true, attacked: true }; // became adjacent after step 1: attack, no step 2
   }
 
-  tryChaseStep(state, enemy); // step 2; never attacks this turn even if now adjacent
+  // Step 2; never attacks this turn even if now adjacent. Only when this
+  // second step actually happens does the movement count as the sword's
+  // signature 2-tile approach worth announcing; a single successful step
+  // (or none at all) is a normal move and stays silent.
+  const movedSecondStep = tryChaseStep(state, enemy);
+  if (movedSecondStep) {
+    events.push({ type: 'sword_dash', enemyType: enemy.type });
+  }
   return { acted: true, attacked: false };
 }
 
@@ -211,12 +247,17 @@ function resolveSwordEnemy(state: GameState, enemy: EnemyActor): { acted: boolea
  * adjacent, otherwise one chase step), and an attack sets `recovering` for
  * next turn. Moving without attacking never triggers recovery.
  */
-function resolveAxeEnemy(state: GameState, enemy: EnemyActor): { acted: boolean; attacked: boolean } {
+function resolveAxeEnemy(
+  state: GameState,
+  enemy: EnemyActor,
+  events: GameEvent[],
+): { acted: boolean; attacked: boolean } {
   if (enemy.recovering) {
     enemy.recovering = false;
+    events.push({ type: 'enemy_recovering', enemyType: enemy.type });
     return { acted: false, attacked: false };
   }
-  if (tryMeleeAttack(state, enemy)) {
+  if (tryMeleeAttack(state, enemy, events)) {
     enemy.recovering = true;
     return { acted: true, attacked: true };
   }
@@ -361,11 +402,16 @@ function decrementWebCooldown(enemy: EnemyActor): void {
  * are what its cooldown counts down across; other enemies acting never
  * affects it.
  */
-function resolveSpiderEnemy(state: GameState, enemy: EnemyActor): { acted: boolean; attacked: boolean } {
+function resolveSpiderEnemy(
+  state: GameState,
+  enemy: EnemyActor,
+  events: GameEvent[],
+): { acted: boolean; attacked: boolean } {
   if (isOrthogonallyAdjacent(enemy.pos, state.player.pos)) {
     const dir = directionBetweenAdjacent(enemy.pos, state.player.pos);
     if (dir) enemy.facing = dir;
     state.player.hp = Math.max(0, state.player.hp - enemy.attack);
+    events.push({ type: 'enemy_attack', enemyType: enemy.type, damage: enemy.attack });
     if (state.player.hp === 0) state.player.alive = false;
     decrementWebCooldown(enemy);
     return { acted: true, attacked: true };
@@ -374,6 +420,7 @@ function resolveSpiderEnemy(state: GameState, enemy: EnemyActor): { acted: boole
   const eligibleToPlaceWeb = (enemy.webCooldown ?? 0) <= 0;
   if (eligibleToPlaceWeb && canPlaceWebNow(state, enemy)) {
     placeWeb(state, enemy);
+    events.push({ type: 'web_placed', enemyType: enemy.type });
     return { acted: true, attacked: false };
   }
 
@@ -405,23 +452,27 @@ function resolveSpiderEnemy(state: GameState, enemy: EnemyActor): { acted: boole
  *   routed here as a playable placeholder rather than an inert prop).
  * - 'stationary': never moves or attacks (kraken).
  */
-function resolveOneEnemy(state: GameState, enemy: EnemyActor): { acted: boolean; attacked: boolean } {
+function resolveOneEnemy(
+  state: GameState,
+  enemy: EnemyActor,
+  events: GameEvent[],
+): { acted: boolean; attacked: boolean } {
   const behaviorType = ENEMY_DEFINITIONS[enemy.type].behaviorType;
   switch (behaviorType) {
     case 'spider_cardinal':
-      return resolveSpiderEnemy(state, enemy);
+      return resolveSpiderEnemy(state, enemy, events);
     case 'slow_melee':
-      return resolveGolemEnemy(state, enemy);
+      return resolveGolemEnemy(state, enemy, events);
     case 'fast_melee':
-      return resolveSwordEnemy(state, enemy);
+      return resolveSwordEnemy(state, enemy, events);
     case 'recovery_melee':
-      return resolveAxeEnemy(state, enemy);
+      return resolveAxeEnemy(state, enemy, events);
     case 'stationary':
       return { acted: false, attacked: false };
     case 'generic_melee':
     case 'placeholder':
     default:
-      return resolveBokEnemy(state, enemy);
+      return resolveBokEnemy(state, enemy, events);
   }
 }
 
@@ -430,13 +481,16 @@ function resolveOneEnemy(state: GameState, enemy: EnemyActor): { acted: boolean;
  * immediately once the player is defeated, so no later enemy acts against
  * an already-defeated player.
  */
-function resolveEnemiesAction(state: GameState): { acted: boolean; attacked: boolean } {
+function resolveEnemiesAction(
+  state: GameState,
+  events: GameEvent[],
+): { acted: boolean; attacked: boolean } {
   let acted = false;
   let attacked = false;
 
   for (const enemy of state.enemies) {
     if (!enemy.alive) continue;
-    const result = resolveOneEnemy(state, enemy);
+    const result = resolveOneEnemy(state, enemy, events);
     if (result.acted) acted = true;
     if (result.attacked) attacked = true;
     if (!state.player.alive) break;
@@ -494,10 +548,12 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
       enemyAttacked: false,
       playerDefeated: false,
       playerRegenerated: false,
+      events: [],
     };
   }
 
-  const { consumed, attacked, defeated } = applyPlayerAction(state, action);
+  const events: GameEvent[] = [];
+  const { consumed, attacked, defeated } = applyPlayerAction(state, action, events);
 
   if (!consumed) {
     return {
@@ -508,12 +564,16 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
       enemyAttacked: false,
       playerDefeated: false,
       playerRegenerated: false,
+      events: [],
     };
   }
 
-  const { acted: enemyActed, attacked: enemyAttacked } = resolveEnemiesAction(state);
+  const { acted: enemyActed, attacked: enemyAttacked } = resolveEnemiesAction(state, events);
 
   const playerDefeated = !state.player.alive;
+  if (playerDefeated) {
+    events.push({ type: 'player_defeated' });
+  }
 
   let playerRegenerated = false;
   if (state.player.alive) {
@@ -557,6 +617,7 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
     enemyAttacked,
     playerDefeated,
     playerRegenerated,
+    events,
   };
 }
 

@@ -2,9 +2,14 @@ import Phaser from 'phaser';
 import { toDirection4 } from './game/direction';
 import { actionForKey } from './game/input';
 import { ENEMY_DEFINITIONS } from './game/enemy-def';
+import { formatEvent, formatEvents, MessageLog } from './game/message-log';
 import { advanceToNextFloor, createInitialState, randomSeed } from './game/state';
 import { processTurn } from './game/turn';
 import { EnemyType, GameState } from './game/types';
+
+// Latest 3 lines only, per message_lifecycle: newest at the bottom, oldest
+// pushed out once over capacity.
+const MESSAGE_LOG_CAPACITY = 3;
 
 const TILE_SIZE = 48;
 // Fixed viewport smaller than the full 40x30 map so the camera can follow
@@ -88,6 +93,9 @@ class MainScene extends Phaser.Scene {
   private enemySprites: Phaser.GameObjects.Sprite[] = [];
   private hudText!: Phaser.GameObjects.Text;
   private messageText!: Phaser.GameObjects.Text;
+  private readonly messageLog = new MessageLog(MESSAGE_LOG_CAPACITY);
+  private logPanelBg!: Phaser.GameObjects.Graphics;
+  private logPanelText!: Phaser.GameObjects.Text;
 
   constructor() {
     super('main');
@@ -159,6 +167,8 @@ class MainScene extends Phaser.Scene {
       .setScrollFactor(0)
       .setVisible(false);
 
+    this.createLogPanel();
+
     this.input.keyboard!.on('keydown', (event: KeyboardEvent) => {
       this.handleKey(event.key);
     });
@@ -168,6 +178,43 @@ class MainScene extends Phaser.Scene {
     this.refreshStaticView();
     this.snapActor(this.playerSprite, this.state.player);
     this.snapAllEnemies();
+  }
+
+  /**
+   * Builds the provisional message-log panel docked to the bottom of the
+   * screen: a simple translucent bar tall enough for MESSAGE_LOG_CAPACITY
+   * lines, screen-fixed (unaffected by camera scroll). Deliberately no
+   * scroll, expand button, icons, or color-coding per ui.requirements.
+   */
+  private readonly LOG_PANEL_PADDING = 6;
+  private readonly LOG_LINE_HEIGHT = 18;
+
+  private createLogPanel(): void {
+    const panelHeight = MESSAGE_LOG_CAPACITY * this.LOG_LINE_HEIGHT + this.LOG_PANEL_PADDING * 2;
+    const panelY = this.scale.height - panelHeight;
+
+    this.logPanelBg = this.add.graphics().setScrollFactor(0);
+    this.logPanelBg.fillStyle(0x000000, 0.55);
+    this.logPanelBg.fillRect(0, panelY, this.scale.width, panelHeight);
+    this.logPanelBg.lineStyle(1, 0xffffff, 0.25);
+    this.logPanelBg.strokeRect(0, panelY, this.scale.width, panelHeight);
+
+    this.logPanelText = this.add
+      .text(this.LOG_PANEL_PADDING, panelY + this.LOG_PANEL_PADDING, '', {
+        fontFamily: 'monospace',
+        fontSize: '14px',
+        color: '#e8e8e8',
+        lineSpacing: this.LOG_LINE_HEIGHT - 14,
+      })
+      .setScrollFactor(0);
+
+    this.refreshLogPanel();
+  }
+
+  /** Redraws the log panel text from the current MessageLog contents. */
+  private refreshLogPanel(): void {
+    const lines = this.messageLog.visible;
+    this.logPanelText.setText(lines.length > 0 ? lines.join('\n') : '');
   }
 
   /**
@@ -358,13 +405,18 @@ class MainScene extends Phaser.Scene {
     const playerBefore = { ...this.state.player.pos };
     const enemiesBefore = this.state.enemies.map((enemy) => ({ ...enemy.pos }));
 
-    processTurn(this.state, action);
+    const result = processTurn(this.state, action);
+    this.messageLog.pushMany(formatEvents(result.events));
     const phaseAfterTurn = this.state.phase as import('./game/types').GamePhase;
 
     if (phaseAfterTurn === 'floor_cleared') {
       // Immediate, no interstitial: regenerate the next floor synchronously
-      // within this same key handling call, before any further input.
+      // within this same key handling call, before any further input. The
+      // previous floor's combat messages are not carried over — the log is
+      // cleared and replaced with the floor-advance message.
       this.state = advanceToNextFloor(this.state);
+      this.messageLog.clear();
+      this.messageLog.push(formatEvent({ type: 'floor_advanced' }));
       this.resetSceneToCurrentState();
       return;
     }
@@ -396,6 +448,7 @@ class MainScene extends Phaser.Scene {
   /** Starts a brand-new run (floor 1) for `runSeed`; same runSeed always yields the same 3 floors. */
   private restart(runSeed: number): void {
     this.state = createInitialState(runSeed);
+    this.messageLog.clear();
     this.resetSceneToCurrentState();
   }
 
@@ -480,6 +533,7 @@ class MainScene extends Phaser.Scene {
 
     this.drawWebs();
     this.updatePlayerSlowedTint();
+    this.refreshLogPanel();
 
     this.hudText.setText(
       `FLOOR ${this.state.floor}/${this.state.totalFloors}   HP: ${player.hp}/${player.maxHp}   Turn: ${this.state.turn}\n` +
