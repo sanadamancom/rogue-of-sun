@@ -1,17 +1,19 @@
 import { describe, expect, it } from 'vitest';
+import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER } from '../enemy-def';
 import { advanceToNextFloor, createInitialState } from '../state';
-import { processTurn } from '../turn';
-import { GameMap, GameState, Tile } from '../types';
+import { createInitialEnemy, processTurn } from '../turn';
+import { EnemyType, GameMap, GameState, Tile } from '../types';
 
 const RUN_SEEDS = Array.from({ length: 100 }, (_, i) => i * 17 + 5);
 
 describe('enemy species assignment', () => {
-  it('always generates exactly one bok (index 0) and one spider (index 1) per floor', () => {
+  it('always generates exactly 2 enemies per floor, each a valid roster species', () => {
     for (const runSeed of RUN_SEEDS) {
       const state = createInitialState(runSeed);
       expect(state.enemies).toHaveLength(2);
-      expect(state.enemies[0].type).toBe('bok');
-      expect(state.enemies[1].type).toBe('spider');
+      for (const enemy of state.enemies) {
+        expect(ENEMY_TYPES_IN_ORDER).toContain(enemy.type);
+      }
     }
   });
 
@@ -23,28 +25,45 @@ describe('enemy species assignment', () => {
     expect(a.enemies.map((e) => e.pos)).toEqual(b.enemies.map((e) => e.pos));
   });
 
-  it('gives a fresh run (new run seed) the same bok+spider composition', () => {
-    const state = createInitialState(999999);
-    expect(state.enemies.map((e) => e.type)).toEqual(['bok', 'spider']);
+  it('keeps species assignment consistent for a fresh run (new run seed)', () => {
+    const a = createInitialState(999999);
+    const b = createInitialState(999999);
+    expect(a.enemies.map((e) => e.type)).toEqual(b.enemies.map((e) => e.type));
   });
 
-  it('keeps bok+spider composition on the next floor', () => {
-    let state = createInitialState(2780624551);
-    state.enemies.forEach((e) => (e.alive = false));
-    // Force onto exit and clear.
-    state.player.pos = { ...state.exit };
-    processTurn(state, { type: 'wait' });
-    expect(state.phase).toBe('floor_cleared');
-    state = advanceToNextFloor(state);
-    expect(state.enemies.map((e) => e.type)).toEqual(['bok', 'spider']);
+  it('keeps species assignment deterministic across a floor transition for a fixed run seed', () => {
+    const advanceOnce = (runSeed: number) => {
+      let state = createInitialState(runSeed);
+      state.enemies.forEach((e) => (e.alive = false));
+      state.player.pos = { ...state.exit };
+      processTurn(state, { type: 'wait' });
+      expect(state.phase).toBe('floor_cleared');
+      state = advanceToNextFloor(state);
+      return state.enemies.map((e) => e.type);
+    };
+    const a = advanceOnce(2780624551);
+    const b = advanceOnce(2780624551);
+    expect(a).toEqual(b);
   });
 
-  it('does not change map generation determinism (species assignment consumes no extra PRNG draws)', () => {
+  it('does not change map generation determinism (species assignment consumes its own separate RNG stream)', () => {
     // Same seed generates the same map/placement regardless of species tagging.
     const a = createInitialState(2780624551);
     const b = createInitialState(2780624551);
     expect(a.map.terrain).toEqual(b.map.terrain);
     expect(a.enemies.map((e) => e.pos)).toEqual(b.enemies.map((e) => e.pos));
+  });
+
+  it('makes every one of the 9 species a reachable normal-spawn outcome across enough seeds', () => {
+    const seen = new Set<EnemyType>();
+    for (let runSeed = 0; runSeed < 500; runSeed++) {
+      const state = createInitialState(runSeed);
+      state.enemies.forEach((e) => seen.add(e.type));
+      if (seen.size === ENEMY_TYPES_IN_ORDER.length) break;
+    }
+    for (const type of ENEMY_TYPES_IN_ORDER) {
+      expect(seen.has(type)).toBe(true);
+    }
   });
 });
 
@@ -52,22 +71,37 @@ describe('bok regression (unchanged 8-direction behavior)', () => {
   it('bok attacks a diagonally adjacent player', () => {
     const state = createInitialState(2780624551);
     const bok = state.enemies[0];
+    bok.type = 'bok';
     bok.pos = { x: state.player.pos.x + 1, y: state.player.pos.y + 1 };
     bok.alive = true;
     bok.hp = bok.maxHp;
-    const spider = state.enemies[1];
-    spider.pos = { x: 0, y: 0 };
+    // Move every other enemy far away so only bok can act against the player.
+    state.enemies.forEach((e) => {
+      if (e !== bok) e.pos = { x: 0, y: 0 };
+    });
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' });
     expect(state.player.hp).toBe(hpBefore - bok.attack);
   });
 
-  it('keeps existing bok HP and attack values', () => {
-    const state = createInitialState(1);
-    const bok = state.enemies[0];
-    expect(bok.hp).toBe(2);
-    expect(bok.maxHp).toBe(2);
+  it('bok spawns with the common-table hp (3) and attack (1) values', () => {
+    // enemy-def.ts defines bok's stats directly; verify the definition
+    // itself (imported, not re-derived) and that a freshly created bok
+    // enemy actually carries those values.
+    const bokDef = ENEMY_DEFINITIONS.bok;
+    expect(bokDef.hp).toBe(3);
+    expect(bokDef.attack).toBe(1);
+    const bok = createInitialEnemy('bok', { x: 0, y: 0 }, bokDef.hp, bokDef.attack);
+    expect(bok.hp).toBe(3);
+    expect(bok.maxHp).toBe(3);
     expect(bok.attack).toBe(1);
+  });
+
+  it('bok is defeated by a total of 3 damage (matching its hp)', () => {
+    const bokDef = ENEMY_DEFINITIONS.bok;
+    const bok = createInitialEnemy('bok', { x: 0, y: 0 }, bokDef.hp, bokDef.attack);
+    bok.hp = Math.max(0, bok.hp - 3);
+    expect(bok.hp).toBe(0);
   });
 });
 
@@ -115,6 +149,8 @@ function freshSpiderState(): GameState {
     totalFloors: 3,
     exit: { x: 99, y: 99 },
     regenProgress: 0,
+    webs: [],
+    nextWebId: 0,
   };
 }
 
@@ -226,10 +262,12 @@ describe('spider behavior', () => {
 describe('combat and progression with mixed enemy types', () => {
   it('the player can attack and defeat either bok or spider independently', () => {
     const state = createInitialState(2780624551);
-    const spider = state.enemies[1];
+    const spider = state.enemies[0];
+    spider.type = 'spider';
     spider.pos = { x: state.player.pos.x + 1, y: state.player.pos.y };
     spider.hp = 1;
-    const bok = state.enemies[0];
+    const bok = state.enemies[1];
+    bok.type = 'bok';
     bok.pos = { x: 0, y: 0 };
     processTurn(state, { type: 'move', direction: 'E' });
     expect(spider.alive).toBe(false);
@@ -237,9 +275,9 @@ describe('combat and progression with mixed enemy types', () => {
     expect(bok.hp).toBe(bok.maxHp);
   });
 
-  it('keeps the stairs locked until both bok and spider are defeated', () => {
+  it('keeps the stairs locked until both enemies are defeated', () => {
     const state = createInitialState(11);
-    state.enemies[0].alive = false; // only bok defeated
+    state.enemies[0].alive = false; // only one defeated
     state.player.pos = { ...state.exit };
     processTurn(state, { type: 'wait' });
     expect(state.phase).toBe('playing');

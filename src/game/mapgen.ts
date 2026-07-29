@@ -564,20 +564,36 @@ export interface Placement {
   enemies: Vec2[];
 }
 
-/** Number of enemies placed on every floor in Phase 04 (fixed, no per-floor scaling). */
+/**
+ * Number of enemies placed on every normal floor (fixed, no per-floor
+ * scaling). Reverted to the pre-Phase-06 value of 2 per
+ * enemy-roster-density-correction: showing every registered species at
+ * once must not be achieved by inflating normal floor density (see
+ * choosePlacement's `count` parameter and state.ts's
+ * buildRosterPreviewFloorState for the test-only way to see all species
+ * together).
+ */
 export const ENEMY_COUNT_PER_FLOOR = 2;
 
 /**
  * Chooses start (in the first room), exit (in the room whose center is
  * farthest by floor-path distance from start, guaranteed to be a
- * different room), and ENEMY_COUNT_PER_FLOOR enemy tiles that are each
- * reachable, not on start or exit, not on each other, and not adjacent to
- * start. Selection is deterministic given `rng` (the floor's placement
- * RNG) and never falls back to a reduced enemy count: if the map does not
- * offer enough valid candidate tiles, this throws explicitly rather than
- * silently placing fewer enemies.
+ * different room), and `count` enemy tiles that are each reachable, not on
+ * start or exit, not on each other, and not adjacent to start. Selection is
+ * deterministic given `rng` (the floor's placement RNG) and never falls
+ * back to a reduced enemy count: if the map does not offer enough valid
+ * candidate tiles, this throws explicitly rather than silently placing
+ * fewer enemies.
+ *
+ * `count` defaults to ENEMY_COUNT_PER_FLOOR (normal play); callers may pass
+ * a larger value for test-only/dev-only purposes (e.g. a roster preview
+ * that places all 9 species at once) without changing normal generation.
  */
-export function choosePlacement(map: GameMap, rng: () => number): Placement {
+export function choosePlacement(
+  map: GameMap,
+  rng: () => number,
+  count: number = ENEMY_COUNT_PER_FLOOR,
+): Placement {
   const start = roomCenter(map.rooms[0]);
   const distFromStart = bfsDistances(map, start);
   const key = (p: Vec2) => `${p.x},${p.y}`;
@@ -611,9 +627,9 @@ export function choosePlacement(map: GameMap, rng: () => number): Placement {
     }
   }
 
-  if (candidates.length < ENEMY_COUNT_PER_FLOOR) {
+  if (candidates.length < count) {
     throw new Error(
-      `Not enough valid enemy placement candidates: need ${ENEMY_COUNT_PER_FLOOR}, found ${candidates.length}`,
+      `Not enough valid enemy placement candidates: need ${count}, found ${candidates.length}`,
     );
   }
 
@@ -623,7 +639,7 @@ export function choosePlacement(map: GameMap, rng: () => number): Placement {
   // given rng sequence regardless of pool size.
   const pool = candidates.slice();
   const enemies: Vec2[] = [];
-  for (let i = 0; i < ENEMY_COUNT_PER_FLOOR; i++) {
+  for (let i = 0; i < count; i++) {
     const remaining = pool.length - i;
     const pickIndex = i + Math.floor(rng() * remaining);
     const picked = pool[pickIndex];

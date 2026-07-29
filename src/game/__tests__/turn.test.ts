@@ -40,6 +40,8 @@ function freshState(): GameState {
     totalFloors: 3,
     exit: { x: 99, y: 99 },
     regenProgress: 0,
+    webs: [],
+    nextWebId: 0,
   };
 }
 

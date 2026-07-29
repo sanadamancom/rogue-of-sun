@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { toDirection4 } from './game/direction';
 import { actionForKey } from './game/input';
+import { ENEMY_DEFINITIONS } from './game/enemy-def';
 import { advanceToNextFloor, createInitialState, randomSeed } from './game/state';
 import { processTurn } from './game/turn';
 import { EnemyType, GameState } from './game/types';
@@ -57,17 +58,32 @@ const CHROMA_KEY_R = 0;
 const CHROMA_KEY_G = 255;
 const CHROMA_KEY_B = 0;
 
-const SPIDER_RAW_KEY = 'spider_raw';
-const SPIDER_TEXTURE_KEY = 'spider';
+// 'player' and 'bok_lv1' already ship with real alpha transparency and are
+// loaded directly as spritesheets (see preload()). Every other species'
+// source PNG uses an opaque chroma-key background instead, so each one is
+// loaded as a plain raw image here and re-derived into a transparent,
+// frame-sliced spritesheet texture at runtime by createChromaKeyTexture(),
+// without modifying any source file on disk.
+const NATIVE_TRANSPARENT_SPRITE_KEYS = new Set(['player', 'bok_lv1']);
+
+function rawKeyFor(spriteKey: string): string {
+  return `${spriteKey}_raw`;
+}
 
 function textureKeyForEnemyType(type: EnemyType): string {
-  return type === 'spider' ? SPIDER_TEXTURE_KEY : 'bok_lv1';
+  return ENEMY_DEFINITIONS[type].spriteKey;
+}
+
+/** All distinct sprite sheet keys used by the current 9-species roster, in fixed roster order. */
+function allEnemySpriteKeys(): string[] {
+  return Object.values(ENEMY_DEFINITIONS).map((def) => def.spriteKey);
 }
 
 class MainScene extends Phaser.Scene {
   private state!: GameState;
   private terrainGraphics!: Phaser.GameObjects.Graphics;
   private exitGraphics!: Phaser.GameObjects.Graphics;
+  private webGraphics!: Phaser.GameObjects.Graphics;
   private playerSprite!: Phaser.GameObjects.Sprite;
   private enemySprites: Phaser.GameObjects.Sprite[] = [];
   private hudText!: Phaser.GameObjects.Text;
@@ -86,12 +102,15 @@ class MainScene extends Phaser.Scene {
       frameWidth: SPRITE_FRAME_WIDTH,
       frameHeight: SPRITE_FRAME_HEIGHT,
     });
-    // Loaded as a plain (non-spritesheet) image: the spider source PNG has
-    // an opaque chroma-key background, not real alpha transparency, so it
-    // is not usable as a renderable spritesheet directly. create() derives
-    // a transparent spritesheet texture from this raw image at runtime,
-    // without modifying the source file.
-    this.load.image(SPIDER_RAW_KEY, 'assets/sprites/spider.png');
+    // Every other species' source PNG has an opaque chroma-key background,
+    // not real alpha transparency, so each is loaded as a plain
+    // (non-spritesheet) raw image here; create() derives a transparent
+    // spritesheet texture from each raw image at runtime (see
+    // createChromaKeyTexture()), without modifying any source file.
+    for (const spriteKey of allEnemySpriteKeys()) {
+      if (NATIVE_TRANSPARENT_SPRITE_KEYS.has(spriteKey)) continue;
+      this.load.image(rawKeyFor(spriteKey), `assets/sprites/${spriteKey}.png`);
+    }
   }
 
   create(): void {
@@ -99,8 +118,10 @@ class MainScene extends Phaser.Scene {
 
     this.terrainGraphics = this.add.graphics();
     this.exitGraphics = this.add.graphics();
+    this.webGraphics = this.add.graphics();
     this.drawTerrain();
     this.drawExit();
+    this.drawWebs();
 
     const mapPixelWidth = this.state.map.width * TILE_SIZE;
     const mapPixelHeight = this.state.map.height * TILE_SIZE;
@@ -109,9 +130,12 @@ class MainScene extends Phaser.Scene {
     this.playerSprite = this.add.sprite(0, 0, 'player', idleFrame('S'));
     this.playerSprite.setScale(SPRITE_SCALE_X, SPRITE_SCALE_Y);
     this.createWalkAnimations('player');
-    this.createWalkAnimations('bok_lv1');
-    this.createSpiderTexture();
-    this.createWalkAnimations(SPIDER_TEXTURE_KEY);
+    for (const spriteKey of allEnemySpriteKeys()) {
+      if (!NATIVE_TRANSPARENT_SPRITE_KEYS.has(spriteKey)) {
+        this.createChromaKeyTexture(spriteKey);
+      }
+      this.createWalkAnimations(spriteKey);
+    }
     this.rebuildEnemySprites();
 
     this.hudText = this.add
@@ -147,21 +171,24 @@ class MainScene extends Phaser.Scene {
   }
 
   /**
-   * Derives a transparent, frame-sliced 'spider' spritesheet texture from
-   * the raw 'spider_raw' image at runtime: draws it onto an offscreen
-   * canvas, zeroes the alpha of pixels matching the exact chroma-key color
-   * (no thresholding, no other pixel changes), then registers the canvas
-   * as a spritesheet texture. Runs once per Scene lifetime (guarded by a
-   * texture-existence check so restarts/floor changes never re-register
-   * it); the source PNG on disk is never touched.
+   * Derives a transparent, frame-sliced spritesheet texture named
+   * `spriteKey` from the raw `${spriteKey}_raw` image at runtime: draws it
+   * onto an offscreen canvas, zeroes the alpha of pixels matching the exact
+   * chroma-key color (no thresholding, no other pixel changes), then
+   * registers the canvas as a spritesheet texture. Runs once per Scene
+   * lifetime per spriteKey (guarded by a texture-existence check so
+   * restarts/floor changes never re-register it); the source PNG on disk is
+   * never touched. Generalizes what was originally a spider-only method so
+   * every non-natively-transparent species in the roster can share it.
    */
-  private createSpiderTexture(): void {
-    if (this.textures.exists(SPIDER_TEXTURE_KEY)) return;
+  private createChromaKeyTexture(spriteKey: string): void {
+    if (this.textures.exists(spriteKey)) return;
 
-    if (!this.textures.exists(SPIDER_RAW_KEY)) {
-      throw new Error(`Missing raw texture '${SPIDER_RAW_KEY}'; cannot derive spider spritesheet.`);
+    const rawKey = rawKeyFor(spriteKey);
+    if (!this.textures.exists(rawKey)) {
+      throw new Error(`Missing raw texture '${rawKey}'; cannot derive '${spriteKey}' spritesheet.`);
     }
-    const rawImage = this.textures.get(SPIDER_RAW_KEY).getSourceImage() as
+    const rawImage = this.textures.get(rawKey).getSourceImage() as
       | HTMLImageElement
       | HTMLCanvasElement;
     const width = rawImage.width;
@@ -172,7 +199,7 @@ class MainScene extends Phaser.Scene {
     canvas.height = height;
     const ctx = canvas.getContext('2d');
     if (!ctx) {
-      throw new Error('Failed to acquire 2D context for spider chroma-key texture generation.');
+      throw new Error(`Failed to acquire 2D context for '${spriteKey}' chroma-key texture generation.`);
     }
 
     ctx.drawImage(rawImage, 0, 0);
@@ -185,21 +212,23 @@ class MainScene extends Phaser.Scene {
     }
     ctx.putImageData(imageData, 0, 0);
 
-    // addSpriteSheet only accepts an HTMLImageElement or an existing
-    // Phaser Texture as its source (not a raw HTMLCanvasElement), so the
-    // canvas is first registered as its own texture, then re-sliced into
-    // the frame-based spritesheet texture used for rendering.
-    const canvasTexture = this.textures.addCanvas(`${SPIDER_TEXTURE_KEY}_canvas`, canvas);
-    if (!canvasTexture) {
-      throw new Error('Failed to register spider chroma-key canvas as a texture.');
-    }
-    this.textures.addSpriteSheet(SPIDER_TEXTURE_KEY, canvasTexture, {
+    // Registers the canvas directly as a new frame-sliced spritesheet
+    // texture under `spriteKey`. (Passing the raw HTMLCanvasElement here,
+    // not a pre-registered Phaser Texture, is required: Phaser's
+    // addSpriteSheet ignores the `key` argument and reuses the source
+    // texture's own key whenever `source` is already a Texture instance,
+    // which would silently register this under a `_canvas`-suffixed key
+    // instead of `spriteKey`.)
+    const sheetTexture = this.textures.addSpriteSheet(spriteKey, canvas as unknown as HTMLImageElement, {
       frameWidth: SPRITE_FRAME_WIDTH,
       frameHeight: SPRITE_FRAME_HEIGHT,
     });
+    if (!sheetTexture) {
+      throw new Error(`Failed to register '${spriteKey}' chroma-key spritesheet texture.`);
+    }
     // Preserve the game's pixel-art (nearest-neighbor) filtering, matching
     // textures loaded through the normal loader under pixelArt: true.
-    this.textures.get(SPIDER_TEXTURE_KEY).setFilter(Phaser.Textures.FilterMode.NEAREST);
+    this.textures.get(spriteKey).setFilter(Phaser.Textures.FilterMode.NEAREST);
   }
 
   /** (Re)creates one sprite per current enemy, using each enemy's own texture, discarding any previous sprites/tweens. */
@@ -256,6 +285,53 @@ class MainScene extends Phaser.Scene {
       TILE_SIZE * 0.7,
       TILE_SIZE * 0.7,
     );
+  }
+
+  /**
+   * Draws each active spider web as a simple asset-free floor decoration:
+   * a translucent diamond outline with a couple of cross-hatch lines,
+   * suggesting a web without needing new art. Drawn on its own Graphics
+   * layer created before any actor sprite, so actors always render on top
+   * (never fully hidden). Redrawn every turn (webs can appear/expire) and
+   * on scene reset. Deliberately shows no per-web remaining-turns number
+   * (no persistent numeric HUD for this).
+   */
+  private drawWebs(): void {
+    this.webGraphics.clear();
+    for (const web of this.state.webs) {
+      const cx = web.pos.x * TILE_SIZE + TILE_SIZE / 2;
+      const cy = web.pos.y * TILE_SIZE + TILE_SIZE / 2;
+      const r = TILE_SIZE * 0.32;
+
+      this.webGraphics.lineStyle(2, 0xcfd8ff, 0.75);
+      // Diamond outline.
+      this.webGraphics.beginPath();
+      this.webGraphics.moveTo(cx, cy - r);
+      this.webGraphics.lineTo(cx + r, cy);
+      this.webGraphics.lineTo(cx, cy + r);
+      this.webGraphics.lineTo(cx - r, cy);
+      this.webGraphics.closePath();
+      this.webGraphics.strokePath();
+      // Cross-hatch.
+      this.webGraphics.lineBetween(cx - r * 0.6, cy - r * 0.6, cx + r * 0.6, cy + r * 0.6);
+      this.webGraphics.lineBetween(cx - r * 0.6, cy + r * 0.6, cx + r * 0.6, cy - r * 0.6);
+    }
+  }
+
+  /**
+   * Tints the player sprite while slowed (enemy-behavior-02) as the
+   * minimal on-screen indicator required by the design — no new HUD text,
+   * no numeric duration display. Cleared as soon as state.player.slowed
+   * is false.
+   */
+  private readonly SLOWED_TINT = 0x6ec6ff;
+
+  private updatePlayerSlowedTint(): void {
+    if (this.state.player.slowed) {
+      this.playerSprite.setTint(this.SLOWED_TINT);
+    } else {
+      this.playerSprite.clearTint();
+    }
   }
 
   private readonly MOVE_DURATION = 220;
@@ -401,6 +477,9 @@ class MainScene extends Phaser.Scene {
 
   private refreshStaticView(): void {
     const { player } = this.state;
+
+    this.drawWebs();
+    this.updatePlayerSlowedTint();
 
     this.hudText.setText(
       `FLOOR ${this.state.floor}/${this.state.totalFloors}   HP: ${player.hp}/${player.maxHp}   Turn: ${this.state.turn}\n` +

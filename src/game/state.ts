@@ -1,7 +1,8 @@
 import { choosePlacement, createRng, generateMap, MAP_GEN_PARAMS } from './mapgen';
 import { createInitialActor, createInitialEnemy } from './turn';
 import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
-import { Actor, GameState } from './types';
+import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER } from './enemy-def';
+import { Actor, EnemyActor, EnemyType, GameState, Vec2 } from './types';
 
 /** Generates a random run seed without relying on Math.random's implicit global state at call sites. */
 export function randomSeed(): number {
@@ -16,11 +17,50 @@ interface CarryOverStats {
 }
 
 /**
+ * Picks `count` species independently (with replacement) from the full
+ * 9-species roster using `rng`, in fixed enemy-slot order. Each slot is an
+ * independent draw (duplicates across slots are allowed), so over enough
+ * seeds every species appears somewhere across floors without needing to
+ * inflate how many enemies a single floor spawns.
+ */
+function chooseSpecies(count: number, rng: () => number): EnemyType[] {
+  const types: EnemyType[] = [];
+  for (let i = 0; i < count; i++) {
+    const index = Math.floor(rng() * ENEMY_TYPES_IN_ORDER.length);
+    types.push(ENEMY_TYPES_IN_ORDER[index]);
+  }
+  return types;
+}
+
+function buildEnemies(positions: Vec2[], types: EnemyType[], spawnTurn: number): EnemyActor[] {
+  return positions.map((pos, i) => {
+    const type = types[i];
+    const def = ENEMY_DEFINITIONS[type];
+    return createInitialEnemy(type, pos, def.hp, def.attack, spawnTurn, i);
+  });
+}
+
+/**
  * Builds the GameState for a single floor of a run. Retries via
  * generateMap's own deterministic retry loop; if generation still fails,
  * throws, since there is no sensible playable fallback for a failed floor.
+ *
+ * Normal play always spawns ENEMY_COUNT_PER_FLOOR (2) enemies, each an
+ * independently seeded-random species draw from the full 9-species roster
+ * (enemy-roster-density-correction); this keeps floor density at its
+ * pre-Phase-06 value while still making every species a normal spawn
+ * candidate. `enemyCount`/`forcedSpecies` let buildRosterPreviewFloorState
+ * (test/dev-only, see below) reuse this same generation path to place all
+ * 9 species together without touching normal spawning.
  */
-function buildFloorState(runSeed: number, floor: number, turn: number, carry?: CarryOverStats): GameState {
+function buildFloorState(
+  runSeed: number,
+  floor: number,
+  turn: number,
+  carry?: CarryOverStats,
+  enemyCount?: number,
+  forcedSpecies?: EnemyType[],
+): GameState {
   const floorSeed = deriveFloorSeed(runSeed, floor);
   const result = generateMap(floorSeed);
   if (!result.ok || !result.map) {
@@ -31,7 +71,7 @@ function buildFloorState(runSeed: number, floor: number, turn: number, carry?: C
 
   const map = result.map;
   const placementRng = createRng(floorSeed ^ 0x51ed270b);
-  const placement = choosePlacement(map, placementRng);
+  const placement = choosePlacement(map, placementRng, enemyCount);
 
   const player: Actor = carry
     ? createInitialActor(placement.start, carry.maxHp, carry.attack)
@@ -42,13 +82,12 @@ function buildFloorState(runSeed: number, floor: number, turn: number, carry?: C
     player.hp = carry.hp;
   }
 
-  // Fixed species assignment: index 0 is bok, index 1 is spider. Both use the
-  // same initial stats as before; assignment consumes no additional PRNG
-  // draws, so placement coordinates and determinism are unaffected.
-  const ENEMY_TYPES_IN_ORDER = ['bok', 'spider'] as const;
-  const enemies = placement.enemies.map((pos, i) =>
-    createInitialEnemy(ENEMY_TYPES_IN_ORDER[i], pos, 2, 1),
-  );
+  // Species selection uses its own RNG stream (distinct XOR constant from
+  // placementRng) so choosing species never perturbs the existing
+  // placement-position RNG sequence/determinism.
+  const speciesRng = createRng(floorSeed ^ 0x8f3c9d21);
+  const types = forcedSpecies ?? chooseSpecies(placement.enemies.length, speciesRng);
+  const enemies = buildEnemies(placement.enemies, types, turn);
 
   return {
     map,
@@ -62,6 +101,11 @@ function buildFloorState(runSeed: number, floor: number, turn: number, carry?: C
     totalFloors: TOTAL_FLOORS,
     exit: placement.exit,
     regenProgress: carry ? carry.regenProgress : 0,
+    // Always fresh per floor build (enemy-behavior-02): a new floor,
+    // restart (Enter), or new run (N) never carries over the previous
+    // floor's webs or id counter.
+    webs: [],
+    nextWebId: 0,
   };
 }
 
@@ -83,4 +127,18 @@ export function advanceToNextFloor(state: GameState): GameState {
     regenProgress: state.regenProgress,
   };
   return buildFloorState(state.runSeed, state.floor + 1, state.turn, carry);
+}
+
+/**
+ * Test/dev-only: builds a floor-1 GameState with all 9 species placed at
+ * once (one of each, in fixed ENEMY_TYPES_IN_ORDER order), reusing the
+ * exact same map generation and placement path as normal play, just with a
+ * larger enemy count and a forced species list instead of a random draw.
+ * Not called from main.ts/production code and not exposed via any runtime
+ * key binding; it exists purely so tests (and, if needed, ad-hoc local
+ * inspection) can confirm all 9 species spawn, render, and behave
+ * correctly together without changing normal floor density.
+ */
+export function buildRosterPreviewFloorState(runSeed: number): GameState {
+  return buildFloorState(runSeed, 1, 0, undefined, ENEMY_TYPES_IN_ORDER.length, ENEMY_TYPES_IN_ORDER);
 }
