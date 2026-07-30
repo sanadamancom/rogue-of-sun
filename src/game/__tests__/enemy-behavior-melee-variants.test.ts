@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { EnemyType, GameMap, GameState, Tile } from '../types';
+import { ENEMY_DEFINITIONS } from '../enemy-def';
 
 // Open layout with a long straight corridor (row 5) for sword's 2-step
 // approach tests, plus a small walled pocket for "does not jump over
@@ -257,6 +258,55 @@ describe('axe (recovery_melee) behavior', () => {
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' }); // normal again: attacks
     expect(state.player.hp).toBe(hpBefore - 3);
+  });
+});
+
+describe('axe recovery exploitability at real definition values (phase-07-3-axe-recovery-tune)', () => {
+  it('has an implemented attack value of 2', () => {
+    expect(ENEMY_DEFINITIONS.axe.attack).toBe(2);
+  });
+
+  it('a full-HP (3) player survives a single axe hit at real values, landing on HP1', () => {
+    const state = singleEnemyState('axe', { x: 9, y: 4 }, {
+      playerPos: { x: 10, y: 4 },
+      attack: ENEMY_DEFINITIONS.axe.attack,
+    });
+    state.player.hp = 3;
+    state.player.maxHp = 3;
+    const enemy = state.enemies[0];
+    processTurn(state, { type: 'wait' }); // attacks
+    expect(state.player.hp).toBe(1);
+    expect(state.player.alive).toBe(true);
+    expect(enemy.recovering).toBe(true);
+  });
+
+  it('the axe is forced to wait (no attack, no move) on its next turn, even while still adjacent, letting a surviving player act freely', () => {
+    const state = singleEnemyState('axe', { x: 9, y: 4 }, {
+      playerPos: { x: 10, y: 4 },
+      attack: ENEMY_DEFINITIONS.axe.attack,
+    });
+    state.player.hp = 3;
+    state.player.maxHp = 3;
+    const enemy = state.enemies[0];
+    processTurn(state, { type: 'wait' }); // turn 1: attacks, HP 3 -> 1
+    const hpAfterAttack = state.player.hp;
+    const posAfterAttack = { ...enemy.pos };
+    processTurn(state, { type: 'wait' }); // turn 2: forced wait (enemy_recovering)
+    expect(state.player.hp).toBe(hpAfterAttack); // no additional damage
+    expect(enemy.pos).toEqual(posAfterAttack); // did not move
+    expect(enemy.recovering).toBe(false); // cleared after the forced wait
+  });
+
+  it('a player already at HP2 still dies to a single axe hit at real values', () => {
+    const state = singleEnemyState('axe', { x: 9, y: 4 }, {
+      playerPos: { x: 10, y: 4 },
+      attack: ENEMY_DEFINITIONS.axe.attack,
+    });
+    state.player.hp = 2;
+    state.player.maxHp = 3;
+    processTurn(state, { type: 'wait' });
+    expect(state.player.hp).toBe(0);
+    expect(state.player.alive).toBe(false);
   });
 });
 

@@ -171,7 +171,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     displayName: 'アックス',
     spriteKey: 'axe',
     hp: 6,
-    attack: 3,
+    attack: 2,
     behaviorType: 'recovery_melee',
     movementType: 'ground',
     stationary: false,
