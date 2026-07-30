@@ -48,7 +48,20 @@ import { EnemyType } from './types';
  *   player is on an unobstructed 2-5 tile line along one of the 8
  *   directions, storing that direction; otherwise falls back to a normal
  *   chase step.
- * - 'stationary': never acts (kraken).
+ * - 'kraken_tentacle' (kraken, Phase 06 phase-06-kraken-telegraphed-tentacle-strike):
+ *   never moves, on any turn, for any reason, and never makes a normal
+ *   melee attack even when adjacent. If already telegraphing
+ *   (tentacleTarget set), strikes the orthogonal cross centered on that
+ *   fixed stored coordinate this turn (never re-centered on the player's
+ *   possibly-new position), then clears the field. Otherwise, if the
+ *   player is within Chebyshev distance 1-5 (line of sight not required —
+ *   this is a ground-based area attack, not a beam), telegraphs by
+ *   storing the player's current coordinate (no other action that turn).
+ *   Otherwise waits with no event.
+ * - 'stationary': a stricter no-op fallback that never acts at all (no
+ *   species currently uses this — kraken now has its own behaviorType
+ *   above — but it remains available for any future purely-inert
+ *   species).
  *
  * movementType is descriptive metadata for future phases (e.g. bat's
  * flying/wall-crossing movement); movement logic does not yet branch on it.
@@ -63,6 +76,7 @@ export type BehaviorType =
   | 'bat_retreat'
   | 'mummy_shamble'
   | 'cockatrice_gaze'
+  | 'kraken_tentacle'
   | 'stationary';
 export type MovementType = 'ground' | 'flying' | 'none';
 
@@ -168,7 +182,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     spriteKey: 'kraken',
     hp: 6,
     attack: 2,
-    behaviorType: 'stationary',
+    behaviorType: 'kraken_tentacle',
     movementType: 'none',
     stationary: true,
   },

@@ -53,6 +53,18 @@ export function formatEvent(event: GameEvent): string {
       return '体が石のように動かない。';
     case 'player_petrified_skip':
       return '体が石のように動かない。';
+    case 'kraken_tentacle_aim': {
+      const name = ENEMY_DEFINITIONS[event.enemyType].displayName;
+      return `${name}が足元を狙っている！`;
+    }
+    case 'kraken_tentacle_strike': {
+      const name = ENEMY_DEFINITIONS[event.enemyType].displayName;
+      return event.hit
+        ? `${name}の触手が襲いかかり、${event.damage}ダメージ！`
+        : `${name}の触手が空を切った。`;
+    }
+    case 'player_pulled':
+      return '触手に引き寄せられた！';
     case 'player_webbed':
       return 'クモの巣に足をとられた。';
     case 'slowed_move_cancelled':

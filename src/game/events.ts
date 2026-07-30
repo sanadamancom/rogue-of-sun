@@ -1,4 +1,4 @@
-import { Direction8, EnemyType } from './types';
+import { Direction8, EnemyType, Vec2 } from './types';
 
 /**
  * Typed, display-agnostic record of a notable action that happened during
@@ -32,6 +32,16 @@ export type GameEvent =
     }
   | { type: 'player_petrified'; actorId: number; enemyType: EnemyType }
   | { type: 'player_petrified_skip' }
+  | { type: 'kraken_tentacle_aim'; enemyId: number; enemyType: EnemyType; target: Vec2 }
+  | {
+      type: 'kraken_tentacle_strike';
+      enemyId: number;
+      enemyType: EnemyType;
+      target: Vec2;
+      hit: boolean;
+      damage: number;
+    }
+  | { type: 'player_pulled'; sourceEnemyId: number; enemyType: EnemyType; from: Vec2; to: Vec2 }
   | { type: 'player_webbed' }
   | { type: 'slowed_move_cancelled' }
   | { type: 'floor_advanced' }

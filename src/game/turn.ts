@@ -1,5 +1,5 @@
 import { directionBetweenAdjacent, isAdjacent, isOrthogonallyAdjacent } from './direction';
-import { canMove, destinationOf, isWalkable } from './map';
+import { canMove, destinationOf, isInBounds, isWalkable } from './map';
 import { ENEMY_DEFINITIONS } from './enemy-def';
 import { canPlaceWebNow, expireWebs, placeWeb } from './web';
 import { GameEvent } from './events';
@@ -665,6 +665,122 @@ function resolveCockatriceEnemy(
   return { acted: true, attacked: false };
 }
 
+/** Minimum/maximum Chebyshev distance (inclusive) at which the kraken may telegraph a tentacle strike. */
+const KRAKEN_MIN_RANGE = 1;
+const KRAKEN_MAX_RANGE = 5;
+
+/**
+ * Returns the orthogonal cross (center + N/S/W/E) centered on `center`,
+ * excluding any cell outside the map. Walls are intentionally left in —
+ * they only matter here as a possible (never occupiable) miss target, so
+ * no special handling is needed for them.
+ */
+function tentacleCrossCells(map: GameState['map'], center: Vec2): Vec2[] {
+  const candidates: Vec2[] = [
+    center,
+    { x: center.x, y: center.y - 1 },
+    { x: center.x, y: center.y + 1 },
+    { x: center.x - 1, y: center.y },
+    { x: center.x + 1, y: center.y },
+  ];
+  return candidates.filter((pos) => isInBounds(map, pos));
+}
+
+/**
+ * Resolves one kraken's action ('kraken_tentacle',
+ * phase-06-kraken-telegraphed-tentacle-strike). The kraken itself never
+ * moves and never makes a normal melee attack, on any turn, regardless of
+ * adjacency. Priority, highest first:
+ * 1. If already telegraphing (`tentacleTarget` set from a previous turn),
+ *    strikes the cross centered on that exact stored coordinate this turn
+ *    (never re-centered on the player's current position), clearing the
+ *    field afterward win or miss. On a hit, applies damage (reusing normal
+ *    HP/defeat handling) and, only if the player is still alive, attempts
+ *    a deterministic 1-tile pull toward the kraken.
+ * 2. Otherwise, if the player is within Chebyshev distance 1-5 (no line of
+ *    sight required), telegraphs by storing the player's current
+ *    coordinate (no other action that turn).
+ * 3. Otherwise, waits with no event.
+ */
+function resolveKrakenEnemy(
+  state: GameState,
+  enemy: EnemyActor,
+  events: GameEvent[],
+): { acted: boolean; attacked: boolean } {
+  const { player, map } = state;
+
+  if (enemy.tentacleTarget) {
+    const target = enemy.tentacleTarget;
+    enemy.tentacleTarget = undefined;
+    const area = tentacleCrossCells(map, target);
+    const hit = area.some((pos) => pos.x === player.pos.x && pos.y === player.pos.y);
+    const damage = hit ? enemy.attack : 0;
+    events.push({
+      type: 'kraken_tentacle_strike',
+      enemyId: enemy.id ?? 0,
+      enemyType: enemy.type,
+      target,
+      hit,
+      damage,
+    });
+
+    if (hit) {
+      player.hp = Math.max(0, player.hp - enemy.attack);
+      if (player.hp === 0) player.alive = false;
+
+      // Pull: only attempted if the player survived the hit.
+      if (player.alive) {
+        const dx = enemy.pos.x - player.pos.x;
+        const dy = enemy.pos.y - player.pos.y;
+        let moveX = 0;
+        let moveY = 0;
+        if (Math.abs(dx) >= Math.abs(dy)) {
+          moveX = dx > 0 ? 1 : dx < 0 ? -1 : 0;
+        } else {
+          moveY = dy > 0 ? 1 : -1;
+        }
+        if (moveX !== 0 || moveY !== 0) {
+          const dest: Vec2 = { x: player.pos.x + moveX, y: player.pos.y + moveY };
+          const validDestination =
+            isWalkable(map, dest) &&
+            !(dest.x === enemy.pos.x && dest.y === enemy.pos.y) &&
+            !state.enemies.some(
+              (other) => other.alive && other.pos.x === dest.x && other.pos.y === dest.y,
+            );
+          if (validDestination) {
+            const from = { ...player.pos };
+            player.pos = dest;
+            events.push({
+              type: 'player_pulled',
+              sourceEnemyId: enemy.id ?? 0,
+              enemyType: enemy.type,
+              from,
+              to: dest,
+            });
+          }
+        }
+      }
+    }
+
+    return { acted: true, attacked: hit };
+  }
+
+  const distance = chebyshevDistance(enemy.pos, player.pos);
+  if (
+    player.alive &&
+    distance >= KRAKEN_MIN_RANGE &&
+    distance <= KRAKEN_MAX_RANGE &&
+    isWalkable(map, player.pos)
+  ) {
+    const target: Vec2 = { ...player.pos };
+    enemy.tentacleTarget = target;
+    events.push({ type: 'kraken_tentacle_aim', enemyId: enemy.id ?? 0, enemyType: enemy.type, target });
+    return { acted: true, attacked: false };
+  }
+
+  return { acted: false, attacked: false };
+}
+
 /**
  * Dispatches an enemy's action by its species' behaviorType (see
  * enemy-def.ts) rather than switching on species id directly, so adding a
@@ -684,9 +800,12 @@ function resolveCockatriceEnemy(
  *   (phase-06-mummy-shambling-movement).
  * - 'cockatrice_gaze': cockatrice's telegraphed-line petrifying gaze
  *   (phase-06-cockatrice-petrifying-gaze).
+ * - 'kraken_tentacle': kraken's telegraphed-cross tentacle strike with pull
+ *   (phase-06-kraken-telegraphed-tentacle-strike).
  * - 'generic_melee' and 'placeholder': bok's 8-direction chase/attack
  *   ('placeholder' is a reserved fallback with no current species).
- * - 'stationary': never moves or attacks (kraken).
+ * - 'stationary': a stricter no-op fallback that never acts at all (no
+ *   current species uses this).
  */
 function resolveOneEnemy(
   state: GameState,
@@ -709,6 +828,8 @@ function resolveOneEnemy(
       return resolveMummyEnemy(state, enemy, events);
     case 'cockatrice_gaze':
       return resolveCockatriceEnemy(state, enemy, events);
+    case 'kraken_tentacle':
+      return resolveKrakenEnemy(state, enemy, events);
     case 'stationary':
       return { acted: false, attacked: false };
     case 'generic_melee':

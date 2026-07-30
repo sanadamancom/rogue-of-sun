@@ -177,6 +177,20 @@ export interface EnemyActor extends Actor {
    * absent (not aiming).
    */
   gazeDirection?: Direction8;
+  /**
+   * Kraken-only (enemy-behavior-06/'kraken_tentacle',
+   * phase-06-kraken-telegraphed-tentacle-strike): the fixed world
+   * coordinate this kraken has telegraphed its tentacle strike at, or
+   * absent/undefined when not telegraphing. Set once when the player is
+   * within Chebyshev distance 1-5 (telegraph turn: kraken never moves, on
+   * any turn, for any reason); on this kraken's next turn it strikes the
+   * orthogonal cross centered on this exact stored coordinate (never
+   * re-centered on the player's possibly-new position) and the field is
+   * cleared, hit or miss. Deliberately its own field — distinct from every
+   * other species' per-enemy state — since it stores a position, not a
+   * boolean or direction. Defaults to absent (not telegraphing).
+   */
+  tentacleTarget?: Vec2;
 }
 
 // 'floor_cleared' is a transient signal set for a single processTurn call
