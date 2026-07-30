@@ -150,7 +150,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     id: 'golem',
     displayName: 'ゴーレム',
     spriteKey: 'claygolem',
-    hp: 8,
+    hp: 4,
     attack: 3,
     behaviorType: 'slow_melee',
     movementType: 'ground',

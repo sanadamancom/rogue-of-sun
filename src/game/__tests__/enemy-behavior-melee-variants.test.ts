@@ -310,6 +310,50 @@ describe('axe recovery exploitability at real definition values (phase-07-3-axe-
   });
 });
 
+describe('golem HP boundary at real definition values (phase-07-5-golem-hp-tune)', () => {
+  it('has an implemented HP of 4', () => {
+    expect(ENEMY_DEFINITIONS.golem.hp).toBe(4);
+  });
+
+  it('has an implemented attack value of 3 (unchanged by the HP tune)', () => {
+    expect(ENEMY_DEFINITIONS.golem.attack).toBe(3);
+  });
+
+  it('survives 3 hits from the player\'s normal attack (attack 1)', () => {
+    const state = singleEnemyState('golem', { x: 9, y: 4 }, {
+      playerPos: { x: 10, y: 4 },
+      hp: ENEMY_DEFINITIONS.golem.hp,
+      attack: ENEMY_DEFINITIONS.golem.attack,
+    });
+    const enemy = state.enemies[0];
+    expect(state.player.attack).toBe(1); // confirms the player's normal-attack baseline used below
+    // Attacking every turn: golem only occupies the adjacent tile, so a
+    // move toward it resolves as a player attack regardless of the
+    // golem's own act/rest phase.
+    processTurn(state, { type: 'move', direction: 'W' }); // hit 1
+    processTurn(state, { type: 'move', direction: 'W' }); // hit 2
+    processTurn(state, { type: 'move', direction: 'W' }); // hit 3
+    expect(enemy.hp).toBe(1);
+    expect(enemy.alive).toBe(true);
+  });
+
+  it('is defeated on the 4th hit from the player\'s normal attack (attack 1)', () => {
+    const state = singleEnemyState('golem', { x: 9, y: 4 }, {
+      playerPos: { x: 10, y: 4 },
+      hp: ENEMY_DEFINITIONS.golem.hp,
+      attack: ENEMY_DEFINITIONS.golem.attack,
+    });
+    const enemy = state.enemies[0];
+    processTurn(state, { type: 'move', direction: 'W' }); // hit 1
+    processTurn(state, { type: 'move', direction: 'W' }); // hit 2
+    processTurn(state, { type: 'move', direction: 'W' }); // hit 3
+    const result = processTurn(state, { type: 'move', direction: 'W' }); // hit 4
+    expect(enemy.hp).toBe(0);
+    expect(enemy.alive).toBe(false);
+    expect(result.events).toContainEqual({ type: 'enemy_defeated', enemyType: 'golem' });
+  });
+});
+
 describe('shared melee-variant constraints', () => {
   it('none of the 4 variants ever step onto a wall or out of bounds', () => {
     for (const type of ['bok', 'golem', 'sword', 'axe'] as const) {
