@@ -519,6 +519,37 @@ function resolveBatEnemy(
 }
 
 /**
+ * Resolves one mummy's action ('mummy_shamble', phase-06-mummy-shambling-movement).
+ * If this mummy is currently rest-pending (set after its previous
+ * successful chase step), it rests: no movement, no attack, even if
+ * adjacent to the player, consuming its whole turn and emitting
+ * mummy_shamble_rest; the pending flag is cleared and normal behavior
+ * resumes on its next turn (no same-turn fallback, unlike the bat).
+ * Otherwise it behaves exactly like bok: attack if adjacent (never sets
+ * rest-pending), else one chase step (sets rest-pending only if the step
+ * actually moved it).
+ */
+function resolveMummyEnemy(
+  state: GameState,
+  enemy: EnemyActor,
+  events: GameEvent[],
+): { acted: boolean; attacked: boolean } {
+  if (enemy.restingAfterMove) {
+    enemy.restingAfterMove = false;
+    events.push({ type: 'mummy_shamble_rest', actorId: enemy.id ?? 0, enemyType: enemy.type });
+    return { acted: true, attacked: false };
+  }
+
+  if (tryMeleeAttack(state, enemy, events)) {
+    return { acted: true, attacked: true };
+  }
+  if (tryChaseStep(state, enemy)) {
+    enemy.restingAfterMove = true;
+  }
+  return { acted: true, attacked: false };
+}
+
+/**
  * Dispatches an enemy's action by its species' behaviorType (see
  * enemy-def.ts) rather than switching on species id directly, so adding a
  * finished signature AI later only requires adding a new BehaviorType case
@@ -533,6 +564,8 @@ function resolveBatEnemy(
  *   (enemy-behavior-01).
  * - 'bat_retreat': bat's attack-then-retreat-next-turn chase/attack
  *   (enemy-behavior-06).
+ * - 'mummy_shamble': mummy's move-then-rest-next-turn chase/attack
+ *   (phase-06-mummy-shambling-movement).
  * - 'generic_melee' and 'placeholder': bok's 8-direction chase/attack
  *   ('placeholder' species have no finished signature AI yet and are
  *   routed here as a playable placeholder rather than an inert prop).
@@ -555,6 +588,8 @@ function resolveOneEnemy(
       return resolveAxeEnemy(state, enemy, events);
     case 'bat_retreat':
       return resolveBatEnemy(state, enemy, events);
+    case 'mummy_shamble':
+      return resolveMummyEnemy(state, enemy, events);
     case 'stationary':
       return { acted: false, attacked: false };
     case 'generic_melee':

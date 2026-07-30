@@ -21,16 +21,22 @@ import { EnemyType } from './types';
  *   which it returns to normal behavior. Moving without attacking never
  *   triggers recovery.
  * - 'placeholder': species with no finished signature AI yet
- *   (cockatrice/mummy); routed to 'generic_melee' for now so they are
- *   playable placeholders rather than inert props. This indirection lives
- *   in one place (turn.ts's resolveOneEnemy) so swapping in real behavior
- *   later does not require touching spawning or rendering.
+ *   (cockatrice); routed to 'generic_melee' for now so it is a playable
+ *   placeholder rather than an inert prop. This indirection lives in one
+ *   place (turn.ts's resolveOneEnemy) so swapping in real behavior later
+ *   does not require touching spawning or rendering.
  * - 'bat_retreat' (bat, Phase 06 enemy-behavior-06): behaves exactly like
  *   bok (8-direction chase/attack) until it lands a melee attack; on its
  *   next enemy turn it then tries a single step to an adjacent tile that
  *   strictly increases its Chebyshev distance to the player instead of
  *   acting normally, falling back to normal behavior that same turn if no
  *   such tile exists.
+ * - 'mummy_shamble' (mummy, Phase 06 phase-06-mummy-shambling-movement):
+ *   behaves exactly like bok (8-direction chase/attack) except that after
+ *   it successfully takes a chase step (moves), its next enemy turn is
+ *   spent resting in place instead of acting (no movement, no attack, even
+ *   if adjacent to the player). A successful attack never triggers rest,
+ *   so while adjacent to the player it attacks every turn without pause.
  * - 'stationary': never acts (kraken).
  *
  * movementType is descriptive metadata for future phases (e.g. bat's
@@ -44,6 +50,7 @@ export type BehaviorType =
   | 'recovery_melee'
   | 'placeholder'
   | 'bat_retreat'
+  | 'mummy_shamble'
   | 'stationary';
 export type MovementType = 'ground' | 'flying' | 'none';
 
@@ -109,7 +116,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     spriteKey: 'mummy_lv1',
     hp: 5,
     attack: 2,
-    behaviorType: 'placeholder',
+    behaviorType: 'mummy_shamble',
     movementType: 'ground',
     stationary: false,
   },

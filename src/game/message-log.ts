@@ -37,6 +37,10 @@ export function formatEvent(event: GameEvent): string {
       const name = ENEMY_DEFINITIONS[event.enemyType].displayName;
       return `${name}はひらりと距離を取った。`;
     }
+    case 'mummy_shamble_rest': {
+      const name = ENEMY_DEFINITIONS[event.enemyType].displayName;
+      return `${name}は足を止めて体勢を整えた。`;
+    }
     case 'player_webbed':
       return 'クモの巣に足をとられた。';
     case 'slowed_move_cancelled':

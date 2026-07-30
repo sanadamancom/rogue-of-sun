@@ -140,6 +140,18 @@ export interface EnemyActor extends Actor {
    * for every other behaviorType. Defaults to false/absent.
    */
   retreating?: boolean;
+  /**
+   * Mummy-only (enemy-behavior-06/'mummy_shamble', phase-06-mummy-shambling-movement):
+   * set true immediately after this mummy successfully takes a chase step
+   * (moves one tile). On this mummy's next enemy turn, it rests in place
+   * instead of acting normally (no movement, no attack, even if adjacent
+   * to the player), then the flag clears regardless. A successful melee
+   * attack never sets or is affected by this flag. Distinct from
+   * `retreating` (bat) and `recovering` (axe) — deliberately a separate
+   * field rather than a shared generic name, per-species semantics differ.
+   * Irrelevant for every other behaviorType. Defaults to false/absent.
+   */
+  restingAfterMove?: boolean;
 }
 
 // 'floor_cleared' is a transient signal set for a single processTurn call
