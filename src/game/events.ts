@@ -1,4 +1,4 @@
-import { EnemyType } from './types';
+import { Direction8, EnemyType } from './types';
 
 /**
  * Typed, display-agnostic record of a notable action that happened during
@@ -22,6 +22,16 @@ export type GameEvent =
   | { type: 'web_placed'; enemyType: EnemyType }
   | { type: 'bat_retreat'; actorId: number; enemyType: EnemyType }
   | { type: 'mummy_shamble_rest'; actorId: number; enemyType: EnemyType }
+  | { type: 'cockatrice_gaze_aim'; actorId: number; enemyType: EnemyType; direction: Direction8 }
+  | {
+      type: 'cockatrice_gaze_fire';
+      actorId: number;
+      enemyType: EnemyType;
+      direction: Direction8;
+      hit: boolean;
+    }
+  | { type: 'player_petrified'; actorId: number; enemyType: EnemyType }
+  | { type: 'player_petrified_skip' }
   | { type: 'player_webbed' }
   | { type: 'slowed_move_cancelled' }
   | { type: 'floor_advanced' }

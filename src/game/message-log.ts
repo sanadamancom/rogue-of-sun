@@ -41,6 +41,18 @@ export function formatEvent(event: GameEvent): string {
       const name = ENEMY_DEFINITIONS[event.enemyType].displayName;
       return `${name}は足を止めて体勢を整えた。`;
     }
+    case 'cockatrice_gaze_aim': {
+      const name = ENEMY_DEFINITIONS[event.enemyType].displayName;
+      return `${name}がこちらへ石化光線の狙いを定めた。`;
+    }
+    case 'cockatrice_gaze_fire': {
+      const name = ENEMY_DEFINITIONS[event.enemyType].displayName;
+      return event.hit ? `${name}の石化光線を浴びた。` : `${name}の石化光線が放たれた。`;
+    }
+    case 'player_petrified':
+      return '体が石のように動かない。';
+    case 'player_petrified_skip':
+      return '体が石のように動かない。';
     case 'player_webbed':
       return 'クモの巣に足をとられた。';
     case 'slowed_move_cancelled':

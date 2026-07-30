@@ -20,11 +20,14 @@ import { EnemyType } from './types';
  *   (no movement, no attack) via the `recovering` per-enemy flag, after
  *   which it returns to normal behavior. Moving without attacking never
  *   triggers recovery.
- * - 'placeholder': species with no finished signature AI yet
- *   (cockatrice); routed to 'generic_melee' for now so it is a playable
- *   placeholder rather than an inert prop. This indirection lives in one
- *   place (turn.ts's resolveOneEnemy) so swapping in real behavior later
- *   does not require touching spawning or rendering.
+ * - 'placeholder': reserved fallback for any future species with no
+ *   finished signature AI yet; routed to 'generic_melee' so such a species
+ *   would be a playable placeholder rather than an inert prop. No current
+ *   species uses this (every roster species now has a finished
+ *   behaviorType as of phase-06-cockatrice-petrifying-gaze). This
+ *   indirection lives in one place (turn.ts's resolveOneEnemy) so wiring
+ *   in real behavior for a future species does not require touching
+ *   spawning or rendering.
  * - 'bat_retreat' (bat, Phase 06 enemy-behavior-06): behaves exactly like
  *   bok (8-direction chase/attack) until it lands a melee attack; on its
  *   next enemy turn it then tries a single step to an adjacent tile that
@@ -37,6 +40,14 @@ import { EnemyType } from './types';
  *   spent resting in place instead of acting (no movement, no attack, even
  *   if adjacent to the player). A successful attack never triggers rest,
  *   so while adjacent to the player it attacks every turn without pause.
+ * - 'cockatrice_gaze' (cockatrice, Phase 06 phase-06-cockatrice-petrifying-gaze):
+ *   if aimed (gazeDirection set), fires its petrifying gaze along that
+ *   fixed stored direction this turn regardless of adjacency (an aimed
+ *   shot is never replaced by a melee attack). Otherwise, attacks like bok
+ *   if adjacent; failing that, aims (no movement/attack that turn) if the
+ *   player is on an unobstructed 2-5 tile line along one of the 8
+ *   directions, storing that direction; otherwise falls back to a normal
+ *   chase step.
  * - 'stationary': never acts (kraken).
  *
  * movementType is descriptive metadata for future phases (e.g. bat's
@@ -51,6 +62,7 @@ export type BehaviorType =
   | 'placeholder'
   | 'bat_retreat'
   | 'mummy_shamble'
+  | 'cockatrice_gaze'
   | 'stationary';
 export type MovementType = 'ground' | 'flying' | 'none';
 
@@ -86,7 +98,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     spriteKey: 'cockatrice',
     hp: 3,
     attack: 1,
-    behaviorType: 'placeholder',
+    behaviorType: 'cockatrice_gaze',
     movementType: 'ground',
     stationary: false,
   },

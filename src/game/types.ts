@@ -73,6 +73,17 @@ export interface Actor {
    * consume it. Defaults to false/absent for every other Actor.
    */
   slowed?: boolean;
+  /**
+   * Set true when a cockatrice's petrifying gaze hits the player
+   * (phase-06-cockatrice-petrifying-gaze). The player's very next valid
+   * game action (move or wait) is entirely replaced by a forced skip that
+   * still consumes the turn, then this clears. Re-hitting while already
+   * true is a plain re-assignment, not a stack/extension (duration is
+   * always exactly the next 1 action). Only meaningful for the player;
+   * enemies never set or read this on themselves. Defaults to
+   * false/absent.
+   */
+  petrified?: boolean;
 }
 
 /**
@@ -152,6 +163,20 @@ export interface EnemyActor extends Actor {
    * Irrelevant for every other behaviorType. Defaults to false/absent.
    */
   restingAfterMove?: boolean;
+  /**
+   * Cockatrice-only (enemy-behavior-06/'cockatrice_gaze',
+   * phase-06-cockatrice-petrifying-gaze): the fixed 8-direction line this
+   * cockatrice has aimed its petrifying gaze along, or absent/undefined
+   * when not aiming. Set once when a valid, unobstructed 2-5 tile line to
+   * the player is found (aim turn: no movement/attack that turn); on this
+   * cockatrice's next turn it fires along this exact stored direction
+   * (never re-aimed at the player's possibly-new position) and the field
+   * is cleared, win or miss. Deliberately its own field — distinct from
+   * `retreating` (bat), `recovering` (axe), and `restingAfterMove`
+   * (mummy) — since it stores a direction, not a boolean. Defaults to
+   * absent (not aiming).
+   */
+  gazeDirection?: Direction8;
 }
 
 // 'floor_cleared' is a transient signal set for a single processTurn call

@@ -49,11 +49,22 @@ function applyPlayerAction(
   action: PlayerAction,
   events: GameEvent[],
 ): { consumed: boolean; attacked: boolean; defeated: boolean } {
-  if (action.type === 'wait') {
+  const { player, enemies, map } = state;
+
+  // Petrified (phase-06-cockatrice-petrifying-gaze): takes priority over
+  // everything else below, including the 'wait' fast path — any valid
+  // input (move or wait) while petrified is entirely replaced by a forced
+  // skip that still consumes the turn, then this clears. Only the very
+  // next action is affected (not stacked/extended by repeat hits).
+  if (player.petrified) {
+    player.petrified = false;
+    events.push({ type: 'player_petrified_skip' });
     return { consumed: true, attacked: false, defeated: false };
   }
 
-  const { player, enemies, map } = state;
+  if (action.type === 'wait') {
+    return { consumed: true, attacked: false, defeated: false };
+  }
 
   // Slowed (enemy-behavior-02, spider web): any 'move' input — whether it
   // would have resolved as an attack, a normal step, or been blocked by a
@@ -549,6 +560,111 @@ function resolveMummyEnemy(
   return { acted: true, attacked: false };
 }
 
+/** Minimum/maximum tile distance (inclusive) at which the petrifying gaze may be aimed/fired. */
+const GAZE_MIN_RANGE = 2;
+const GAZE_MAX_RANGE = 5;
+
+/**
+ * If `from` and `to` lie on one of the 8 fixed lines (same row, same
+ * column, or a perfect diagonal), returns that direction and the tile
+ * distance along it (equal to Chebyshev distance, since alignment already
+ * guarantees the line is straight). Returns null if they are not aligned
+ * on any of the 8 directions (including the same-tile case).
+ */
+function alignedGazeDirection(from: Vec2, to: Vec2): { direction: Direction8; distance: number } | null {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  if (dx === 0 && dy === 0) return null;
+  if (dx === 0) return { direction: dy > 0 ? 'S' : 'N', distance: Math.abs(dy) };
+  if (dy === 0) return { direction: dx > 0 ? 'E' : 'W', distance: Math.abs(dx) };
+  if (Math.abs(dx) !== Math.abs(dy)) return null;
+  if (dx > 0 && dy < 0) return { direction: 'NE', distance: dx };
+  if (dx < 0 && dy < 0) return { direction: 'NW', distance: -dx };
+  if (dx > 0 && dy > 0) return { direction: 'SE', distance: dx };
+  return { direction: 'SW', distance: -dx };
+}
+
+/**
+ * Walks a gaze ray from `from` along `direction`, one tile at a time via
+ * the existing canMove (so it stops at a wall/map edge and respects the
+ * same diagonal corner-cut rule as normal movement — line of sight is
+ * blocked by terrain only, never by actors), up to `maxSteps` tiles.
+ * Returns every tile actually reached, in order (shorter than `maxSteps`
+ * if blocked early).
+ */
+function castGazeRay(map: GameState['map'], from: Vec2, direction: Direction8, maxSteps: number): Vec2[] {
+  const reached: Vec2[] = [];
+  let pos = from;
+  for (let i = 0; i < maxSteps; i++) {
+    if (!canMove(map, pos, direction)) break;
+    pos = destinationOf(pos, direction);
+    reached.push(pos);
+  }
+  return reached;
+}
+
+/**
+ * Resolves one cockatrice's action ('cockatrice_gaze',
+ * phase-06-cockatrice-petrifying-gaze). Priority, highest first:
+ * 1. If already aimed (`gazeDirection` set from a previous turn), fires
+ *    along that exact stored direction this turn — even if now adjacent
+ *    to the player — so an aimed shot is never silently replaced by a
+ *    melee attack (implementation_policy). Clears `gazeDirection`
+ *    regardless of hit/miss.
+ * 2. Otherwise, attacks normally if adjacent (never sets gazeDirection).
+ * 3. Otherwise, aims if the player is on an unobstructed 2-5 tile line
+ *    along one of the 8 directions: stores that fixed direction, takes no
+ *    other action this turn, and never re-aims at the player's later
+ *    position.
+ * 4. Otherwise, falls back to a normal chase step.
+ */
+function resolveCockatriceEnemy(
+  state: GameState,
+  enemy: EnemyActor,
+  events: GameEvent[],
+): { acted: boolean; attacked: boolean } {
+  if (enemy.gazeDirection) {
+    const direction = enemy.gazeDirection;
+    enemy.gazeDirection = undefined;
+    const reached = castGazeRay(state.map, enemy.pos, direction, GAZE_MAX_RANGE);
+    const hit = reached.some((tile) => tile.x === state.player.pos.x && tile.y === state.player.pos.y);
+    events.push({
+      type: 'cockatrice_gaze_fire',
+      actorId: enemy.id ?? 0,
+      enemyType: enemy.type,
+      direction,
+      hit,
+    });
+    if (hit) {
+      state.player.petrified = true;
+      events.push({ type: 'player_petrified', actorId: enemy.id ?? 0, enemyType: enemy.type });
+    }
+    return { acted: true, attacked: false };
+  }
+
+  if (tryMeleeAttack(state, enemy, events)) {
+    return { acted: true, attacked: true };
+  }
+
+  const aligned = alignedGazeDirection(enemy.pos, state.player.pos);
+  if (aligned && aligned.distance >= GAZE_MIN_RANGE && aligned.distance <= GAZE_MAX_RANGE) {
+    const reached = castGazeRay(state.map, enemy.pos, aligned.direction, aligned.distance);
+    if (reached.length === aligned.distance) {
+      enemy.gazeDirection = aligned.direction;
+      events.push({
+        type: 'cockatrice_gaze_aim',
+        actorId: enemy.id ?? 0,
+        enemyType: enemy.type,
+        direction: aligned.direction,
+      });
+      return { acted: true, attacked: false };
+    }
+  }
+
+  tryChaseStep(state, enemy);
+  return { acted: true, attacked: false };
+}
+
 /**
  * Dispatches an enemy's action by its species' behaviorType (see
  * enemy-def.ts) rather than switching on species id directly, so adding a
@@ -566,9 +682,10 @@ function resolveMummyEnemy(
  *   (enemy-behavior-06).
  * - 'mummy_shamble': mummy's move-then-rest-next-turn chase/attack
  *   (phase-06-mummy-shambling-movement).
+ * - 'cockatrice_gaze': cockatrice's telegraphed-line petrifying gaze
+ *   (phase-06-cockatrice-petrifying-gaze).
  * - 'generic_melee' and 'placeholder': bok's 8-direction chase/attack
- *   ('placeholder' species have no finished signature AI yet and are
- *   routed here as a playable placeholder rather than an inert prop).
+ *   ('placeholder' is a reserved fallback with no current species).
  * - 'stationary': never moves or attacks (kraken).
  */
 function resolveOneEnemy(
@@ -590,6 +707,8 @@ function resolveOneEnemy(
       return resolveBatEnemy(state, enemy, events);
     case 'mummy_shamble':
       return resolveMummyEnemy(state, enemy, events);
+    case 'cockatrice_gaze':
+      return resolveCockatriceEnemy(state, enemy, events);
     case 'stationary':
       return { acted: false, attacked: false };
     case 'generic_melee':
