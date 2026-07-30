@@ -20,6 +20,7 @@ export type GameEvent =
   | { type: 'enemy_recovering'; enemyType: EnemyType }
   | { type: 'sword_dash'; enemyType: EnemyType }
   | { type: 'web_placed'; enemyType: EnemyType }
+  | { type: 'bat_retreat'; actorId: number; enemyType: EnemyType }
   | { type: 'player_webbed' }
   | { type: 'slowed_move_cancelled' }
   | { type: 'floor_advanced' }

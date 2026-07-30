@@ -33,6 +33,10 @@ export function formatEvent(event: GameEvent): string {
       const name = ENEMY_DEFINITIONS[event.enemyType].displayName;
       return `${name}はクモの巣をはった。`;
     }
+    case 'bat_retreat': {
+      const name = ENEMY_DEFINITIONS[event.enemyType].displayName;
+      return `${name}はひらりと距離を取った。`;
+    }
     case 'player_webbed':
       return 'クモの巣に足をとられた。';
     case 'slowed_move_cancelled':

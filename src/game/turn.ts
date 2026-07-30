@@ -5,6 +5,7 @@ import { canPlaceWebNow, expireWebs, placeWeb } from './web';
 import { GameEvent } from './events';
 import {
   Actor,
+  ALL_DIRECTIONS,
   Direction8,
   DIRECTION_VECTORS,
   EnemyActor,
@@ -434,6 +435,89 @@ function resolveSpiderEnemy(
   return { acted: true, attacked: false };
 }
 
+/** Chebyshev (8-direction) distance, matching the 8-direction move grid used by chase/retreat. */
+const chebyshevDistance = (a: Vec2, b: Vec2): number =>
+  Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+
+/**
+ * Attempts one bat retreat step (enemy-behavior-06) for `enemy`: among the
+ * 8 adjacent tiles (fixed ALL_DIRECTIONS order, matching every other
+ * deterministic direction scan in this file), a candidate must be a legal
+ * step per canMove (in bounds, walkable, no diagonal corner-cutting), free
+ * of the player and every other living enemy's current position, and
+ * strictly farther from the player (Chebyshev) than the bat's current
+ * position. Among candidates, picks the one with the greatest resulting
+ * distance, ties broken by ALL_DIRECTIONS order. Returns whether it moved.
+ */
+function tryBatRetreatStep(state: GameState, enemy: EnemyActor): boolean {
+  const { player, map, enemies } = state;
+
+  const isOccupied = (pos: Vec2): boolean => {
+    if (pos.x === player.pos.x && pos.y === player.pos.y) return true;
+    return enemies.some(
+      (other) => other !== enemy && other.alive && other.pos.x === pos.x && other.pos.y === pos.y,
+    );
+  };
+
+  const currentDist = chebyshevDistance(enemy.pos, player.pos);
+  let bestDir: Direction8 | null = null;
+  let bestDest: Vec2 | null = null;
+  let bestDist = -Infinity;
+
+  for (const dir of ALL_DIRECTIONS) {
+    if (!canMove(map, enemy.pos, dir)) continue;
+    const dest = destinationOf(enemy.pos, dir);
+    if (isOccupied(dest)) continue;
+    const dist = chebyshevDistance(dest, player.pos);
+    if (dist <= currentDist) continue;
+    if (dist > bestDist) {
+      bestDist = dist;
+      bestDir = dir;
+      bestDest = dest;
+    }
+  }
+
+  if (bestDir && bestDest) {
+    enemy.facing = bestDir;
+    enemy.pos = bestDest;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Resolves one bat's action ('bat_retreat', enemy-behavior-06). If this bat
+ * is currently retreat-pending (set after its previous successful attack),
+ * it tries tryBatRetreatStep instead of acting normally: on success it
+ * consumes its whole turn (no attack/chase alongside the step) and emits
+ * bat_retreat; on failure (no tile increases distance) it clears the
+ * pending flag and falls through to normal bok-style behavior this same
+ * turn, per spec, without emitting bat_retreat. Otherwise (not
+ * retreat-pending) it behaves exactly like bok: attack if adjacent
+ * (which sets retreat-pending for its next turn), else one chase step.
+ */
+function resolveBatEnemy(
+  state: GameState,
+  enemy: EnemyActor,
+  events: GameEvent[],
+): { acted: boolean; attacked: boolean } {
+  if (enemy.retreating) {
+    enemy.retreating = false;
+    if (tryBatRetreatStep(state, enemy)) {
+      events.push({ type: 'bat_retreat', actorId: enemy.id ?? 0, enemyType: enemy.type });
+      return { acted: true, attacked: false };
+    }
+    // No valid retreat tile: fall back to normal behavior this same turn.
+  }
+
+  if (tryMeleeAttack(state, enemy, events)) {
+    enemy.retreating = true;
+    return { acted: true, attacked: true };
+  }
+  tryChaseStep(state, enemy);
+  return { acted: true, attacked: false };
+}
+
 /**
  * Dispatches an enemy's action by its species' behaviorType (see
  * enemy-def.ts) rather than switching on species id directly, so adding a
@@ -447,6 +531,8 @@ function resolveSpiderEnemy(
  *   (enemy-behavior-01).
  * - 'recovery_melee': axe's attack-then-forced-wait chase/attack
  *   (enemy-behavior-01).
+ * - 'bat_retreat': bat's attack-then-retreat-next-turn chase/attack
+ *   (enemy-behavior-06).
  * - 'generic_melee' and 'placeholder': bok's 8-direction chase/attack
  *   ('placeholder' species have no finished signature AI yet and are
  *   routed here as a playable placeholder rather than an inert prop).
@@ -467,6 +553,8 @@ function resolveOneEnemy(
       return resolveSwordEnemy(state, enemy, events);
     case 'recovery_melee':
       return resolveAxeEnemy(state, enemy, events);
+    case 'bat_retreat':
+      return resolveBatEnemy(state, enemy, events);
     case 'stationary':
       return { acted: false, attacked: false };
     case 'generic_melee':

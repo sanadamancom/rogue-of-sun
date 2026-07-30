@@ -131,6 +131,15 @@ export interface EnemyActor extends Actor {
    * behaviorType. Defaults to 0.
    */
   webCooldown?: number;
+  /**
+   * Bat-only (enemy-behavior-06/'bat_retreat'): set true immediately after
+   * this bat lands a successful melee attack. On this bat's next enemy
+   * turn, it tries to step to an adjacent tile that strictly increases its
+   * Chebyshev distance to the player instead of acting normally, then
+   * clears regardless of whether the retreat step succeeded. Irrelevant
+   * for every other behaviorType. Defaults to false/absent.
+   */
+  retreating?: boolean;
 }
 
 // 'floor_cleared' is a transient signal set for a single processTurn call

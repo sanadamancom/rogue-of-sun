@@ -21,10 +21,16 @@ import { EnemyType } from './types';
  *   which it returns to normal behavior. Moving without attacking never
  *   triggers recovery.
  * - 'placeholder': species with no finished signature AI yet
- *   (cockatrice/bat/mummy); routed to 'generic_melee' for now so they are
+ *   (cockatrice/mummy); routed to 'generic_melee' for now so they are
  *   playable placeholders rather than inert props. This indirection lives
  *   in one place (turn.ts's resolveOneEnemy) so swapping in real behavior
  *   later does not require touching spawning or rendering.
+ * - 'bat_retreat' (bat, Phase 06 enemy-behavior-06): behaves exactly like
+ *   bok (8-direction chase/attack) until it lands a melee attack; on its
+ *   next enemy turn it then tries a single step to an adjacent tile that
+ *   strictly increases its Chebyshev distance to the player instead of
+ *   acting normally, falling back to normal behavior that same turn if no
+ *   such tile exists.
  * - 'stationary': never acts (kraken).
  *
  * movementType is descriptive metadata for future phases (e.g. bat's
@@ -37,6 +43,7 @@ export type BehaviorType =
   | 'fast_melee'
   | 'recovery_melee'
   | 'placeholder'
+  | 'bat_retreat'
   | 'stationary';
 export type MovementType = 'ground' | 'flying' | 'none';
 
@@ -92,7 +99,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     spriteKey: 'bat',
     hp: 2,
     attack: 1,
-    behaviorType: 'placeholder',
+    behaviorType: 'bat_retreat',
     movementType: 'flying',
     stationary: false,
   },
