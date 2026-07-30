@@ -4,6 +4,7 @@ import { actionForKey } from './game/input';
 import { ENEMY_DEFINITIONS } from './game/enemy-def';
 import { formatEvent, formatEvents, MessageLog } from './game/message-log';
 import { advanceToNextFloor, createInitialState, randomSeed } from './game/state';
+import { getCockatriceTelegraph, getKrakenTelegraph } from './game/telegraph';
 import { processTurn } from './game/turn';
 import { EnemyType, GameState } from './game/types';
 
@@ -89,6 +90,13 @@ class MainScene extends Phaser.Scene {
   private terrainGraphics!: Phaser.GameObjects.Graphics;
   private exitGraphics!: Phaser.GameObjects.Graphics;
   private webGraphics!: Phaser.GameObjects.Graphics;
+  // phase-07-1-ranged-attack-telegraph-reticle-only: two layers, both
+  // created above the player/enemy sprites (layer_order: 床と地形 →
+  // (アイテムなし) → プレイヤーと敵 → 標的マスの照準アイコン → 攻撃準備
+  // 中の敵マーカー). No per-frame animation — both are static, redrawn
+  // only once per turn/reset from drawTelegraphs().
+  private telegraphReticleGraphics!: Phaser.GameObjects.Graphics;
+  private telegraphMarkerGraphics!: Phaser.GameObjects.Graphics;
   private playerSprite!: Phaser.GameObjects.Sprite;
   private enemySprites: Phaser.GameObjects.Sprite[] = [];
   private hudText!: Phaser.GameObjects.Text;
@@ -145,6 +153,10 @@ class MainScene extends Phaser.Scene {
       this.createWalkAnimations(spriteKey);
     }
     this.rebuildEnemySprites();
+    // Above player/enemy sprites (created after them), per layer_order:
+    // 標的マスの照準アイコン → 攻撃準備中の敵マーカー (marker last/topmost).
+    this.telegraphReticleGraphics = this.add.graphics();
+    this.telegraphMarkerGraphics = this.add.graphics();
 
     this.hudText = this.add
       .text(8, 8, '', {
@@ -320,6 +332,99 @@ class MainScene extends Phaser.Scene {
         this.terrainGraphics.strokeRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
       }
     }
+  }
+
+  /**
+   * Shared color family for both the target reticle and the attacker
+   * marker (telegraph_revision.attacker_marker: "標的アイコンと同系統の
+   * 色と形状を使い、対応関係を示す"). The reticle is drawn larger/more
+   * opaque than the marker so it stays the more prominent of the two
+   * (telegraph_revision.attacker_marker: "標的マスの照準より目立たせない").
+   */
+  private readonly TELEGRAPH_COLOR = 0xffb020;
+  private readonly RETICLE_RADIUS = TILE_SIZE * 0.26;
+  private readonly RETICLE_TICK_LENGTH = TILE_SIZE * 0.1;
+  private readonly RETICLE_DOT_RADIUS = TILE_SIZE * 0.035;
+  private readonly MARKER_RADIUS = TILE_SIZE * 0.12;
+
+  /**
+   * Redraws both telegraph layers from the current state
+   * (phase-07-1-ranged-attack-telegraph-reticle-only): a small reticle at
+   * the fixed target tile for every currently-aiming cockatrice
+   * (getCockatriceTelegraph) and currently-telegraphing kraken
+   * (getKrakenTelegraph) — both null whenever that enemy isn't currently
+   * telegraphing, so nothing is drawn for enemies merely in range or
+   * acting normally — plus a small marker at the telegraphing enemy's own
+   * position. Deliberately does not draw the ray/cross area itself (see
+   * telegraph_revision.remove); the underlying range/hit-detection
+   * functions in turn.ts are untouched and still compute the real attack
+   * area for actual hit resolution. No animation: both layers are static
+   * and only redrawn once per turn/reset (no update()-driven pulse),
+   * matching target_reticle's "点滅、脈動、回転などのアニメーションは追
+   * 加しない".
+   */
+  private drawTelegraphs(): void {
+    this.telegraphReticleGraphics.clear();
+    this.telegraphMarkerGraphics.clear();
+
+    for (const enemy of this.state.enemies) {
+      if (!enemy.alive) continue;
+
+      const cockatriceTelegraph = getCockatriceTelegraph(this.state.map, enemy);
+      if (cockatriceTelegraph) {
+        this.drawReticle(cockatriceTelegraph.targetTile);
+        this.drawAttackerMarker(enemy.pos);
+        continue;
+      }
+
+      const krakenTelegraph = getKrakenTelegraph(this.state.map, enemy);
+      if (krakenTelegraph) {
+        this.drawReticle(krakenTelegraph.center);
+        this.drawAttackerMarker(enemy.pos);
+      }
+    }
+  }
+
+  /**
+   * Draws the target reticle at a single fixed tile: a thin ring, four
+   * short corner ticks just outside it, and a small center dot — per
+   * target_reticle's suggested "細い円、四隅の短線、中央の小点などによる
+   * 簡素な形状". Small enough to leave the player/enemy sprite and floor
+   * pattern readable even when it overlaps them.
+   */
+  private drawReticle(tile: { x: number; y: number }): void {
+    const cx = tile.x * TILE_SIZE + TILE_SIZE / 2;
+    const cy = tile.y * TILE_SIZE + TILE_SIZE / 2;
+    const r = this.RETICLE_RADIUS;
+    const tick = this.RETICLE_TICK_LENGTH;
+    const g = this.telegraphReticleGraphics;
+
+    g.lineStyle(2, this.TELEGRAPH_COLOR, 0.85);
+    g.strokeCircle(cx, cy, r);
+    g.lineBetween(cx, cy - r - tick, cx, cy - r);
+    g.lineBetween(cx, cy + r, cx, cy + r + tick);
+    g.lineBetween(cx - r - tick, cy, cx - r, cy);
+    g.lineBetween(cx + r, cy, cx + r + tick, cy);
+
+    g.fillStyle(this.TELEGRAPH_COLOR, 0.9);
+    g.fillCircle(cx, cy, this.RETICLE_DOT_RADIUS);
+  }
+
+  /**
+   * Draws the small attacker marker near a telegraphing enemy's own tile
+   * (top-right of the sprite, per attacker_marker: "敵スプライトの頭上ま
+   * たは右上へ置く"), using the same color family as the reticle but
+   * smaller/lighter so it stays the less prominent of the two.
+   */
+  private drawAttackerMarker(pos: { x: number; y: number }): void {
+    const cx = pos.x * TILE_SIZE + TILE_SIZE * 0.78;
+    const cy = pos.y * TILE_SIZE + TILE_SIZE * 0.22;
+    const g = this.telegraphMarkerGraphics;
+
+    g.lineStyle(2, this.TELEGRAPH_COLOR, 0.75);
+    g.strokeCircle(cx, cy, this.MARKER_RADIUS);
+    g.fillStyle(this.TELEGRAPH_COLOR, 0.55);
+    g.fillCircle(cx, cy, this.MARKER_RADIUS * 0.45);
   }
 
   private drawExit(): void {
@@ -532,6 +637,7 @@ class MainScene extends Phaser.Scene {
     const { player } = this.state;
 
     this.drawWebs();
+    this.drawTelegraphs();
     this.updatePlayerSlowedTint();
     this.refreshLogPanel();
 

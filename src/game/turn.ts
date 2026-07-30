@@ -562,7 +562,7 @@ function resolveMummyEnemy(
 
 /** Minimum/maximum tile distance (inclusive) at which the petrifying gaze may be aimed/fired. */
 const GAZE_MIN_RANGE = 2;
-const GAZE_MAX_RANGE = 5;
+export const GAZE_MAX_RANGE = 5;
 
 /**
  * If `from` and `to` lie on one of the 8 fixed lines (same row, same
@@ -590,9 +590,12 @@ function alignedGazeDirection(from: Vec2, to: Vec2): { direction: Direction8; di
  * same diagonal corner-cut rule as normal movement — line of sight is
  * blocked by terrain only, never by actors), up to `maxSteps` tiles.
  * Returns every tile actually reached, in order (shorter than `maxSteps`
- * if blocked early).
+ * if blocked early). Exported (phase-07-1-ranged-attack-telegraph) so the
+ * telegraph-rendering module can compute the exact same reachable tiles
+ * used by the hit/miss check below, instead of re-deriving the range
+ * logic separately for display.
  */
-function castGazeRay(map: GameState['map'], from: Vec2, direction: Direction8, maxSteps: number): Vec2[] {
+export function castGazeRay(map: GameState['map'], from: Vec2, direction: Direction8, maxSteps: number): Vec2[] {
   const reached: Vec2[] = [];
   let pos = from;
   for (let i = 0; i < maxSteps; i++) {
@@ -626,6 +629,9 @@ function resolveCockatriceEnemy(
   if (enemy.gazeDirection) {
     const direction = enemy.gazeDirection;
     enemy.gazeDirection = undefined;
+    // Display-only bookkeeping (phase-07-1-ranged-attack-telegraph-reticle-only);
+    // does not participate in the hit check below, which is unchanged.
+    enemy.gazeTargetTile = undefined;
     const reached = castGazeRay(state.map, enemy.pos, direction, GAZE_MAX_RANGE);
     const hit = reached.some((tile) => tile.x === state.player.pos.x && tile.y === state.player.pos.y);
     events.push({
@@ -651,6 +657,9 @@ function resolveCockatriceEnemy(
     const reached = castGazeRay(state.map, enemy.pos, aligned.direction, aligned.distance);
     if (reached.length === aligned.distance) {
       enemy.gazeDirection = aligned.direction;
+      // Display-only snapshot of the aimed-at tile (phase-07-1-ranged-attack-telegraph-reticle-only);
+      // hit-detection above still relies solely on gazeDirection + castGazeRay, unchanged.
+      enemy.gazeTargetTile = { ...state.player.pos };
       events.push({
         type: 'cockatrice_gaze_aim',
         actorId: enemy.id ?? 0,
@@ -673,9 +682,11 @@ const KRAKEN_MAX_RANGE = 5;
  * Returns the orthogonal cross (center + N/S/W/E) centered on `center`,
  * excluding any cell outside the map. Walls are intentionally left in —
  * they only matter here as a possible (never occupiable) miss target, so
- * no special handling is needed for them.
+ * no special handling is needed for them. Exported
+ * (phase-07-1-ranged-attack-telegraph) so the telegraph-rendering module
+ * computes the exact same 5 cells used by the hit-detection below.
  */
-function tentacleCrossCells(map: GameState['map'], center: Vec2): Vec2[] {
+export function tentacleCrossCells(map: GameState['map'], center: Vec2): Vec2[] {
   const candidates: Vec2[] = [
     center,
     { x: center.x, y: center.y - 1 },

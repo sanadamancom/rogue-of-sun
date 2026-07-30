@@ -178,6 +178,17 @@ export interface EnemyActor extends Actor {
    */
   gazeDirection?: Direction8;
   /**
+   * Cockatrice-only, display-only bookkeeping (phase-07-1-ranged-attack-telegraph-reticle-only):
+   * the absolute tile the player occupied at the moment this cockatrice
+   * started aiming (set alongside `gazeDirection` in the same aim turn,
+   * cleared alongside it in the same fire turn). Exists purely so the
+   * telegraph reticle can be drawn at a fixed tile even after the player
+   * moves; it is never read by hit-detection/firing logic, which still
+   * uses only `gazeDirection` plus the ray-casting distance check exactly
+   * as before this field existed. Defaults to absent.
+   */
+  gazeTargetTile?: Vec2;
+  /**
    * Kraken-only (enemy-behavior-06/'kraken_tentacle',
    * phase-06-kraken-telegraphed-tentacle-strike): the fixed world
    * coordinate this kraken has telegraphed its tentacle strike at, or
