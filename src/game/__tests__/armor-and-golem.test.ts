@@ -160,7 +160,7 @@ describe('armor pickup', () => {
 
 describe('equipping armor', () => {
   it('can equip owned armor from the inventory, setting equippedArmorId', () => {
-    const state = freshState({ inventory: { apple: 0, sword: 0, armor: 1 } });
+    const state = freshState({ inventory: { apple: 0, sword: 0, armor: 1, spear: 0 } });
     toggleInventory(state);
     const result = useSelectedInventoryItem(state);
     expect(result.consumed).toBe(true);
@@ -168,35 +168,35 @@ describe('equipping armor', () => {
   });
 
   it('cannot equip unowned armor', () => {
-    const state = freshState({ inventory: { apple: 0, sword: 0, armor: 0 } });
+    const state = freshState({ inventory: { apple: 0, sword: 0, armor: 0, spear: 0 } });
     const result = processTurn(state, { type: 'equip_armor', armorId: 'armor' });
     expect(result.consumed).toBe(false);
     expect(state.equippedArmorId).toBeNull();
   });
 
   it('equip success consumes exactly 1 turn', () => {
-    const state = freshState({ inventory: { apple: 0, sword: 0, armor: 1 } });
+    const state = freshState({ inventory: { apple: 0, sword: 0, armor: 1, spear: 0 } });
     const turnBefore = state.turn;
     processTurn(state, { type: 'equip_armor', armorId: 'armor' });
     expect(state.turn).toBe(turnBefore + 1);
   });
 
   it('equip success runs enemy actions afterward (existing turn pipeline, no separate AI)', () => {
-    const state = freshState({ inventory: { apple: 0, sword: 0, armor: 1 } });
+    const state = freshState({ inventory: { apple: 0, sword: 0, armor: 1, spear: 0 } });
     state.enemies = [createInitialEnemy('bok', { x: 3, y: 1 }, 2, 1)];
     const result = processTurn(state, { type: 'equip_armor', armorId: 'armor' });
     expect(result.enemyActed).toBe(true);
   });
 
   it('equip success closes the inventory overlay', () => {
-    const state = freshState({ inventory: { apple: 0, sword: 0, armor: 1 } });
+    const state = freshState({ inventory: { apple: 0, sword: 0, armor: 1, spear: 0 } });
     toggleInventory(state);
     useSelectedInventoryItem(state);
     expect(state.inventoryOpen).toBe(false);
   });
 
   it('re-equipping already-equipped armor is a no-op: no turn, inventory stays open', () => {
-    const state = freshState({ inventory: { apple: 0, sword: 0, armor: 1 }, equippedArmorId: 'armor' });
+    const state = freshState({ inventory: { apple: 0, sword: 0, armor: 1, spear: 0 }, equippedArmorId: 'armor' });
     toggleInventory(state);
     const turnBefore = state.turn;
     const result = useSelectedInventoryItem(state);
@@ -206,25 +206,25 @@ describe('equipping armor', () => {
   });
 
   it('equipping armor does not remove it from inventory', () => {
-    const state = freshState({ inventory: { apple: 0, sword: 0, armor: 1 } });
+    const state = freshState({ inventory: { apple: 0, sword: 0, armor: 1, spear: 0 } });
     processTurn(state, { type: 'equip_armor', armorId: 'armor' });
     expect(state.inventory.armor).toBe(1);
   });
 
   it('equipping armor does not affect the equipped weapon, and vice versa', () => {
-    const state = freshState({ inventory: { apple: 0, sword: 1, armor: 1 }, equippedWeaponId: 'sword' });
+    const state = freshState({ inventory: { apple: 0, sword: 1, armor: 1, spear: 0 }, equippedWeaponId: 'sword' });
     processTurn(state, { type: 'equip_armor', armorId: 'armor' });
     expect(state.equippedWeaponId).toBe('sword');
     expect(state.equippedArmorId).toBe('armor');
 
-    const state2 = freshState({ inventory: { apple: 0, sword: 1, armor: 1 }, equippedArmorId: 'armor' });
+    const state2 = freshState({ inventory: { apple: 0, sword: 1, armor: 1, spear: 0 }, equippedArmorId: 'armor' });
     processTurn(state2, { type: 'equip_weapon', weaponId: 'sword' });
     expect(state2.equippedArmorId).toBe('armor');
     expect(state2.equippedWeaponId).toBe('sword');
   });
 
   it('equipping armor does not affect apple use behavior', () => {
-    const state = freshState({ inventory: { apple: 1, sword: 0, armor: 1 } });
+    const state = freshState({ inventory: { apple: 1, sword: 0, armor: 1, spear: 0 } });
     state.player.hp = 1;
     processTurn(state, { type: 'equip_armor', armorId: 'armor' });
     const result = processTurn(state, { type: 'use_item', itemId: 'apple' });
@@ -314,7 +314,7 @@ describe('armor damage reduction', () => {
   });
 
   it('armor is not consumed/removed by absorbing hits', () => {
-    const state = freshState({ equippedArmorId: 'armor', inventory: { apple: 0, sword: 0, armor: 1 } });
+    const state = freshState({ equippedArmorId: 'armor', inventory: { apple: 0, sword: 0, armor: 1, spear: 0 } });
     const bok = createInitialEnemy('bok', { x: 3, y: 1 }, 2, 1);
     state.enemies = [bok];
     processTurn(state, { type: 'wait' });
@@ -399,7 +399,7 @@ describe('floor 2 golem availability (Phase 08.4)', () => {
 
 describe('persistence and reset (Phase 08.4)', () => {
   it('armor possession and equip state carry over across a floor transition', () => {
-    let state = freshState({ inventory: { apple: 0, sword: 0, armor: 1 }, equippedArmorId: 'armor' });
+    let state = freshState({ inventory: { apple: 0, sword: 0, armor: 1, spear: 0 }, equippedArmorId: 'armor' });
     state.enemies.forEach((e) => (e.alive = false));
     state.player.pos = { ...state.exit };
     processTurn(state, { type: 'wait' });
@@ -411,7 +411,7 @@ describe('persistence and reset (Phase 08.4)', () => {
 
   it('sword possession/equip and apple count are unaffected by armor persistence (regression)', () => {
     let state = freshState({
-      inventory: { apple: 1, sword: 1, armor: 1 },
+      inventory: { apple: 1, sword: 1, armor: 1, spear: 0 },
       equippedWeaponId: 'sword',
       equippedArmorId: 'armor',
     });
@@ -440,7 +440,7 @@ describe('persistence and reset (Phase 08.4)', () => {
 
 describe('inventory controls with apple, sword, and armor (Phase 08.4)', () => {
   it('inventoryEntries lists all three when owned, in ITEM_IDS_IN_ORDER order', () => {
-    const state = freshState({ inventory: { apple: 1, sword: 1, armor: 1 } });
+    const state = freshState({ inventory: { apple: 1, sword: 1, armor: 1, spear: 0 } });
     expect(inventoryEntries(state)).toEqual([
       { itemId: 'apple', count: 1 },
       { itemId: 'sword', count: 1 },
@@ -449,7 +449,7 @@ describe('inventory controls with apple, sword, and armor (Phase 08.4)', () => {
   });
 
   it('opening/closing the inventory still consumes no turn with all three owned', () => {
-    const state = freshState({ inventory: { apple: 1, sword: 1, armor: 1 } });
+    const state = freshState({ inventory: { apple: 1, sword: 1, armor: 1, spear: 0 } });
     const turnBefore = state.turn;
     toggleInventory(state);
     closeInventory(state);
@@ -476,7 +476,7 @@ describe('regression: Phase 08.2/08.3 behavior unaffected', () => {
   });
 
   it('apple still heals 2 HP and consumes 1 apple on success', () => {
-    const state = freshState({ inventory: { apple: 1, sword: 0, armor: 0 } });
+    const state = freshState({ inventory: { apple: 1, sword: 0, armor: 0, spear: 0 } });
     state.player.hp = 1;
     const result = processTurn(state, { type: 'use_item', itemId: 'apple' });
     expect(result.consumed).toBe(true);

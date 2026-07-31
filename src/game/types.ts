@@ -296,24 +296,24 @@ export interface GameState {
 
 /**
  * Item species (Phase 08.2 inventory foundation; Phase 08.3 adds 'sword';
- * Phase 08.4 adds 'armor'). 'apple' is a consumable; 'sword' is an
- * equippable weapon; 'armor' is an equippable piece of armor. The type is
- * a union (not a bare string) so future items extend it in one place (see
- * src/game/item-def.ts for each item's shared display data,
- * src/game/weapon-def.ts for weapon combat data, and
- * src/game/armor-def.ts for armor combat data).
+ * Phase 08.4 adds 'armor'; Phase 08.5 adds 'spear'). 'apple' is a
+ * consumable; 'sword'/'spear' are equippable weapons; 'armor' is an
+ * equippable piece of armor. The type is a union (not a bare string) so
+ * future items extend it in one place (see src/game/item-def.ts for each
+ * item's shared display data, src/game/weapon-def.ts for weapon combat
+ * data, and src/game/armor-def.ts for armor combat data).
  */
-export type ItemId = 'apple' | 'sword' | 'armor';
+export type ItemId = 'apple' | 'sword' | 'armor' | 'spear';
 
 /**
- * Weapon species — Phase 08.3 registers only 'sword'. Deliberately a
- * separate (currently identical-looking) union from the subset of ItemId
- * values that are equippable, rather than reusing ItemId directly: not
- * every ItemId is a weapon (e.g. 'apple' never is), and this keeps
+ * Weapon species — Phase 08.3 registered only 'sword'; Phase 08.5 adds
+ * 'spear'. Deliberately a separate union from the subset of ItemId values
+ * that are equippable, rather than reusing ItemId directly: not every
+ * ItemId is a weapon (e.g. 'apple'/'armor' never are), and this keeps
  * weapon-only code (equippedWeaponId, WEAPON_DEFINITIONS) from silently
  * accepting a consumable's or armor's id.
  */
-export type WeaponId = 'sword';
+export type WeaponId = 'sword' | 'spear';
 
 /**
  * Armor species — Phase 08.4 registers only 'armor'. A separate union

@@ -61,6 +61,30 @@ export function getIncomingDamage(state: GameState, attackPower: number): number
   return Math.max(0, attackPower - getEffectiveArmorValue(state));
 }
 
+/**
+ * Applies the player's current effective attack power to `target`,
+ * pushes the resulting player_attack/enemy_defeated events, and returns
+ * whether the enemy was defeated. Shared by every player-attack site
+ * (adjacent melee and Phase 08.5's reach-2 spear attack) so defeat
+ * handling — and any future on-hit logic — is never duplicated per
+ * weapon. Never itself resolves enemy actions.
+ */
+function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: GameEvent[]): boolean {
+  const damage = getEffectiveAttackPower(state);
+  target.hp = Math.max(0, target.hp - damage);
+  const defeated = target.hp === 0;
+  events.push(
+    state.equippedWeaponId
+      ? { type: 'player_attack', enemyType: target.type, damage, weaponId: state.equippedWeaponId }
+      : { type: 'player_attack', enemyType: target.type, damage },
+  );
+  if (defeated) {
+    target.alive = false;
+    events.push({ type: 'enemy_defeated', enemyType: target.type });
+  }
+  return defeated;
+}
+
 export interface TurnResult {
   /** Whether the input actually consumed a turn (false for blocked moves). */
   consumed: boolean;
@@ -150,19 +174,37 @@ function applyPlayerAction(
   );
   if (target) {
     player.facing = action.direction;
-    const damage = getEffectiveAttackPower(state);
-    target.hp = Math.max(0, target.hp - damage);
-    const defeated = target.hp === 0;
-    events.push(
-      state.equippedWeaponId
-        ? { type: 'player_attack', enemyType: target.type, damage, weaponId: state.equippedWeaponId }
-        : { type: 'player_attack', enemyType: target.type, damage },
-    );
-    if (defeated) {
-      target.alive = false;
-      events.push({ type: 'enemy_defeated', enemyType: target.type });
-    }
+    const defeated = applyPlayerAttackToEnemy(state, target, events);
     return { consumed: true, attacked: true, defeated };
+  }
+
+  // Reach-2 attack (Phase 08.5 spear): only when the adjacent tile is
+  // empty of a living enemy (handled above) — priority.md requires
+  // adjacent targets to always be attacked first, never both an adjacent
+  // and a 2-tile attack in the same turn. Only applies when the equipped
+  // weapon's reach is 2 or more (currently just spear; unarmed and sword
+  // both have reach 1 and never reach this branch's attack).
+  const reach = state.equippedWeaponId ? WEAPON_DEFINITIONS[state.equippedWeaponId].reach : 1;
+  if (reach >= 2) {
+    // The intervening (1-tile) segment must itself be a legal, non-diagonal
+    // -corner-cutting step (canMove already encodes both wall/bounds and
+    // the existing diagonal corner-cut rule) — this is segment 1 of 2.
+    if (canMove(map, player.pos, action.direction)) {
+      // The second segment (from the intervening tile onward) must pass
+      // the same legality check — this re-applies the diagonal corner-cut
+      // rule independently to segment 2, per obstruction.diagonal.
+      if (canMove(map, destination, action.direction)) {
+        const farTile = destinationOf(destination, action.direction);
+        const farTarget = enemies.find(
+          (enemy) => enemy.alive && enemy.pos.x === farTile.x && enemy.pos.y === farTile.y,
+        );
+        if (farTarget) {
+          player.facing = action.direction;
+          const defeated = applyPlayerAttackToEnemy(state, farTarget, events);
+          return { consumed: true, attacked: true, defeated };
+        }
+      }
+    }
   }
 
   // Otherwise, attempt a normal move.

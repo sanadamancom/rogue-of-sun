@@ -158,6 +158,23 @@ function buildFloorState(
     groundItems.push({ id: 2, itemId: 'armor', pos: armorPos });
   }
 
+  // Spear placement (Phase 08.5 reach weapon): floor 2 only, using a
+  // sixth distinct independent RNG stream so it never perturbs the
+  // map/placement/species/apple/sword/armor RNG sequences or their
+  // consumption order. Floor 2's only other ground item at this point is
+  // the apple (sword/armor are floor-1-only), so only that needs
+  // excluding in addition to start/exit/every enemy position.
+  if (floor === 2) {
+    const spearRng = createRng(floorSeed ^ 0x3d7a4c19);
+    const spearPos = chooseGroundItemPosition(
+      map,
+      placement.start,
+      [placement.start, placement.exit, ...placement.enemies, applePos],
+      spearRng,
+    );
+    groundItems.push({ id: groundItems.length, itemId: 'spear', pos: spearPos });
+  }
+
   return {
     map,
     player,

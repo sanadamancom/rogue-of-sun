@@ -4,6 +4,7 @@ import { actionForKey } from './game/input';
 import { ENEMY_DEFINITIONS } from './game/enemy-def';
 import { ITEM_DEFINITIONS } from './game/item-def';
 import { ARMOR_DEFINITIONS } from './game/armor-def';
+import { WEAPON_DEFINITIONS } from './game/weapon-def';
 import {
   closeInventory,
   inventoryEntries,
@@ -562,7 +563,9 @@ class MainScene extends Phaser.Scene {
         // consumables (apple) keep the existing x{count} display.
         let suffix: string;
         if (def.category === 'weapon') {
-          suffix = this.state.equippedWeaponId === entry.itemId ? '（装備中）' : '（未装備）';
+          const weaponDef = WEAPON_DEFINITIONS[entry.itemId as 'sword' | 'spear'];
+          const status = this.state.equippedWeaponId === entry.itemId ? '装備中' : '未装備';
+          suffix = `（${status} 攻撃${weaponDef.attackPower}・射程${weaponDef.reach}）`;
         } else if (def.category === 'armor') {
           const armorValue = ARMOR_DEFINITIONS[entry.itemId as 'armor'].armorValue;
           const status = this.state.equippedArmorId === entry.itemId ? '装備中' : '未装備';
