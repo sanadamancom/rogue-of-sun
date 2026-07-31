@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER } from '../enemy-def';
+import { ENEMY_DEFINITIONS, getEnemyPoolForFloor } from '../enemy-def';
 import { advanceToNextFloor, createInitialState } from '../state';
 import { createInitialEnemy, processTurn } from '../turn';
 import { EnemyType, GameMap, GameState, Tile } from '../types';
@@ -7,12 +7,13 @@ import { EnemyType, GameMap, GameState, Tile } from '../types';
 const RUN_SEEDS = Array.from({ length: 100 }, (_, i) => i * 17 + 5);
 
 describe('enemy species assignment', () => {
-  it('always generates exactly 2 enemies per floor, each a valid roster species', () => {
+  it('always generates exactly 2 enemies per floor, each within that floor\'s unlocked pool', () => {
     for (const runSeed of RUN_SEEDS) {
       const state = createInitialState(runSeed);
       expect(state.enemies).toHaveLength(2);
+      const pool = getEnemyPoolForFloor(state.floor);
       for (const enemy of state.enemies) {
-        expect(ENEMY_TYPES_IN_ORDER).toContain(enemy.type);
+        expect(pool).toContain(enemy.type);
       }
     }
   });
@@ -54,15 +55,18 @@ describe('enemy species assignment', () => {
     expect(a.enemies.map((e) => e.pos)).toEqual(b.enemies.map((e) => e.pos));
   });
 
-  it('makes every one of the 9 species a reachable normal-spawn outcome across enough seeds', () => {
+  it('makes every species in floor 1\'s unlocked pool a reachable normal-spawn outcome, and no others (Phase 08.1)', () => {
     const seen = new Set<EnemyType>();
     for (let runSeed = 0; runSeed < 500; runSeed++) {
       const state = createInitialState(runSeed);
       state.enemies.forEach((e) => seen.add(e.type));
-      if (seen.size === ENEMY_TYPES_IN_ORDER.length) break;
     }
-    for (const type of ENEMY_TYPES_IN_ORDER) {
+    const floor1Pool = getEnemyPoolForFloor(1);
+    for (const type of floor1Pool) {
       expect(seen.has(type)).toBe(true);
+    }
+    for (const type of seen) {
+      expect(floor1Pool).toContain(type);
     }
   });
 });

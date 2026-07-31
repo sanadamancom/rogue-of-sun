@@ -202,3 +202,34 @@ export const ENEMY_TYPES_IN_ORDER: EnemyType[] = [
   'axe',
   'kraken',
 ];
+
+/**
+ * Floor number (1-indexed) on which each species first becomes a normal
+ * spawn candidate (Phase 08.1 floor-based enemy pools). A species is a
+ * candidate on this floor and every floor after it (cumulative unlock).
+ */
+export const ENEMY_FIRST_APPEARANCE_FLOOR: Record<EnemyType, number> = {
+  bok: 1,
+  bat: 1,
+  spider: 2,
+  cockatrice: 3,
+  mummy: 3,
+  sword: 4,
+  axe: 4,
+  golem: 5,
+  kraken: 5,
+};
+
+/**
+ * Returns the read-only set of species eligible to spawn as a normal enemy
+ * on the given floor, per ENEMY_FIRST_APPEARANCE_FLOOR's cumulative unlock
+ * schedule (floor 1 = bok/bat only; floor 5 and beyond = the full 9-species
+ * roster). Order follows ENEMY_TYPES_IN_ORDER. Does not affect species
+ * count, weighting, or the underlying seeded RNG selection mechanism —
+ * callers still draw uniformly at random from the returned array.
+ */
+export function getEnemyPoolForFloor(floor: number): EnemyType[] {
+  return ENEMY_TYPES_IN_ORDER.filter(
+    (type) => ENEMY_FIRST_APPEARANCE_FLOOR[type] <= floor,
+  );
+}

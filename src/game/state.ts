@@ -1,7 +1,7 @@
 import { choosePlacement, createRng, generateMap, MAP_GEN_PARAMS } from './mapgen';
 import { createInitialActor, createInitialEnemy } from './turn';
 import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
-import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER } from './enemy-def';
+import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
 import { Actor, EnemyActor, EnemyType, GameState, Vec2 } from './types';
 
 /** Generates a random run seed without relying on Math.random's implicit global state at call sites. */
@@ -17,17 +17,20 @@ interface CarryOverStats {
 }
 
 /**
- * Picks `count` species independently (with replacement) from the full
- * 9-species roster using `rng`, in fixed enemy-slot order. Each slot is an
- * independent draw (duplicates across slots are allowed), so over enough
- * seeds every species appears somewhere across floors without needing to
- * inflate how many enemies a single floor spawns.
+ * Picks `count` species independently (with replacement) from `pool` using
+ * `rng`, in fixed enemy-slot order. Each slot is an independent draw
+ * (duplicates across slots are allowed). `pool` is normally the current
+ * floor's unlocked candidate set (Phase 08.1 floor-based enemy pools) so
+ * that, over enough seeds, every unlocked species appears somewhere across
+ * floors without needing to inflate how many enemies a single floor spawns.
+ * Selection remains a uniform draw over whatever pool is passed in — this
+ * function does not itself know about floor numbers.
  */
-function chooseSpecies(count: number, rng: () => number): EnemyType[] {
+function chooseSpecies(count: number, rng: () => number, pool: EnemyType[]): EnemyType[] {
   const types: EnemyType[] = [];
   for (let i = 0; i < count; i++) {
-    const index = Math.floor(rng() * ENEMY_TYPES_IN_ORDER.length);
-    types.push(ENEMY_TYPES_IN_ORDER[index]);
+    const index = Math.floor(rng() * pool.length);
+    types.push(pool[index]);
   }
   return types;
 }
@@ -86,7 +89,8 @@ function buildFloorState(
   // placementRng) so choosing species never perturbs the existing
   // placement-position RNG sequence/determinism.
   const speciesRng = createRng(floorSeed ^ 0x8f3c9d21);
-  const types = forcedSpecies ?? chooseSpecies(placement.enemies.length, speciesRng);
+  const floorPool = getEnemyPoolForFloor(floor);
+  const types = forcedSpecies ?? chooseSpecies(placement.enemies.length, speciesRng, floorPool);
   const enemies = buildEnemies(placement.enemies, types, turn);
 
   return {
