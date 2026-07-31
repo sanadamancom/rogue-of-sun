@@ -1,4 +1,4 @@
-import { Direction8, EnemyType, ItemId, Vec2 } from './types';
+import { Direction8, EnemyType, ItemId, WeaponId, Vec2 } from './types';
 
 /**
  * Typed, display-agnostic record of a notable action that happened during
@@ -14,7 +14,7 @@ import { Direction8, EnemyType, ItemId, Vec2 } from './types';
  * render TurnResult.events as-is without re-sorting.
  */
 export type GameEvent =
-  | { type: 'player_attack'; enemyType: EnemyType; damage: number }
+  | { type: 'player_attack'; enemyType: EnemyType; damage: number; weaponId?: WeaponId }
   | { type: 'enemy_attack'; enemyType: EnemyType; damage: number }
   | { type: 'enemy_defeated'; enemyType: EnemyType }
   | { type: 'enemy_recovering'; enemyType: EnemyType }
@@ -48,4 +48,6 @@ export type GameEvent =
   | { type: 'player_defeated' }
   | { type: 'item_picked_up'; itemId: ItemId }
   | { type: 'item_used'; itemId: ItemId; healed: number }
-  | { type: 'item_use_failed'; itemId: ItemId; reason: 'full_hp' };
+  | { type: 'item_use_failed'; itemId: ItemId; reason: 'full_hp' }
+  | { type: 'weapon_equipped'; weaponId: WeaponId }
+  | { type: 'weapon_already_equipped'; weaponId: WeaponId };

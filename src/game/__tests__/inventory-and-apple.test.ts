@@ -55,19 +55,24 @@ function freshState(overrides?: Partial<GameState>): GameState {
     inventory: createEmptyInventory(),
     inventoryOpen: false,
     selectedItemIndex: 0,
+    equippedWeaponId: null,
     ...overrides,
   };
 }
 
-describe('item definition (Phase 08.2)', () => {
-  it('registers apple as the only item with the correct display name and heal amount', () => {
-    expect(ITEM_IDS_IN_ORDER).toEqual(['apple']);
+describe('item definition (Phase 08.2/08.3)', () => {
+  it('registers apple with the correct display name and heal amount', () => {
+    expect(ITEM_IDS_IN_ORDER).toContain('apple');
     expect(ITEM_DEFINITIONS.apple.displayName).toBe('リンゴ');
     expect(ITEM_DEFINITIONS.apple.healAmount).toBe(2);
+    expect(ITEM_DEFINITIONS.apple.category).toBe('consumable');
   });
 
   it('createEmptyInventory starts every registered item at 0', () => {
-    expect(createEmptyInventory()).toEqual({ apple: 0 });
+    const inventory = createEmptyInventory();
+    for (const id of ITEM_IDS_IN_ORDER) {
+      expect(inventory[id]).toBe(0);
+    }
   });
 });
 
@@ -115,9 +120,9 @@ describe('apple placement in real floor generation (createInitialState)', () => 
   it('places exactly one apple per floor, on a floor tile, not overlapping player/exit/enemies', () => {
     for (const runSeed of RUN_SEEDS) {
       const state = createInitialState(runSeed);
-      expect(state.groundItems).toHaveLength(1);
-      const apple = state.groundItems[0];
-      expect(apple.itemId).toBe('apple');
+      const apples = state.groundItems.filter((item) => item.itemId === 'apple');
+      expect(apples).toHaveLength(1);
+      const apple = apples[0];
       expect(state.map.terrain[apple.pos.y][apple.pos.x]).toBe('floor');
       expect(apple.pos).not.toEqual(state.player.pos);
       expect(apple.pos).not.toEqual(state.exit);
@@ -231,13 +236,13 @@ describe('inventory overlay controls (Tab/Escape/Arrow/Enter)', () => {
   });
 
   it('opening resets the selected index to 0', () => {
-    const state = freshState({ inventory: { apple: 3 }, selectedItemIndex: 5 });
+    const state = freshState({ inventory: { apple: 3, sword: 0 }, selectedItemIndex: 5 });
     toggleInventory(state);
     expect(state.selectedItemIndex).toBe(0);
   });
 
   it('moveInventorySelection does not consume a turn', () => {
-    const state = freshState({ inventory: { apple: 1 } });
+    const state = freshState({ inventory: { apple: 1, sword: 0 } });
     toggleInventory(state);
     const turnBefore = state.turn;
     moveInventorySelection(state, 1);
@@ -245,17 +250,17 @@ describe('inventory overlay controls (Tab/Escape/Arrow/Enter)', () => {
   });
 
   it('inventory display excludes zero-count items (inventoryEntries)', () => {
-    const state = freshState({ inventory: { apple: 0 } });
+    const state = freshState({ inventory: { apple: 0, sword: 0 } });
     expect(inventoryEntries(state)).toEqual([]);
   });
 
   it('inventory display includes positive-count items', () => {
-    const state = freshState({ inventory: { apple: 2 } });
+    const state = freshState({ inventory: { apple: 2, sword: 0 } });
     expect(inventoryEntries(state)).toEqual([{ itemId: 'apple', count: 2 }]);
   });
 
   it('while the overlay is open, move/wait input is rejected (no turn consumed, no effect)', () => {
-    const state = freshState({ inventory: { apple: 1 } });
+    const state = freshState({ inventory: { apple: 1, sword: 0 } });
     toggleInventory(state);
     const turnBefore = state.turn;
     const posBefore = { ...state.player.pos };
@@ -268,7 +273,7 @@ describe('inventory overlay controls (Tab/Escape/Arrow/Enter)', () => {
   });
 
   it('useSelectedInventoryItem on an empty inventory does not throw, does not consume a turn', () => {
-    const state = freshState({ inventory: { apple: 0 } });
+    const state = freshState({ inventory: { apple: 0, sword: 0 } });
     toggleInventory(state);
     const turnBefore = state.turn;
     expect(() => useSelectedInventoryItem(state)).not.toThrow();
@@ -280,7 +285,7 @@ describe('inventory overlay controls (Tab/Escape/Arrow/Enter)', () => {
 
 describe('apple use rules (Phase 08.2)', () => {
   it('using apple at HP1 (max 3) heals to HP3 and consumes exactly 1 apple', () => {
-    const state = freshState({ inventory: { apple: 1 } });
+    const state = freshState({ inventory: { apple: 1, sword: 0 } });
     state.player.hp = 1;
     toggleInventory(state);
     const result = useSelectedInventoryItem(state);
@@ -290,7 +295,7 @@ describe('apple use rules (Phase 08.2)', () => {
   });
 
   it('using apple at HP2 (max 3) heals to HP3 (capped at maxHp) and still consumes 1 apple', () => {
-    const state = freshState({ inventory: { apple: 1 } });
+    const state = freshState({ inventory: { apple: 1, sword: 0 } });
     state.player.hp = 2;
     toggleInventory(state);
     const result = useSelectedInventoryItem(state);
@@ -300,7 +305,7 @@ describe('apple use rules (Phase 08.2)', () => {
   });
 
   it('cannot use apple at full HP: not consumed, apple count unchanged, inventory stays open', () => {
-    const state = freshState({ inventory: { apple: 1 } });
+    const state = freshState({ inventory: { apple: 1, sword: 0 } });
     state.player.hp = state.player.maxHp;
     toggleInventory(state);
     const result = useSelectedInventoryItem(state);
@@ -311,7 +316,7 @@ describe('apple use rules (Phase 08.2)', () => {
   });
 
   it('full-HP use attempt does not consume a turn', () => {
-    const state = freshState({ inventory: { apple: 1 } });
+    const state = freshState({ inventory: { apple: 1, sword: 0 } });
     state.player.hp = state.player.maxHp;
     toggleInventory(state);
     const turnBefore = state.turn;
@@ -320,7 +325,7 @@ describe('apple use rules (Phase 08.2)', () => {
   });
 
   it('a successful use consumes exactly 1 turn and runs enemy actions afterward', () => {
-    const state = freshState({ inventory: { apple: 1 } });
+    const state = freshState({ inventory: { apple: 1, sword: 0 } });
     state.player.hp = 1;
     // Put a lone bok directly adjacent so it will attack this turn.
     state.enemies = [createInitialEnemy('bok', { x: 3, y: 1 }, 2, 1)];
@@ -334,7 +339,7 @@ describe('apple use rules (Phase 08.2)', () => {
   });
 
   it('a failed use (full HP) does not trigger any enemy action', () => {
-    const state = freshState({ inventory: { apple: 1 } });
+    const state = freshState({ inventory: { apple: 1, sword: 0 } });
     state.player.hp = state.player.maxHp;
     state.enemies = [createInitialEnemy('bok', { x: 3, y: 1 }, 2, 1)];
     toggleInventory(state);
@@ -345,7 +350,7 @@ describe('apple use rules (Phase 08.2)', () => {
   });
 
   it('a successful use closes the inventory overlay', () => {
-    const state = freshState({ inventory: { apple: 1 } });
+    const state = freshState({ inventory: { apple: 1, sword: 0 } });
     state.player.hp = 1;
     toggleInventory(state);
     useSelectedInventoryItem(state);
@@ -353,7 +358,7 @@ describe('apple use rules (Phase 08.2)', () => {
   });
 
   it('inventory count never goes negative even if use is attempted with 0 apples', () => {
-    const state = freshState({ inventory: { apple: 0 } });
+    const state = freshState({ inventory: { apple: 0, sword: 0 } });
     state.player.hp = 1;
     // Directly exercise the use_item action with a stale/invalid selection.
     const result = processTurn(state, { type: 'use_item', itemId: 'apple' });
@@ -362,7 +367,7 @@ describe('apple use rules (Phase 08.2)', () => {
   });
 
   it('a successful use preserves special enemy behavior cycles (e.g. golem slow_melee acting phase)', () => {
-    const state = freshState({ inventory: { apple: 1 } });
+    const state = freshState({ inventory: { apple: 1, sword: 0 } });
     state.player.hp = 1;
     const golem = createInitialEnemy('golem', { x: 3, y: 1 }, 4, 3, 0, 0);
     golem.spawnTurn = state.turn; // acting phase 0 == this is an acting turn

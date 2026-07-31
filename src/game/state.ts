@@ -3,7 +3,7 @@ import { createInitialActor, createInitialEnemy } from './turn';
 import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
 import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
 import { createEmptyInventory } from './item-def';
-import { Actor, EnemyActor, EnemyType, GameState, GroundItem, Inventory, Vec2 } from './types';
+import { Actor, EnemyActor, EnemyType, GameState, GroundItem, Inventory, Vec2, WeaponId } from './types';
 
 /** Generates a random run seed without relying on Math.random's implicit global state at call sites. */
 export function randomSeed(): number {
@@ -16,6 +16,7 @@ interface CarryOverStats {
   attack: number;
   regenProgress: number;
   inventory: Inventory;
+  equippedWeaponId: WeaponId | null;
 }
 
 /**
@@ -110,6 +111,22 @@ function buildFloorState(
   );
   const groundItems: GroundItem[] = [{ id: 0, itemId: 'apple', pos: applePos }];
 
+  // Sword placement (Phase 08.3 weapon/equipment foundation): floor 1
+  // only, using a fourth distinct independent RNG stream so it never
+  // perturbs the map/placement/species/apple RNG sequences or their
+  // consumption order. Excludes the apple's tile too, in addition to
+  // start/exit/every enemy position.
+  if (floor === 1) {
+    const swordRng = createRng(floorSeed ^ 0x5c2e91d3);
+    const swordPos = chooseGroundItemPosition(
+      map,
+      placement.start,
+      [placement.start, placement.exit, ...placement.enemies, applePos],
+      swordRng,
+    );
+    groundItems.push({ id: 1, itemId: 'sword', pos: swordPos });
+  }
+
   return {
     map,
     player,
@@ -127,13 +144,14 @@ function buildFloorState(
     // floor's webs or id counter.
     webs: [],
     nextWebId: 0,
-    // Ground items are per-floor, like webs (Phase 08.2); the inventory
-    // itself (below) is the only thing that carries over.
+    // Ground items are per-floor, like webs (Phase 08.2/08.3); the
+    // inventory and equipped weapon (below) are what carry over.
     groundItems,
-    nextGroundItemId: 1,
+    nextGroundItemId: groundItems.length,
     inventory: carry ? carry.inventory : createEmptyInventory(),
     inventoryOpen: false,
     selectedItemIndex: 0,
+    equippedWeaponId: carry ? carry.equippedWeaponId : null,
   };
 }
 
@@ -154,6 +172,7 @@ export function advanceToNextFloor(state: GameState): GameState {
     attack: state.player.attack,
     regenProgress: state.regenProgress,
     inventory: state.inventory,
+    equippedWeaponId: state.equippedWeaponId,
   };
   return buildFloorState(state.runSeed, state.floor + 1, state.turn, carry);
 }

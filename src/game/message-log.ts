@@ -12,6 +12,10 @@ export function formatEvent(event: GameEvent): string {
   switch (event.type) {
     case 'player_attack': {
       const name = ENEMY_DEFINITIONS[event.enemyType].displayName;
+      if (event.weaponId) {
+        const weaponName = ITEM_DEFINITIONS[event.weaponId].displayName;
+        return `${weaponName}で${name}に${event.damage}ダメージ。`;
+      }
       return `${name}に${event.damage}ダメージ。`;
     }
     case 'enemy_attack': {
@@ -85,6 +89,14 @@ export function formatEvent(event: GameEvent): string {
     case 'item_use_failed': {
       const name = ITEM_DEFINITIONS[event.itemId].displayName;
       return `HPは満タンで、${name}は使えない。`;
+    }
+    case 'weapon_equipped': {
+      const name = ITEM_DEFINITIONS[event.weaponId].displayName;
+      return `${name}を装備した。`;
+    }
+    case 'weapon_already_equipped': {
+      const name = ITEM_DEFINITIONS[event.weaponId].displayName;
+      return `${name}はすでに装備している。`;
     }
     default: {
       const exhaustiveCheck: never = event;

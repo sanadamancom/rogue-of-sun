@@ -273,15 +273,35 @@ export interface GameState {
   inventoryOpen: boolean;
   /** Index into the current non-zero inventory entries (display order = ITEM_IDS_IN_ORDER), used by ArrowUp/ArrowDown navigation. Resets to 0 whenever the inventory opens. */
   selectedItemIndex: number;
+  /**
+   * The currently equipped weapon, or null for unarmed (Phase 08.3).
+   * Equipping never removes the weapon from `inventory` (not consumable,
+   * not stackable) and never changes player.attack (the permanent unarmed
+   * stat) — see turn.ts's getEffectiveAttackPower for how this is applied
+   * during combat. Persists across floor transitions like `inventory`;
+   * resets to null on a brand new run.
+   */
+  equippedWeaponId: WeaponId | null;
 }
 
 /**
- * Item species (Phase 08.2 inventory foundation). 'apple' is the only
- * registered item; the type is a union (not a bare string) so future items
- * extend it in one place (see src/game/item-def.ts for each item's
- * definition, including its heal amount and display name).
+ * Item species (Phase 08.2 inventory foundation; Phase 08.3 adds 'sword').
+ * 'apple' is a consumable; 'sword' is an equippable weapon. The type is a
+ * union (not a bare string) so future items extend it in one place (see
+ * src/game/item-def.ts for each item's shared display data and
+ * src/game/weapon-def.ts for weapon-specific combat data).
  */
-export type ItemId = 'apple';
+export type ItemId = 'apple' | 'sword';
+
+/**
+ * Weapon species — Phase 08.3 registers only 'sword'. Deliberately a
+ * separate (currently identical-looking) union from the subset of ItemId
+ * values that are equippable, rather than reusing ItemId directly: not
+ * every ItemId is a weapon (e.g. 'apple' never is), and this keeps
+ * weapon-only code (equippedWeaponId, WEAPON_DEFINITIONS) from silently
+ * accepting a consumable's id.
+ */
+export type WeaponId = 'sword';
 
 /** Stacked item counts held by the player; never negative, absent/0 entries are not shown in UI. */
 export type Inventory = Record<ItemId, number>;
@@ -301,4 +321,5 @@ export interface GroundItem {
 export type PlayerAction =
   | { type: 'move'; direction: Direction8 }
   | { type: 'wait' }
-  | { type: 'use_item'; itemId: ItemId };
+  | { type: 'use_item'; itemId: ItemId }
+  | { type: 'equip_weapon'; weaponId: WeaponId };

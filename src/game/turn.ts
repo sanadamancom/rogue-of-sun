@@ -2,6 +2,7 @@ import { directionBetweenAdjacent, isAdjacent, isOrthogonallyAdjacent } from './
 import { canMove, destinationOf, isInBounds, isWalkable } from './map';
 import { ENEMY_DEFINITIONS } from './enemy-def';
 import { ITEM_DEFINITIONS } from './item-def';
+import { WEAPON_DEFINITIONS } from './weapon-def';
 import { canPlaceWebNow, expireWebs, placeWeb } from './web';
 import { GameEvent } from './events';
 import {
@@ -18,6 +19,21 @@ import {
 
 /** Consumed player actions required for one natural HP tick (Phase 04 initial setting). */
 export const REGEN_TURNS_PER_HP = 5;
+
+/**
+ * The attack power the player's next adjacent-tile attack will deal
+ * (Phase 08.3 weapon/equipment foundation): the equipped weapon's
+ * attackPower if one is equipped, otherwise the permanent unarmed
+ * player.attack stat. The weapon's power replaces the unarmed value; it is
+ * never added on top of it, and equipping/unequipping never mutates
+ * player.attack itself.
+ */
+export function getEffectiveAttackPower(state: GameState): number {
+  if (state.equippedWeaponId) {
+    return WEAPON_DEFINITIONS[state.equippedWeaponId].attackPower;
+  }
+  return state.player.attack;
+}
 
 export interface TurnResult {
   /** Whether the input actually consumed a turn (false for blocked moves). */
@@ -74,6 +90,10 @@ function applyPlayerAction(
     return applyItemUse(state, action.itemId, events);
   }
 
+  if (action.type === 'equip_weapon') {
+    return applyWeaponEquip(state, action.weaponId, events);
+  }
+
   if (action.type === 'wait') {
     return { consumed: true, attacked: false, defeated: false };
   }
@@ -100,9 +120,14 @@ function applyPlayerAction(
   );
   if (target) {
     player.facing = action.direction;
-    target.hp = Math.max(0, target.hp - player.attack);
+    const damage = getEffectiveAttackPower(state);
+    target.hp = Math.max(0, target.hp - damage);
     const defeated = target.hp === 0;
-    events.push({ type: 'player_attack', enemyType: target.type, damage: player.attack });
+    events.push(
+      state.equippedWeaponId
+        ? { type: 'player_attack', enemyType: target.type, damage, weaponId: state.equippedWeaponId }
+        : { type: 'player_attack', enemyType: target.type, damage },
+    );
     if (defeated) {
       target.alive = false;
       events.push({ type: 'enemy_defeated', enemyType: target.type });
@@ -169,13 +194,14 @@ function applyItemUse(
     return { consumed: false, attacked: false, defeated: false };
   }
 
-  if (def.healAmount > 0) {
+  const healAmount = def.healAmount ?? 0;
+  if (healAmount > 0) {
     if (player.hp >= player.maxHp) {
       events.push({ type: 'item_use_failed', itemId, reason: 'full_hp' });
       return { consumed: false, attacked: false, defeated: false };
     }
     const before = player.hp;
-    player.hp = Math.min(player.maxHp, player.hp + def.healAmount);
+    player.hp = Math.min(player.maxHp, player.hp + healAmount);
     const healed = player.hp - before;
     state.inventory[itemId] = owned - 1;
     events.push({ type: 'item_used', itemId, healed });
@@ -185,6 +211,35 @@ function applyItemUse(
 
   // No other item effect is registered yet.
   return { consumed: false, attacked: false, defeated: false };
+}
+
+/**
+ * Resolves an 'equip_weapon' action (Phase 08.3). Equipping never removes
+ * the weapon from the inventory (not consumable, not stackable) and never
+ * touches player.attack (the permanent unarmed stat) — see
+ * getEffectiveAttackPower for how equippedWeaponId is applied during
+ * combat. Already-equipped is a no-op (no turn, inventory stays open);
+ * an unowned weapon cannot be equipped.
+ */
+function applyWeaponEquip(
+  state: GameState,
+  weaponId: import('./types').WeaponId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const owned = state.inventory[weaponId] ?? 0;
+  if (owned <= 0) {
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  if (state.equippedWeaponId === weaponId) {
+    events.push({ type: 'weapon_already_equipped', weaponId });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  state.equippedWeaponId = weaponId;
+  events.push({ type: 'weapon_equipped', weaponId });
+  state.inventoryOpen = false;
+  return { consumed: true, attacked: false, defeated: false };
 }
 
 /**
@@ -1000,7 +1055,7 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
   // their own dedicated functions (see src/game/inventory.ts), not this
   // guard. 'use_item' itself is exempt so a successful use can still run
   // the full turn pipeline below.
-  if (state.inventoryOpen && action.type !== 'use_item') {
+  if (state.inventoryOpen && action.type !== 'use_item' && action.type !== 'equip_weapon') {
     return {
       consumed: false,
       playerAttacked: false,

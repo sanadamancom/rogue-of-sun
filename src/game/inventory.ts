@@ -1,4 +1,4 @@
-import { ITEM_IDS_IN_ORDER } from './item-def';
+import { ITEM_DEFINITIONS, ITEM_IDS_IN_ORDER } from './item-def';
 import { processTurn, TurnResult } from './turn';
 import { GameState, ItemId } from './types';
 
@@ -70,12 +70,17 @@ function noopResult(): TurnResult {
 }
 
 /**
- * Uses the currently-selected inventory entry (Enter), routing through the
- * normal processTurn pipeline (see turn.ts's 'use_item' handling) so a
- * successful use runs the exact same enemy-resolution/regen/floor-check
- * sequence as any other player action. Returns a no-op result without
- * throwing or consuming a turn if the inventory is empty (Phase 08.2
- * requirement: "空の状態でEnterを押しても何も消費せず、ターンも進めない").
+ * Uses or equips the currently-selected inventory entry (Enter), routing
+ * through the normal processTurn pipeline (see turn.ts's 'use_item' and
+ * 'equip_weapon' handling) so a successful action runs the exact same
+ * enemy-resolution/regen/floor-check sequence as any other player action.
+ * Consumables (apple) are used; weapons (sword) are equipped — the
+ * dispatch is based on the selected item's registered category, so both
+ * share this single selection/Enter control (Phase 08.3 requirement:
+ * "リンゴとソードを同じ選択処理で扱えるようにする"). Returns a no-op
+ * result without throwing or consuming a turn if the inventory is empty
+ * (Phase 08.2 requirement: "空の状態でEnterを押しても何も消費せず、ター
+ * ンも進めない").
  */
 export function useSelectedInventoryItem(state: GameState): TurnResult {
   const entries = inventoryEntries(state);
@@ -84,5 +89,9 @@ export function useSelectedInventoryItem(state: GameState): TurnResult {
   }
   const clampedIndex = Math.min(state.selectedItemIndex, entries.length - 1);
   const itemId = entries[clampedIndex].itemId;
+  const def = ITEM_DEFINITIONS[itemId];
+  if (def.category === 'weapon') {
+    return processTurn(state, { type: 'equip_weapon', weaponId: itemId as import('./types').WeaponId });
+  }
   return processTurn(state, { type: 'use_item', itemId });
 }

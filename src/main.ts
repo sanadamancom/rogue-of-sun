@@ -556,11 +556,20 @@ class MainScene extends Phaser.Scene {
       entries.forEach((entry, i) => {
         const def = ITEM_DEFINITIONS[entry.itemId];
         const marker = i === this.state.selectedItemIndex ? '> ' : '  ';
-        lines.push(`${marker}${def.glyph} ${def.displayName} x${entry.count}`);
+        // Weapons (Phase 08.3) show equip status instead of a stack count
+        // (a count would misleadingly imply consumption); consumables
+        // (apple) keep the existing x{count} display.
+        const suffix =
+          def.category === 'weapon'
+            ? this.state.equippedWeaponId === entry.itemId
+              ? '（装備中）'
+              : '（未装備）'
+            : `x${entry.count}`;
+        lines.push(`${marker}${def.glyph} ${def.displayName} ${suffix}`);
       });
     }
     lines.push('');
-    lines.push('Tab/Esc:閉じる  ↑↓:選択  Enter:使用');
+    lines.push('Tab/Esc:閉じる  ↑↓:選択  Enter:使用/装備');
 
     const width = this.INVENTORY_OVERLAY_WIDTH;
     const lineHeight = 22;

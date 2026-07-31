@@ -77,9 +77,10 @@ function spiderState(
     nextWebId: options?.nextWebId ?? 0,
     groundItems: [],
     nextGroundItemId: 0,
-    inventory: { apple: 0 },
+    inventory: { apple: 0, sword: 0 },
     inventoryOpen: false,
     selectedItemIndex: 0,
+    equippedWeaponId: null,
   };
 }
 
@@ -531,9 +532,10 @@ describe('spider regression: no diagonal movement or corner-crossing for other s
       nextWebId: 0,
       groundItems: [],
       nextGroundItemId: 0,
-      inventory: { apple: 0 },
+      inventory: { apple: 0, sword: 0 },
       inventoryOpen: false,
       selectedItemIndex: 0,
+      equippedWeaponId: null,
     };
     // bok already moves diagonally when unobstructed (8-direction chase),
     // so this isn't a meaningful corner-cross regression check by itself;
