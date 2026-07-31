@@ -47,6 +47,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     selectedItemIndex: 0,
     equippedWeaponId: null,
     equippedArmorId: null,
+    hammerRecovery: false,
     ...overrides,
   };
 }

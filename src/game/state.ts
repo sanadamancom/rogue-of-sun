@@ -177,6 +177,21 @@ function buildFloorState(
       spearRng,
     );
     groundItems.push({ id: groundItems.length, itemId: 'spear', pos: spearPos });
+
+    // Hammer placement (Phase 08.7 knockback weapon): floor 2 only, after
+    // every other floor-2 item is placed, using a seventh distinct
+    // independent RNG stream so it never perturbs the
+    // map/placement/species/apple/spear RNG sequences or their
+    // consumption order. Excludes the spear's tile too, in addition to
+    // start/exit/every enemy position/apple's tile.
+    const hammerRng = createRng(floorSeed ^ 0x6a1f38b2);
+    const hammerPos = chooseGroundItemPosition(
+      map,
+      placement.start,
+      [placement.start, placement.exit, ...placement.enemies, applePos, spearPos],
+      hammerRng,
+    );
+    groundItems.push({ id: groundItems.length, itemId: 'hammer', pos: hammerPos });
   }
 
   return {
@@ -205,6 +220,10 @@ function buildFloorState(
     selectedItemIndex: 0,
     equippedWeaponId: carry ? carry.equippedWeaponId : null,
     equippedArmorId: carry ? carry.equippedArmorId : null,
+    // Always false at the start of a floor — never carried over, even
+    // though equippedWeaponId is (Phase 08.7: "フロア遷移時は反動を解除
+    // する" / "新しいゲーム開始時も反動なしで初期化する").
+    hammerRecovery: false,
   };
 }
 

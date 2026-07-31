@@ -594,9 +594,14 @@ class MainScene extends Phaser.Scene {
         // consumables (apple) keep the existing x{count} display.
         let suffix: string;
         if (def.category === 'weapon') {
-          const weaponDef = WEAPON_DEFINITIONS[entry.itemId as 'sword' | 'spear'];
-          const status = this.state.equippedWeaponId === entry.itemId ? '装備中' : '未装備';
-          suffix = `（${status} 攻撃${weaponDef.attackPower}・射程${weaponDef.reach}）`;
+          const weaponDef = WEAPON_DEFINITIONS[entry.itemId as 'sword' | 'spear' | 'hammer'];
+          const equipped = this.state.equippedWeaponId === entry.itemId;
+          const status = equipped ? '装備中' : '未装備';
+          // Phase 08.7: while the equipped hammer is recovering, surface
+          // that in the same equip-status text rather than a separate
+          // persistent HUD element.
+          const recoilNote = equipped && entry.itemId === 'hammer' && this.state.hammerRecovery ? ' 反動中' : '';
+          suffix = `（${status}${recoilNote} 攻撃${weaponDef.attackPower}・射程${weaponDef.reach}）`;
         } else if (def.category === 'armor') {
           const armorValue = ARMOR_DEFINITIONS[entry.itemId as 'armor'].armorValue;
           const status = this.state.equippedArmorId === entry.itemId ? '装備中' : '未装備';

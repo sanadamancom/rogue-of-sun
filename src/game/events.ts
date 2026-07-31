@@ -53,4 +53,6 @@ export type GameEvent =
   | { type: 'weapon_already_equipped'; weaponId: WeaponId }
   | { type: 'armor_equipped'; armorId: ArmorId }
   | { type: 'armor_already_equipped'; armorId: ArmorId }
-  | { type: 'player_whiff'; weaponId?: WeaponId };
+  | { type: 'player_whiff'; weaponId?: WeaponId }
+  | { type: 'enemy_knocked_back'; enemyType: EnemyType }
+  | { type: 'hammer_recover' };

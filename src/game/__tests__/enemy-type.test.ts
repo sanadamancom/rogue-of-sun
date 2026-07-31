@@ -157,11 +157,12 @@ function freshSpiderState(): GameState {
     nextWebId: 0,
     groundItems: [],
     nextGroundItemId: 0,
-    inventory: { apple: 0, sword: 0, armor: 0, spear: 0 },
+    inventory: { apple: 0, sword: 0, armor: 0, spear: 0, hammer: 0 },
     inventoryOpen: false,
     selectedItemIndex: 0,
     equippedWeaponId: null,
     equippedArmorId: null,
+    hammerRecovery: false,
   };
 }
 

@@ -149,6 +149,7 @@ function applyPlayerAction(
   }
 
   if (action.type === 'wait') {
+    state.hammerRecovery = false;
     return { consumed: true, attacked: false, defeated: false };
   }
 
@@ -164,7 +165,28 @@ function applyPlayerAction(
   // below). Reuses the exact same adjacent/reach-2/whiff resolution used
   // to be inlined in the move branch prior to this phase.
   if (action.type === 'action') {
-    return resolveFacingAttack(state, player.facing, events);
+    // Hammer recoil (Phase 08.7): while the hammer is equipped and
+    // recovering, X only "re-cocks" it — no target resolution, no
+    // damage, no knockback. Still a full, turn-consuming action, and the
+    // caller's normal enemy-action pipeline still runs afterward.
+    if (state.equippedWeaponId === 'hammer' && state.hammerRecovery) {
+      state.hammerRecovery = false;
+      events.push({ type: 'hammer_recover' });
+      return { consumed: true, attacked: false, defeated: false };
+    }
+
+    const result = resolveFacingAttack(state, player.facing, events);
+
+    // Recoil bookkeeping: every hammer attack via X (hit, kill,
+    // failed-knockback, or whiff) enters recoil. Attacking with any other
+    // weapon (or unarmed) clears it — recoil only has meaning while the
+    // hammer is the equipped weapon. Equip-switching itself never touches
+    // this flag (see applyWeaponEquip): re-equipping the hammer later
+    // does not implicitly clear a recoil left over from before it was
+    // switched away.
+    state.hammerRecovery = state.equippedWeaponId === 'hammer';
+
+    return result;
   }
 
   // From here on, action.type === 'move'. Per fixed_decisions.movement,
@@ -181,6 +203,7 @@ function applyPlayerAction(
   // attack-vs-step — every move is just a step attempt now.
   if (player.slowed) {
     player.slowed = false;
+    state.hammerRecovery = false;
     events.push({ type: 'slowed_move_cancelled' });
     return { consumed: true, attacked: false, defeated: false };
   }
@@ -201,6 +224,7 @@ function applyPlayerAction(
   // Otherwise, attempt a normal move.
   if (canMove(map, player.pos, action.direction)) {
     player.pos = destination;
+    state.hammerRecovery = false;
     // Stepping onto a web tile slows the player (does not trigger merely
     // from a web being newly placed on the player's current tile, since
     // that never goes through this move branch). Not stacked/refreshed if
@@ -255,6 +279,9 @@ function resolveFacingAttack(
   );
   if (target) {
     const defeated = applyPlayerAttackToEnemy(state, target, events);
+    if (!defeated) {
+      tryKnockback(state, target, direction, events);
+    }
     return { consumed: true, attacked: true, defeated };
   }
 
@@ -277,6 +304,9 @@ function resolveFacingAttack(
         );
         if (farTarget) {
           const defeated = applyPlayerAttackToEnemy(state, farTarget, events);
+          if (!defeated) {
+            tryKnockback(state, farTarget, direction, events);
+          }
           return { consumed: true, attacked: true, defeated };
         }
       }
@@ -292,6 +322,38 @@ function resolveFacingAttack(
       : { type: 'player_whiff' },
   );
   return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
+ * Resolves the equipped weapon's knockback (Phase 08.7 hammer), if any,
+ * against a surviving `target` that was just hit in `direction`. A no-op
+ * for weapons with knockbackDistance 0 (sword, spear) and for immune
+ * species (golem, kraken — checked explicitly here rather than by
+ * changing their AI or normal movement capability). The destination tile
+ * must be a legal single step from the target's current position — reusing
+ * canMove applies the same wall/bounds/diagonal-corner-cut rule as normal
+ * movement — and must not already be occupied by the player or another
+ * living enemy; ground items and the exit tile never block it. Never
+ * chains (only the directly-hit target can be pushed), never moves the
+ * player, and never adds extra damage on knockback failure — a blocked
+ * knockback simply leaves the target where it is, having already taken
+ * the attack's normal damage.
+ */
+function tryKnockback(state: GameState, target: EnemyActor, direction: Direction8, events: GameEvent[]): void {
+  const weaponDef = state.equippedWeaponId ? WEAPON_DEFINITIONS[state.equippedWeaponId] : null;
+  if (!weaponDef || weaponDef.knockbackDistance <= 0) return;
+  if (target.type === 'golem' || target.type === 'kraken') return; // immune: heavy/fixed-type
+
+  const dest = destinationOf(target.pos, direction);
+  if (!canMove(state.map, target.pos, direction)) return; // wall, bounds, or diagonal corner-cut
+
+  const occupied =
+    (state.player.pos.x === dest.x && state.player.pos.y === dest.y) ||
+    state.enemies.some((e) => e !== target && e.alive && e.pos.x === dest.x && e.pos.y === dest.y);
+  if (occupied) return;
+
+  target.pos = dest;
+  events.push({ type: 'enemy_knocked_back', enemyType: target.type });
 }
 
 /**

@@ -292,6 +292,20 @@ export interface GameState {
    * brand new run.
    */
   equippedArmorId: ArmorId | null;
+  /**
+   * Whether the hammer is in recoil (Phase 08.7): set true after any
+   * hammer attack via X (hit, kill, failed-knockback, or whiff) — never
+   * while a different weapon is equipped. While true, pressing X with the
+   * hammer equipped does not attack; it only "re-cocks" the hammer (1
+   * turn consumed, no damage) and clears this flag. Cleared by any other
+   * turn-consuming action (successful move, wait, an X attack while a
+   * different weapon is equipped) but deliberately NOT by re-equipping —
+   * see applyHammerAttack/applyWeaponEquip in turn.ts. Always false at
+   * the start of a floor and at the start of a new run (per-floor state,
+   * like webs/groundItems — never carried over even though equippedWeaponId
+   * is).
+   */
+  hammerRecovery: boolean;
 }
 
 /**
@@ -303,17 +317,18 @@ export interface GameState {
  * item's shared display data, src/game/weapon-def.ts for weapon combat
  * data, and src/game/armor-def.ts for armor combat data).
  */
-export type ItemId = 'apple' | 'sword' | 'armor' | 'spear';
+export type ItemId = 'apple' | 'sword' | 'armor' | 'spear' | 'hammer';
 
 /**
- * Weapon species — Phase 08.3 registered only 'sword'; Phase 08.5 adds
- * 'spear'. Deliberately a separate union from the subset of ItemId values
- * that are equippable, rather than reusing ItemId directly: not every
- * ItemId is a weapon (e.g. 'apple'/'armor' never are), and this keeps
- * weapon-only code (equippedWeaponId, WEAPON_DEFINITIONS) from silently
- * accepting a consumable's or armor's id.
+ * Weapon species — Phase 08.3 registered only 'sword'; Phase 08.5 added
+ * 'spear'; Phase 08.7 adds 'hammer'. Deliberately a separate union from
+ * the subset of ItemId values that are equippable, rather than reusing
+ * ItemId directly: not every ItemId is a weapon (e.g. 'apple'/'armor'
+ * never are), and this keeps weapon-only code (equippedWeaponId,
+ * WEAPON_DEFINITIONS) from silently accepting a consumable's or armor's
+ * id.
  */
-export type WeaponId = 'sword' | 'spear';
+export type WeaponId = 'sword' | 'spear' | 'hammer';
 
 /**
  * Armor species — Phase 08.4 registers only 'armor'. A separate union

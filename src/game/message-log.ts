@@ -111,6 +111,12 @@ export function formatEvent(event: GameEvent): string {
     }
     case 'player_whiff':
       return '空振りした。';
+    case 'enemy_knocked_back': {
+      const name = ENEMY_DEFINITIONS[event.enemyType].displayName;
+      return `${name}を吹き飛ばした。`;
+    }
+    case 'hammer_recover':
+      return 'ハンマーを構え直した。';
     default: {
       const exhaustiveCheck: never = event;
       throw new Error(`Unhandled game event: ${JSON.stringify(exhaustiveCheck)}`);
