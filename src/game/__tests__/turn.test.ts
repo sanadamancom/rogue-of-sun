@@ -70,23 +70,37 @@ describe('turn processing', () => {
     expect(state.turn).toBe(0);
   });
 
-  it('resolves an attack when moving toward an adjacent enemy', () => {
+  it('resolves an attack via the X action toward an adjacent enemy', () => {
     const state = freshState();
     state.player.pos = { x: 4, y: 4 };
+    state.player.facing = 'E';
     state.enemies[0].pos = { x: 5, y: 4 };
     state.enemies[1].pos = { x: 0, y: 0 };
-    const result = processTurn(state, { type: 'move', direction: 'E' });
+    const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(true);
     expect(state.player.pos).toEqual({ x: 4, y: 4 }); // player does not step in
     expect(state.enemies[0].hp).toBe(1);
   });
 
-  it('attacks only the single targeted enemy, leaving the other untouched', () => {
+  it('moving toward an adjacent enemy no longer attacks (Phase 08.6): it is simply a blocked move', () => {
     const state = freshState();
     state.player.pos = { x: 4, y: 4 };
     state.enemies[0].pos = { x: 5, y: 4 };
+    state.enemies[1].pos = { x: 0, y: 0 };
+    const result = processTurn(state, { type: 'move', direction: 'E' });
+    expect(result.consumed).toBe(false);
+    expect(result.playerAttacked).toBe(false);
+    expect(state.enemies[0].hp).toBe(2);
+    expect(state.player.facing).toBe('E'); // facing still updates on a blocked move
+  });
+
+  it('attacks only the single targeted enemy, leaving the other untouched', () => {
+    const state = freshState();
+    state.player.pos = { x: 4, y: 4 };
+    state.player.facing = 'E';
+    state.enemies[0].pos = { x: 5, y: 4 };
     state.enemies[1].pos = { x: 4, y: 5 };
-    processTurn(state, { type: 'move', direction: 'E' });
+    processTurn(state, { type: 'action' });
     expect(state.enemies[0].hp).toBe(1);
     expect(state.enemies[1].hp).toBe(2);
   });
@@ -94,10 +108,11 @@ describe('turn processing', () => {
   it('removes the enemy from the board once its HP reaches 0', () => {
     const state = freshState();
     state.player.pos = { x: 4, y: 4 };
+    state.player.facing = 'E';
     state.enemies[0].pos = { x: 5, y: 4 };
     state.enemies[0].hp = 1;
     state.enemies[1].pos = { x: 0, y: 0 };
-    const result = processTurn(state, { type: 'move', direction: 'E' });
+    const result = processTurn(state, { type: 'action' });
     expect(result.enemyDefeated).toBe(true);
     expect(state.enemies[0].alive).toBe(false);
   });
@@ -105,10 +120,11 @@ describe('turn processing', () => {
   it('does not let a defeated enemy act (no counter-attack) while other enemies stay far away', () => {
     const state = freshState();
     state.player.pos = { x: 4, y: 4 };
+    state.player.facing = 'E';
     state.enemies[0].pos = { x: 5, y: 4 };
     state.enemies[0].hp = 1;
     state.enemies[1].pos = { x: 0, y: 0 };
-    const result = processTurn(state, { type: 'move', direction: 'E' });
+    const result = processTurn(state, { type: 'action' });
     expect(state.enemies[0].alive).toBe(false);
     expect(result.playerDefeated).toBe(false);
   });

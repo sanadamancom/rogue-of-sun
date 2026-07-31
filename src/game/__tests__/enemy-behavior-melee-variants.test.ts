@@ -334,12 +334,13 @@ describe('golem HP boundary at real definition values (phase-07-5-golem-hp-tune)
     });
     const enemy = state.enemies[0];
     expect(state.player.attack).toBe(1); // confirms the player's normal-attack baseline used below
-    // Attacking every turn: golem only occupies the adjacent tile, so a
-    // move toward it resolves as a player attack regardless of the
-    // golem's own act/rest phase.
-    processTurn(state, { type: 'move', direction: 'W' }); // hit 1
-    processTurn(state, { type: 'move', direction: 'W' }); // hit 2
-    processTurn(state, { type: 'move', direction: 'W' }); // hit 3
+    state.player.facing = 'W';
+    // Attacking every turn via the X action: golem only occupies the
+    // adjacent tile, so this resolves as a player attack regardless of
+    // the golem's own act/rest phase.
+    processTurn(state, { type: 'action' }); // hit 1
+    processTurn(state, { type: 'action' }); // hit 2
+    processTurn(state, { type: 'action' }); // hit 3
     expect(enemy.hp).toBe(1);
     expect(enemy.alive).toBe(true);
   });
@@ -351,10 +352,11 @@ describe('golem HP boundary at real definition values (phase-07-5-golem-hp-tune)
       attack: ENEMY_DEFINITIONS.golem.attack,
     });
     const enemy = state.enemies[0];
-    processTurn(state, { type: 'move', direction: 'W' }); // hit 1
-    processTurn(state, { type: 'move', direction: 'W' }); // hit 2
-    processTurn(state, { type: 'move', direction: 'W' }); // hit 3
-    const result = processTurn(state, { type: 'move', direction: 'W' }); // hit 4
+    state.player.facing = 'W';
+    processTurn(state, { type: 'action' }); // hit 1
+    processTurn(state, { type: 'action' }); // hit 2
+    processTurn(state, { type: 'action' }); // hit 3
+    const result = processTurn(state, { type: 'action' }); // hit 4
     expect(enemy.hp).toBe(0);
     expect(enemy.alive).toBe(false);
     expect(result.events).toContainEqual({ type: 'enemy_defeated', enemyType: 'golem' });

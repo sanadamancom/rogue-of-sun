@@ -275,13 +275,14 @@ describe('equipping the spear', () => {
   });
 });
 
-describe('two-tile spear attack', () => {
+describe('two-tile spear attack (via X action)', () => {
   it('attacks an adjacent enemy normally when equipped with spear', () => {
     const state = freshState({ equippedWeaponId: 'spear' });
+    state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 5, 1);
     state.enemies = [enemy];
     const posBefore = { ...state.player.pos };
-    const result = processTurn(state, { type: 'move', direction: 'E' });
+    const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(true);
     expect(enemy.hp).toBe(4); // spear attackPower 1
     expect(state.player.pos).toEqual(posBefore);
@@ -289,10 +290,11 @@ describe('two-tile spear attack', () => {
 
   it('attacks a 2-tiles-away enemy when the adjacent tile is empty', () => {
     const state = freshState({ equippedWeaponId: 'spear' });
+    state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 4, y: 1 }, 5, 1); // 2 tiles east
     state.enemies = [enemy];
     const posBefore = { ...state.player.pos };
-    const result = processTurn(state, { type: 'move', direction: 'E' });
+    const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(true);
     expect(enemy.hp).toBe(4);
     expect(state.player.pos).toEqual(posBefore); // did not move
@@ -300,44 +302,62 @@ describe('two-tile spear attack', () => {
 
   it('deals exactly 1 damage with the spear (regression-safe distinct from sword)', () => {
     const state = freshState({ equippedWeaponId: 'spear' });
+    state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 4, y: 1 }, 5, 1);
     state.enemies = [enemy];
-    processTurn(state, { type: 'move', direction: 'E' });
+    processTurn(state, { type: 'action' });
     expect(enemy.hp).toBe(4);
   });
 
   it('2-tile attack consumes exactly 1 turn and triggers enemy actions afterward', () => {
     const state = freshState({ equippedWeaponId: 'spear' });
+    state.player.facing = 'E';
     const farEnemy = createInitialEnemy('bok', { x: 4, y: 1 }, 5, 1);
     const nearAttacker = createInitialEnemy('bok', { x: 1, y: 1 }, 2, 1); // adjacent from other side
     state.enemies = [farEnemy, nearAttacker];
     const turnBefore = state.turn;
-    const result = processTurn(state, { type: 'move', direction: 'E' });
+    const result = processTurn(state, { type: 'action' });
     expect(state.turn).toBe(turnBefore + 1);
     expect(result.enemyActed).toBe(true);
   });
 
   it('prefers the adjacent enemy over a farther one in the same direction', () => {
     const state = freshState({ equippedWeaponId: 'spear' });
+    state.player.facing = 'E';
     const nearEnemy = createInitialEnemy('bok', { x: 3, y: 1 }, 5, 1);
     const farEnemy = createInitialEnemy('bok', { x: 4, y: 1 }, 5, 1);
     state.enemies = [nearEnemy, farEnemy];
-    processTurn(state, { type: 'move', direction: 'E' });
+    processTurn(state, { type: 'action' });
     expect(nearEnemy.hp).toBe(4);
     expect(farEnemy.hp).toBe(5); // untouched
   });
 
   it('does not damage more than one enemy in a single attack', () => {
     const state = freshState({ equippedWeaponId: 'spear' });
+    state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 4, y: 1 }, 5, 1);
     const bystander = createInitialEnemy('bat', { x: 4, y: 3 }, 5, 1); // unrelated tile
     state.enemies = [enemy, bystander];
-    processTurn(state, { type: 'move', direction: 'E' });
+    processTurn(state, { type: 'action' });
     expect(enemy.hp).toBe(4);
     expect(bystander.hp).toBe(5);
   });
 
-  it('moves normally when no enemy is within reach in that direction', () => {
+  it('X whiffs (no damage, but still consumes a turn and lets enemies act) when no enemy is within reach in that direction', () => {
+    const state = freshState({ equippedWeaponId: 'spear' });
+    state.player.facing = 'E';
+    state.enemies = [createInitialEnemy('bok', { x: 12, y: 6 }, 2, 1)]; // far away
+    const posBefore = { ...state.player.pos };
+    const turnBefore = state.turn;
+    const result = processTurn(state, { type: 'action' });
+    expect(result.playerAttacked).toBe(false);
+    expect(result.consumed).toBe(true);
+    expect(state.turn).toBe(turnBefore + 1);
+    expect(state.player.pos).toEqual(posBefore); // X never moves the player
+    expect(result.events).toContainEqual({ type: 'player_whiff', weaponId: 'spear' });
+  });
+
+  it('moving E toward an empty tile is a normal move regardless of equipped weapon (Phase 08.6 regression)', () => {
     const state = freshState({ equippedWeaponId: 'spear' });
     state.enemies = [createInitialEnemy('bok', { x: 12, y: 6 }, 2, 1)]; // far away
     const posBefore = { ...state.player.pos };
@@ -346,31 +366,46 @@ describe('two-tile spear attack', () => {
     expect(state.player.pos).not.toEqual(posBefore);
   });
 
-  it('unarmed cannot attack 2 tiles away (moves into the empty adjacent tile instead)', () => {
+  it('unarmed X cannot attack 2 tiles away (whiffs instead)', () => {
     const state = freshState();
+    state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 4, y: 1 }, 5, 1);
     state.enemies = [enemy];
-    const result = processTurn(state, { type: 'move', direction: 'E' });
+    const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(false);
     expect(enemy.hp).toBe(5);
-    expect(state.player.pos).toEqual({ x: 3, y: 1 });
+    expect(state.player.pos).toEqual({ x: 2, y: 1 }); // X never moves the player
   });
 
-  it('sword cannot attack 2 tiles away (moves into the empty adjacent tile instead)', () => {
+  it('sword X cannot attack 2 tiles away (whiffs instead)', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
+    state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 4, y: 1 }, 5, 1);
     state.enemies = [enemy];
-    const result = processTurn(state, { type: 'move', direction: 'E' });
+    const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(false);
     expect(enemy.hp).toBe(5);
-    expect(state.player.pos).toEqual({ x: 3, y: 1 });
+    expect(state.player.pos).toEqual({ x: 2, y: 1 });
+  });
+
+  it('moving toward an enemy 1 tile away is now just a blocked move, not an attack (Phase 08.6 regression)', () => {
+    const state = freshState();
+    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 5, 1);
+    state.enemies = [enemy];
+    const result = processTurn(state, { type: 'move', direction: 'E' });
+    expect(result.consumed).toBe(false);
+    expect(result.playerAttacked).toBe(false);
+    expect(enemy.hp).toBe(5);
+    expect(state.player.pos).toEqual({ x: 2, y: 1 });
+    expect(state.player.facing).toBe('E'); // facing still updates on a blocked move
   });
 
   it('defeating a 2-tiles-away enemy triggers enemy_defeated exactly once, and the defeated enemy does not act', () => {
     const state = freshState({ equippedWeaponId: 'spear' });
+    state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 4, y: 1 }, 1, 1); // 1 HP, dies in one hit
     state.enemies = [enemy];
-    const result = processTurn(state, { type: 'move', direction: 'E' });
+    const result = processTurn(state, { type: 'action' });
     expect(result.enemyDefeated).toBe(true);
     const defeatEvents = result.events.filter((e) => e.type === 'enemy_defeated');
     expect(defeatEvents).toHaveLength(1);
@@ -378,23 +413,25 @@ describe('two-tile spear attack', () => {
   });
 });
 
-describe('spear obstruction and diagonal rules', () => {
+describe('spear obstruction and diagonal rules (via X action)', () => {
   it('cannot attack 2 tiles away through a wall', () => {
     // Layout row y=2: "#..####..####.#" — from x=3,y=2 (floor) east is a wall at x=4.
     const state = freshState({ equippedWeaponId: 'spear', player: createInitialActor({ x: 3, y: 2 }, 3, 1) });
+    state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 5, y: 2 }, 5, 1); // beyond the wall block
     state.enemies = [enemy];
-    const result = processTurn(state, { type: 'move', direction: 'E' });
+    const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(false);
     expect(enemy.hp).toBe(5);
   });
 
   it('attacks the intervening enemy rather than reaching past it', () => {
     const state = freshState({ equippedWeaponId: 'spear' });
+    state.player.facing = 'E';
     const nearEnemy = createInitialEnemy('bok', { x: 3, y: 1 }, 5, 1);
     const farEnemy = createInitialEnemy('bat', { x: 4, y: 1 }, 5, 1);
     state.enemies = [nearEnemy, farEnemy];
-    processTurn(state, { type: 'move', direction: 'E' });
+    processTurn(state, { type: 'action' });
     expect(nearEnemy.hp).toBe(4);
     expect(farEnemy.hp).toBe(5);
   });
@@ -404,18 +441,20 @@ describe('spear obstruction and diagonal rules', () => {
       equippedWeaponId: 'spear',
       groundItems: [{ id: 0, itemId: 'apple', pos: { x: 3, y: 1 } }],
     });
+    state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 4, y: 1 }, 5, 1);
     state.enemies = [enemy];
-    const result = processTurn(state, { type: 'move', direction: 'E' });
+    const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(true);
     expect(enemy.hp).toBe(4);
   });
 
   it('the exit tile in the intervening position does not block the attack', () => {
     const state = freshState({ equippedWeaponId: 'spear', exit: { x: 3, y: 1 } });
+    state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 4, y: 1 }, 5, 1);
     state.enemies = [enemy];
-    const result = processTurn(state, { type: 'move', direction: 'E' });
+    const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(true);
     expect(enemy.hp).toBe(4);
   });
@@ -425,8 +464,9 @@ describe('spear obstruction and diagonal rules', () => {
       equippedWeaponId: 'spear',
       player: createInitialActor({ x: 1, y: 1 }, 3, 1),
     });
+    state.player.facing = 'W';
     state.enemies = [];
-    const result = processTurn(state, { type: 'move', direction: 'W' });
+    const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(false);
   });
 
@@ -444,20 +484,22 @@ describe('spear obstruction and diagonal rules', () => {
       player: createInitialActor({ x: 1, y: 1 }, 3, 1),
       exit: { x: 199, y: 199 },
     });
+    state.player.facing = 'SE';
     const enemy = createInitialEnemy('bok', { x: 3, y: 3 }, 5, 1);
     state.enemies = [enemy];
-    const result = processTurn(state, { type: 'move', direction: 'SE' });
+    const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(true);
     expect(enemy.hp).toBe(4);
   });
 
   it('cannot attack diagonally when the first-segment corner is blocked', () => {
-    // From (2,1), SW corner: sideA=(1,1) floor, sideB=(2,2) wall (per layout row y=2 "#..####..####.#" -> x=2 is '.', so choose a position where a corner truly blocks).
-    // Use the layout's inner wall block: from (2,3) moving SE toward (3,4) is blocked because (3,3) is wall and (2,4) is wall in the "#..#..#..#..#.#" rows.
+    // From (2,3), SE corner: moving toward (3,4) then (4,5) is blocked because
+    // (3,3) is wall and (2,4) is wall in the "#..#..#..#..#.#" rows.
     const state = freshState({ equippedWeaponId: 'spear', player: createInitialActor({ x: 2, y: 3 }, 3, 1) });
+    state.player.facing = 'SE';
     const enemy = createInitialEnemy('bok', { x: 4, y: 5 }, 5, 1);
     state.enemies = [enemy];
-    const result = processTurn(state, { type: 'move', direction: 'SE' });
+    const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(false);
     expect(enemy.hp).toBe(5);
   });
@@ -513,9 +555,10 @@ describe('persistence and reset (Phase 08.5)', () => {
 describe('regression: Phase 08.2/08.3/08.4 behavior unaffected', () => {
   it('sword attack power is still 2 and still only hits adjacent enemies', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
+    state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 5, 1);
     state.enemies = [enemy];
-    processTurn(state, { type: 'move', direction: 'E' });
+    processTurn(state, { type: 'action' });
     expect(enemy.hp).toBe(3);
   });
 

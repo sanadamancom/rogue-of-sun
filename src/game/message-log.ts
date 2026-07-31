@@ -109,6 +109,8 @@ export function formatEvent(event: GameEvent): string {
       const name = ITEM_DEFINITIONS[event.armorId].displayName;
       return `${name}はすでに装備している。`;
     }
+    case 'player_whiff':
+      return '空振りした。';
     default: {
       const exhaustiveCheck: never = event;
       throw new Error(`Unhandled game event: ${JSON.stringify(exhaustiveCheck)}`);

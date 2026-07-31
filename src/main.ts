@@ -16,7 +16,7 @@ import { formatEvent, formatEvents, MessageLog } from './game/message-log';
 import { advanceToNextFloor, createInitialState, randomSeed } from './game/state';
 import { getCockatriceTelegraph, getKrakenTelegraph } from './game/telegraph';
 import { processTurn, TurnResult } from './game/turn';
-import { EnemyType, GameState } from './game/types';
+import { DIRECTION_VECTORS, EnemyType, GameState } from './game/types';
 
 // Latest 3 lines only, per message_lifecycle: newest at the bottom, oldest
 // pushed out once over capacity.
@@ -117,6 +117,11 @@ class MainScene extends Phaser.Scene {
   // Phase 08.2: ground-item glyphs (plain emoji text, no image asset) and
   // the Tab-toggled inventory overlay.
   private groundItemTexts: Phaser.GameObjects.Text[] = [];
+  // Phase 08.6: minimal 8-direction facing marker (a small dot offset from
+  // the player's tile center toward player.facing), since the player
+  // sprite itself only distinguishes 4 directions (see toDirection4). No
+  // new image asset — plain Graphics, same rule for all 8 directions.
+  private facingMarker!: Phaser.GameObjects.Graphics;
   private inventoryOverlayBg!: Phaser.GameObjects.Graphics;
   private inventoryOverlayText!: Phaser.GameObjects.Text;
 
@@ -160,6 +165,7 @@ class MainScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, mapPixelWidth, mapPixelHeight);
 
     this.playerSprite = this.add.sprite(0, 0, 'player', idleFrame('S'));
+    this.facingMarker = this.add.graphics();
     this.playerSprite.setScale(SPRITE_SCALE_X, SPRITE_SCALE_Y);
     this.createWalkAnimations('player');
     for (const spriteKey of allEnemySpriteKeys()) {
@@ -206,7 +212,7 @@ class MainScene extends Phaser.Scene {
         event.preventDefault();
         if (event.repeat) return;
       }
-      this.handleKey(event.key);
+      this.handleKey(event.key, event.shiftKey);
     });
 
     this.cameras.main.startFollow(this.playerSprite, true, 0.15, 0.15);
@@ -514,6 +520,31 @@ class MainScene extends Phaser.Scene {
   }
 
   /**
+   * Redraws the 8-direction facing marker (Phase 08.6): a small dot offset
+   * from the player's tile center toward player.facing, using the same
+   * offset distance/size rule for all 8 directions. Necessary because the
+   * player sprite/animation only distinguishes 4 facings (toDirection4
+   * collapses NE/SE to E and NW/SW to W), so diagonal facings would
+   * otherwise be indistinguishable from their nearest cardinal on screen.
+   * Uses existing Graphics drawing only — no new image asset.
+   */
+  private updateFacingMarker(): void {
+    const { player } = this.state;
+    const vec = DIRECTION_VECTORS[player.facing];
+    const cx = player.pos.x * TILE_SIZE + TILE_SIZE / 2;
+    const cy = player.pos.y * TILE_SIZE + TILE_SIZE / 2;
+    const offset = TILE_SIZE * 0.42;
+    const mx = cx + vec.x * offset;
+    const my = cy + vec.y * offset;
+
+    this.facingMarker.clear();
+    this.facingMarker.fillStyle(0xfff066, 1);
+    this.facingMarker.fillCircle(mx, my, 3);
+    this.facingMarker.lineStyle(1, 0x333300, 1);
+    this.facingMarker.strokeCircle(mx, my, 3);
+  }
+
+  /**
    * Creates the Tab-toggled inventory overlay's graphics/text objects
    * (inventory_ui.display): a screen-fixed panel, hidden until opened. No
    * new persistent HUD — this stays invisible except while the overlay is
@@ -617,7 +648,7 @@ class MainScene extends Phaser.Scene {
   private readonly MOVE_DURATION = 220;
   private activeAnimations = 0;
 
-  private handleKey(key: string): void {
+  private handleKey(key: string, shiftKey = false): void {
     if (this.state.phase !== 'playing') {
       if (key === 'Enter') {
         this.restart(this.state.runSeed);
@@ -646,7 +677,7 @@ class MainScene extends Phaser.Scene {
       return;
     }
 
-    const action = actionForKey(key);
+    const action = actionForKey(key, shiftKey);
     if (!action) return;
 
     const playerBefore = { ...this.state.player.pos };
@@ -841,10 +872,12 @@ class MainScene extends Phaser.Scene {
     this.updatePlayerSlowedTint();
     this.refreshLogPanel();
     this.refreshInventoryOverlay();
+    this.updateFacingMarker();
 
     this.hudText.setText(
       `FLOOR ${this.state.floor}/${this.state.totalFloors}   HP: ${player.hp}/${player.maxHp}   Turn: ${this.state.turn}\n` +
-        `Run Seed: ${this.state.runSeed}   Floor Seed: ${this.state.seed}`,
+        `Run Seed: ${this.state.runSeed}   Floor Seed: ${this.state.seed}\n` +
+        `移動:方向キー  Shift+方向:向き変更  X:攻撃  Space:待機  Tab:インベントリ`,
     );
 
     if (this.state.phase === 'gameover') {

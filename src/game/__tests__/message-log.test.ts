@@ -125,14 +125,16 @@ describe('processTurn events', () => {
 
   it('produces player_attack (and enemy_defeated when applicable) for a player attack', () => {
     const state = singleEnemyState('bok', { x: 9, y: 4 }, { hp: 100, attack: 1 });
-    const result = processTurn(state, { type: 'move', direction: 'W' });
+    state.player.facing = 'W';
+    const result = processTurn(state, { type: 'action' });
     expect(result.events[0]).toEqual({ type: 'player_attack', enemyType: 'bok', damage: 1 });
     expect(result.events.find((e) => e.type === 'enemy_defeated')).toBeUndefined();
   });
 
   it('produces player_attack followed by enemy_defeated on a killing blow', () => {
     const state = singleEnemyState('bok', { x: 9, y: 4 }, { hp: 1, attack: 5 });
-    const result = processTurn(state, { type: 'move', direction: 'W' });
+    state.player.facing = 'W';
+    const result = processTurn(state, { type: 'action' });
     expect(result.events).toEqual([
       { type: 'player_attack', enemyType: 'bok', damage: 1 },
       { type: 'enemy_defeated', enemyType: 'bok' },

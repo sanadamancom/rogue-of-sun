@@ -251,33 +251,37 @@ describe('weapon-aware combat', () => {
 
   it('an adjacent attack while unarmed deals 1 damage (unchanged)', () => {
     const state = freshState({ inventory: { apple: 0, sword: 0, armor: 0, spear: 0 } });
+    state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 5, 1);
     state.enemies = [enemy];
-    processTurn(state, { type: 'move', direction: 'E' });
+    processTurn(state, { type: 'action' });
     expect(enemy.hp).toBe(4);
   });
 
   it('an adjacent attack while sword-equipped deals 2 damage', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
+    state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 5, 1);
     state.enemies = [enemy];
-    processTurn(state, { type: 'move', direction: 'E' });
+    processTurn(state, { type: 'action' });
     expect(enemy.hp).toBe(3);
   });
 
   it('sword attack works on diagonal adjacency too (range unchanged from unarmed)', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
+    state.player.facing = 'SE';
     const enemy = createInitialEnemy('bok', { x: 3, y: 2 }, 5, 1); // diagonal from (2,1)
     state.enemies = [enemy];
-    processTurn(state, { type: 'move', direction: 'SE' });
+    processTurn(state, { type: 'action' });
     expect(enemy.hp).toBe(3);
   });
 
   it('player_attack event includes weaponId when equipped, omits it when unarmed', () => {
     const armed = freshState({ equippedWeaponId: 'sword' });
+    armed.player.facing = 'E';
     const armedEnemy = createInitialEnemy('bok', { x: 3, y: 1 }, 5, 1);
     armed.enemies = [armedEnemy];
-    const armedResult = processTurn(armed, { type: 'move', direction: 'E' });
+    const armedResult = processTurn(armed, { type: 'action' });
     expect(armedResult.events).toContainEqual({
       type: 'player_attack',
       enemyType: 'bok',
@@ -286,44 +290,49 @@ describe('weapon-aware combat', () => {
     });
 
     const unarmed = freshState();
+    unarmed.player.facing = 'E';
     const unarmedEnemy = createInitialEnemy('bok', { x: 3, y: 1 }, 5, 1);
     unarmed.enemies = [unarmedEnemy];
-    const unarmedResult = processTurn(unarmed, { type: 'move', direction: 'E' });
+    const unarmedResult = processTurn(unarmed, { type: 'action' });
     expect(unarmedResult.events).toContainEqual({ type: 'player_attack', enemyType: 'bok', damage: 1 });
   });
 
   it('sword attack still triggers normal enemy actions and special cycles afterward (golem slow_melee)', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
+    state.player.facing = 'E';
     const golem = createInitialEnemy('golem', { x: 3, y: 1 }, 4, 3, 0, 0);
     golem.spawnTurn = 0;
     state.enemies = [golem];
-    const result = processTurn(state, { type: 'move', direction: 'E' });
+    const result = processTurn(state, { type: 'action' });
     expect(result.enemyAttacked).toBe(true); // golem's acting phase on turn 0
   });
 
   it('golem (HP4) is not defeated by a single sword hit (attack power 2, not lethal in one hit)', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
+    state.player.facing = 'E';
     const golem = createInitialEnemy('golem', { x: 3, y: 1 }, 4, 3, 0, 0);
     state.enemies = [golem];
-    processTurn(state, { type: 'move', direction: 'E' });
+    processTurn(state, { type: 'action' });
     expect(golem.alive).toBe(true);
     expect(golem.hp).toBe(2);
   });
 
   it('sword attacks do not knock the enemy back (position unchanged aside from defeat)', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
+    state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 5, 1);
     state.enemies = [enemy];
     const posBefore = { ...enemy.pos };
-    processTurn(state, { type: 'move', direction: 'E' });
+    processTurn(state, { type: 'action' });
     expect(enemy.pos).toEqual(posBefore);
   });
 
   it('equipping the sword does not consume it (no durability/consumption on use)', () => {
     const state = freshState({ equippedWeaponId: 'sword', inventory: { apple: 0, sword: 1, armor: 0, spear: 0 } });
+    state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 5, 1);
     state.enemies = [enemy];
-    processTurn(state, { type: 'move', direction: 'E' });
+    processTurn(state, { type: 'action' });
     processTurn(state, { type: 'wait' });
     expect(state.inventory.sword).toBe(1);
     expect(state.equippedWeaponId).toBe('sword');
@@ -331,9 +340,10 @@ describe('weapon-aware combat', () => {
 
   it('defeating an enemy with the sword still fires enemy_defeated as before', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
+    state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 2, 1);
     state.enemies = [enemy];
-    const result = processTurn(state, { type: 'move', direction: 'E' });
+    const result = processTurn(state, { type: 'action' });
     expect(result.enemyDefeated).toBe(true);
     expect(result.events).toContainEqual({ type: 'enemy_defeated', enemyType: 'bok' });
   });

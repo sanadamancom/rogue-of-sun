@@ -3,7 +3,7 @@ import { createInitialActor, createInitialEnemy } from './turn';
 import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
 import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
 import { createEmptyInventory } from './item-def';
-import { Actor, EnemyActor, EnemyType, GameState, GroundItem, Inventory, Vec2, WeaponId, ArmorId } from './types';
+import { Actor, EnemyActor, EnemyType, GameState, GroundItem, Inventory, Vec2, WeaponId, ArmorId, Direction8 } from './types';
 
 /** Generates a random run seed without relying on Math.random's implicit global state at call sites. */
 export function randomSeed(): number {
@@ -18,6 +18,7 @@ interface CarryOverStats {
   inventory: Inventory;
   equippedWeaponId: WeaponId | null;
   equippedArmorId: ArmorId | null;
+  facing: Direction8;
 }
 
 /**
@@ -85,8 +86,11 @@ function buildFloorState(
     : createInitialActor(placement.start, 3, 1);
   if (carry) {
     // maxHp/attack already set via createInitialActor above; only current
-    // HP needs to be overridden to the carried-over value (never healed).
+    // HP and facing need to be overridden to the carried-over values
+    // (HP is never healed by a floor transition; facing is preserved
+    // per Phase 08.6's "フロア遷移では向きを維持する").
     player.hp = carry.hp;
+    player.facing = carry.facing;
   }
 
   // Species selection uses its own RNG stream (distinct XOR constant from
@@ -223,6 +227,7 @@ export function advanceToNextFloor(state: GameState): GameState {
     inventory: state.inventory,
     equippedWeaponId: state.equippedWeaponId,
     equippedArmorId: state.equippedArmorId,
+    facing: state.player.facing,
   };
   return buildFloorState(state.runSeed, state.floor + 1, state.turn, carry);
 }

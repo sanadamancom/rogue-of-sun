@@ -341,7 +341,9 @@ export interface GroundItem {
 
 export type PlayerAction =
   | { type: 'move'; direction: Direction8 }
+  | { type: 'face'; direction: Direction8 }
   | { type: 'wait' }
+  | { type: 'action' }
   | { type: 'use_item'; itemId: ItemId }
   | { type: 'equip_weapon'; weaponId: WeaponId }
   | { type: 'equip_armor'; armorId: ArmorId };

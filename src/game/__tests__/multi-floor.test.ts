@@ -93,7 +93,8 @@ describe('multi-floor progression', () => {
     state.enemies[0].pos = { x: state.player.pos.x + 1, y: state.player.pos.y };
     state.enemies[0].hp = 1;
     state.enemies[1].pos = { x: 0, y: 0 };
-    processTurn(state, { type: 'move', direction: 'E' });
+    state.player.facing = 'E';
+    processTurn(state, { type: 'action' });
     expect(state.enemies[0].alive).toBe(false);
     expect(state.phase).toBe('playing');
     expect(state.floor).toBe(1);

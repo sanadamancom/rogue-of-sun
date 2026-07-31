@@ -280,7 +280,8 @@ describe('combat and progression with mixed enemy types', () => {
     const bok = state.enemies[1];
     bok.type = 'bok';
     bok.pos = { x: 0, y: 0 };
-    processTurn(state, { type: 'move', direction: 'E' });
+    state.player.facing = 'E';
+    processTurn(state, { type: 'action' });
     expect(spider.alive).toBe(false);
     expect(bok.alive).toBe(true);
     expect(bok.hp).toBe(bok.maxHp);

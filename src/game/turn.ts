@@ -152,12 +152,33 @@ function applyPlayerAction(
     return { consumed: true, attacked: false, defeated: false };
   }
 
-  // Slowed (enemy-behavior-02, spider web): any 'move' input — whether it
-  // would have resolved as an attack, a normal step, or been blocked by a
-  // wall — instead fails outright (no position change) while still
-  // consuming this world turn, then clears the slow. This intercepts
-  // before both the attack-target lookup and the normal move/blocked-move
-  // logic below.
+  // Facing-only input (Phase 08.6, Shift+direction): updates player.facing
+  // and nothing else — no movement, no turn consumed, no enemy action.
+  if (action.type === 'face') {
+    player.facing = action.direction;
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  // X action (Phase 08.6): resolves an attack in the player's *current*
+  // facing direction — movement input no longer attacks at all (see
+  // below). Reuses the exact same adjacent/reach-2/whiff resolution used
+  // to be inlined in the move branch prior to this phase.
+  if (action.type === 'action') {
+    return resolveFacingAttack(state, player.facing, events);
+  }
+
+  // From here on, action.type === 'move'. Per fixed_decisions.movement,
+  // facing always updates to the input direction — even if the move
+  // itself ends up failing for any reason (wall, enemy-occupied tile, map
+  // edge, or being slowed) — so this happens unconditionally before any
+  // of the failure paths below.
+  player.facing = action.direction;
+
+  // Slowed (enemy-behavior-02, spider web): any 'move' input fails
+  // outright (no position change) while still consuming this world turn,
+  // then clears the slow. Phase 08.6 removed the "moving into an enemy
+  // attacks" path entirely, so this no longer needs to reason about
+  // attack-vs-step — every move is just a step attempt now.
   if (player.slowed) {
     player.slowed = false;
     events.push({ type: 'slowed_move_cancelled' });
@@ -166,50 +187,19 @@ function applyPlayerAction(
 
   const destination: Vec2 = destinationOf(player.pos, action.direction);
 
-  // Attacking: moving toward a living enemy's current tile resolves as an
-  // attack instead of a move, and the player does not step onto that tile.
-  // At most one enemy can occupy any tile, so this matches at most one.
-  const target = enemies.find(
+  // Phase 08.6: movement input never attacks. Stepping toward a living
+  // enemy's tile is simply a blocked move (no HP change, no turn
+  // consumed) — the only way to attack is the 'action' (X) input above,
+  // which reads the already-updated player.facing.
+  const occupiedByEnemy = enemies.some(
     (enemy) => enemy.alive && enemy.pos.x === destination.x && enemy.pos.y === destination.y,
   );
-  if (target) {
-    player.facing = action.direction;
-    const defeated = applyPlayerAttackToEnemy(state, target, events);
-    return { consumed: true, attacked: true, defeated };
-  }
-
-  // Reach-2 attack (Phase 08.5 spear): only when the adjacent tile is
-  // empty of a living enemy (handled above) — priority.md requires
-  // adjacent targets to always be attacked first, never both an adjacent
-  // and a 2-tile attack in the same turn. Only applies when the equipped
-  // weapon's reach is 2 or more (currently just spear; unarmed and sword
-  // both have reach 1 and never reach this branch's attack).
-  const reach = state.equippedWeaponId ? WEAPON_DEFINITIONS[state.equippedWeaponId].reach : 1;
-  if (reach >= 2) {
-    // The intervening (1-tile) segment must itself be a legal, non-diagonal
-    // -corner-cutting step (canMove already encodes both wall/bounds and
-    // the existing diagonal corner-cut rule) — this is segment 1 of 2.
-    if (canMove(map, player.pos, action.direction)) {
-      // The second segment (from the intervening tile onward) must pass
-      // the same legality check — this re-applies the diagonal corner-cut
-      // rule independently to segment 2, per obstruction.diagonal.
-      if (canMove(map, destination, action.direction)) {
-        const farTile = destinationOf(destination, action.direction);
-        const farTarget = enemies.find(
-          (enemy) => enemy.alive && enemy.pos.x === farTile.x && enemy.pos.y === farTile.y,
-        );
-        if (farTarget) {
-          player.facing = action.direction;
-          const defeated = applyPlayerAttackToEnemy(state, farTarget, events);
-          return { consumed: true, attacked: true, defeated };
-        }
-      }
-    }
+  if (occupiedByEnemy) {
+    return { consumed: false, attacked: false, defeated: false };
   }
 
   // Otherwise, attempt a normal move.
   if (canMove(map, player.pos, action.direction)) {
-    player.facing = action.direction;
     player.pos = destination;
     // Stepping onto a web tile slows the player (does not trigger merely
     // from a web being newly placed on the player's current tile, since
@@ -238,6 +228,70 @@ function applyPlayerAction(
 
   // Blocked movement (wall or out of bounds): does not consume a turn.
   return { consumed: false, attacked: false, defeated: false };
+}
+
+/**
+ * Resolves an attack in `direction` from the player's current position
+ * (Phase 08.6 X action): checks the adjacent tile first, then — only if
+ * the equipped weapon's reach is 2 or more (currently just spear) and the
+ * adjacent tile was empty — the tile 2 steps away, subject to the same
+ * wall/diagonal-corner-cut legality check as normal movement for each of
+ * the two segments independently. If nothing is found within reach, this
+ * resolves as a whiff: still a full, turn-consuming action (per
+ * fixed_decisions.action), just with no damage dealt. Never moves the
+ * player and never changes player.facing (the X action always attacks in
+ * whatever direction the player was already facing).
+ */
+function resolveFacingAttack(
+  state: GameState,
+  direction: Direction8,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const { player, enemies, map } = state;
+  const destination: Vec2 = destinationOf(player.pos, direction);
+
+  const target = enemies.find(
+    (enemy) => enemy.alive && enemy.pos.x === destination.x && enemy.pos.y === destination.y,
+  );
+  if (target) {
+    const defeated = applyPlayerAttackToEnemy(state, target, events);
+    return { consumed: true, attacked: true, defeated };
+  }
+
+  // Reach-2 attack (Phase 08.5 spear, carried over unchanged into the X
+  // action): only when the adjacent tile is empty of a living enemy
+  // (handled above) — adjacent targets always take priority, never both
+  // an adjacent and a 2-tile attack in the same action.
+  const reach = state.equippedWeaponId ? WEAPON_DEFINITIONS[state.equippedWeaponId].reach : 1;
+  if (reach >= 2) {
+    // Segment 1 (player -> intervening tile) must be a legal, non-corner
+    // -cutting step; canMove already encodes wall/bounds + the existing
+    // diagonal corner-cut rule.
+    if (canMove(map, player.pos, direction)) {
+      // Segment 2 (intervening tile -> far tile) re-applies the same
+      // legality check independently.
+      if (canMove(map, destination, direction)) {
+        const farTile = destinationOf(destination, direction);
+        const farTarget = enemies.find(
+          (enemy) => enemy.alive && enemy.pos.x === farTile.x && enemy.pos.y === farTile.y,
+        );
+        if (farTarget) {
+          const defeated = applyPlayerAttackToEnemy(state, farTarget, events);
+          return { consumed: true, attacked: true, defeated };
+        }
+      }
+    }
+  }
+
+  // Whiff: nothing within reach in the facing direction. Still a full,
+  // turn-consuming action — the caller's normal post-action pipeline
+  // (enemy actions, regen, floor check, turn increment) still runs.
+  events.push(
+    state.equippedWeaponId
+      ? { type: 'player_whiff', weaponId: state.equippedWeaponId }
+      : { type: 'player_whiff' },
+  );
+  return { consumed: true, attacked: false, defeated: false };
 }
 
 /**

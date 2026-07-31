@@ -469,9 +469,10 @@ describe('inventory controls with apple, sword, and armor (Phase 08.4)', () => {
 describe('regression: Phase 08.2/08.3 behavior unaffected', () => {
   it('sword attack power is still 2', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
+    state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 5, 1);
     state.enemies = [enemy];
-    processTurn(state, { type: 'move', direction: 'E' });
+    processTurn(state, { type: 'action' });
     expect(enemy.hp).toBe(3);
   });
 

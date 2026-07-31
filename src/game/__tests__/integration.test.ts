@@ -106,12 +106,13 @@ describe('integration - generated map gameplay', () => {
     state.enemies[0].hp = 2;
     state.enemies[1].pos = { x: 0, y: 0 };
     state.enemies[1].alive = false;
+    state.player.facing = 'E';
 
-    const r1 = processTurn(state, { type: 'move', direction: 'E' });
+    const r1 = processTurn(state, { type: 'action' });
     expect(r1.playerAttacked).toBe(true);
     expect(state.enemies[0].alive).toBe(true);
 
-    const r2 = processTurn(state, { type: 'move', direction: 'E' });
+    const r2 = processTurn(state, { type: 'action' });
     expect(r2.enemyDefeated).toBe(true);
     expect(state.enemies[0].alive).toBe(false);
   });
