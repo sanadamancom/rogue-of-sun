@@ -1,8 +1,9 @@
-import { choosePlacement, createRng, generateMap, MAP_GEN_PARAMS } from './mapgen';
+import { choosePlacement, chooseGroundItemPosition, createRng, generateMap, MAP_GEN_PARAMS } from './mapgen';
 import { createInitialActor, createInitialEnemy } from './turn';
 import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
 import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
-import { Actor, EnemyActor, EnemyType, GameState, Vec2 } from './types';
+import { createEmptyInventory } from './item-def';
+import { Actor, EnemyActor, EnemyType, GameState, GroundItem, Inventory, Vec2 } from './types';
 
 /** Generates a random run seed without relying on Math.random's implicit global state at call sites. */
 export function randomSeed(): number {
@@ -14,6 +15,7 @@ interface CarryOverStats {
   maxHp: number;
   attack: number;
   regenProgress: number;
+  inventory: Inventory;
 }
 
 /**
@@ -93,6 +95,21 @@ function buildFloorState(
   const types = forcedSpecies ?? chooseSpecies(placement.enemies.length, speciesRng, floorPool);
   const enemies = buildEnemies(placement.enemies, types, turn);
 
+  // Ground item placement (Phase 08.2) uses its own independent RNG stream
+  // (a third distinct XOR constant), so adding the apple never perturbs
+  // the existing map-generation, placement, or species RNG
+  // sequences/determinism. Excludes start, exit, and every enemy position;
+  // never falls back to a reduced item count — chooseGroundItemPosition
+  // throws explicitly if no valid tile exists.
+  const itemRng = createRng(floorSeed ^ 0xa3c17f05);
+  const applePos = chooseGroundItemPosition(
+    map,
+    placement.start,
+    [placement.start, placement.exit, ...placement.enemies],
+    itemRng,
+  );
+  const groundItems: GroundItem[] = [{ id: 0, itemId: 'apple', pos: applePos }];
+
   return {
     map,
     player,
@@ -110,6 +127,13 @@ function buildFloorState(
     // floor's webs or id counter.
     webs: [],
     nextWebId: 0,
+    // Ground items are per-floor, like webs (Phase 08.2); the inventory
+    // itself (below) is the only thing that carries over.
+    groundItems,
+    nextGroundItemId: 1,
+    inventory: carry ? carry.inventory : createEmptyInventory(),
+    inventoryOpen: false,
+    selectedItemIndex: 0,
   };
 }
 
@@ -129,6 +153,7 @@ export function advanceToNextFloor(state: GameState): GameState {
     maxHp: state.player.maxHp,
     attack: state.player.attack,
     regenProgress: state.regenProgress,
+    inventory: state.inventory,
   };
   return buildFloorState(state.runSeed, state.floor + 1, state.turn, carry);
 }

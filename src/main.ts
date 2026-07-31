@@ -2,10 +2,18 @@ import Phaser from 'phaser';
 import { toDirection4 } from './game/direction';
 import { actionForKey } from './game/input';
 import { ENEMY_DEFINITIONS } from './game/enemy-def';
+import { ITEM_DEFINITIONS } from './game/item-def';
+import {
+  closeInventory,
+  inventoryEntries,
+  moveInventorySelection,
+  toggleInventory,
+  useSelectedInventoryItem,
+} from './game/inventory';
 import { formatEvent, formatEvents, MessageLog } from './game/message-log';
 import { advanceToNextFloor, createInitialState, randomSeed } from './game/state';
 import { getCockatriceTelegraph, getKrakenTelegraph } from './game/telegraph';
-import { processTurn } from './game/turn';
+import { processTurn, TurnResult } from './game/turn';
 import { EnemyType, GameState } from './game/types';
 
 // Latest 3 lines only, per message_lifecycle: newest at the bottom, oldest
@@ -104,6 +112,11 @@ class MainScene extends Phaser.Scene {
   private readonly messageLog = new MessageLog(MESSAGE_LOG_CAPACITY);
   private logPanelBg!: Phaser.GameObjects.Graphics;
   private logPanelText!: Phaser.GameObjects.Text;
+  // Phase 08.2: ground-item glyphs (plain emoji text, no image asset) and
+  // the Tab-toggled inventory overlay.
+  private groundItemTexts: Phaser.GameObjects.Text[] = [];
+  private inventoryOverlayBg!: Phaser.GameObjects.Graphics;
+  private inventoryOverlayText!: Phaser.GameObjects.Text;
 
   constructor() {
     super('main');
@@ -138,6 +151,7 @@ class MainScene extends Phaser.Scene {
     this.drawTerrain();
     this.drawExit();
     this.drawWebs();
+    this.drawGroundItems();
 
     const mapPixelWidth = this.state.map.width * TILE_SIZE;
     const mapPixelHeight = this.state.map.height * TILE_SIZE;
@@ -180,8 +194,16 @@ class MainScene extends Phaser.Scene {
       .setVisible(false);
 
     this.createLogPanel();
+    this.createInventoryOverlay();
 
     this.input.keyboard!.on('keydown', (event: KeyboardEvent) => {
+      // Tab must never move browser focus off the canvas, and OS key-repeat
+      // from a held Tab must not toggle the overlay open/closed repeatedly
+      // (inventory_ui.open_close requirements).
+      if (event.key === 'Tab') {
+        event.preventDefault();
+        if (event.repeat) return;
+      }
       this.handleKey(event.key);
     });
 
@@ -471,6 +493,95 @@ class MainScene extends Phaser.Scene {
   }
 
   /**
+   * Draws each floor's ground item(s) as a plain emoji glyph (Phase 08.2
+   * apple_placement/asset substitution: user-approved emoji in place of a
+   * processed sprite asset), destroying and rebuilding the text objects
+   * each call since ground items can appear/disappear (pickup) between
+   * calls and there are always very few of them.
+   */
+  private drawGroundItems(): void {
+    this.groundItemTexts.forEach((t) => t.destroy());
+    this.groundItemTexts = this.state.groundItems.map((item) => {
+      const glyph = ITEM_DEFINITIONS[item.itemId].glyph;
+      const cx = item.pos.x * TILE_SIZE + TILE_SIZE / 2;
+      const cy = item.pos.y * TILE_SIZE + TILE_SIZE / 2;
+      return this.add
+        .text(cx, cy, glyph, { fontSize: `${Math.round(TILE_SIZE * 0.6)}px` })
+        .setOrigin(0.5);
+    });
+  }
+
+  /**
+   * Creates the Tab-toggled inventory overlay's graphics/text objects
+   * (inventory_ui.display): a screen-fixed panel, hidden until opened. No
+   * new persistent HUD — this stays invisible except while the overlay is
+   * shown.
+   */
+  private createInventoryOverlay(): void {
+    this.inventoryOverlayBg = this.add.graphics().setScrollFactor(0).setDepth(200).setVisible(false);
+    this.inventoryOverlayText = this.add
+      .text(0, 0, '', {
+        fontFamily: 'monospace',
+        fontSize: '16px',
+        color: '#ffffff',
+        lineSpacing: 6,
+      })
+      .setScrollFactor(0)
+      .setDepth(201)
+      .setVisible(false);
+  }
+
+  private readonly INVENTORY_OVERLAY_WIDTH = 300;
+  private readonly INVENTORY_OVERLAY_PADDING = 14;
+
+  /**
+   * Redraws the inventory overlay from the current state: hidden entirely
+   * when closed; when open, shows the glyph/name/count of every item with
+   * a positive count (inventory_ui.display), a ">" marker on the selected
+   * entry, an empty-inventory message when there is nothing to show, and
+   * the fixed control legend. Called after every state change that could
+   * affect it (open/close, selection move, pickup, use, floor/restart).
+   */
+  private refreshInventoryOverlay(): void {
+    const open = this.state.inventoryOpen;
+    this.inventoryOverlayBg.setVisible(open);
+    this.inventoryOverlayText.setVisible(open);
+    if (!open) return;
+
+    const entries = inventoryEntries(this.state);
+    const lines: string[] = ['インベントリ', ''];
+    if (entries.length === 0) {
+      lines.push('アイテムを持っていない');
+    } else {
+      entries.forEach((entry, i) => {
+        const def = ITEM_DEFINITIONS[entry.itemId];
+        const marker = i === this.state.selectedItemIndex ? '> ' : '  ';
+        lines.push(`${marker}${def.glyph} ${def.displayName} x${entry.count}`);
+      });
+    }
+    lines.push('');
+    lines.push('Tab/Esc:閉じる  ↑↓:選択  Enter:使用');
+
+    const width = this.INVENTORY_OVERLAY_WIDTH;
+    const lineHeight = 22;
+    const height = lines.length * lineHeight + this.INVENTORY_OVERLAY_PADDING * 2;
+    const x = (this.scale.width - width) / 2;
+    const y = (this.scale.height - height) / 2;
+
+    this.inventoryOverlayBg.clear();
+    this.inventoryOverlayBg.fillStyle(0x000000, 0.85);
+    this.inventoryOverlayBg.fillRect(x, y, width, height);
+    this.inventoryOverlayBg.lineStyle(2, 0xffffff, 0.6);
+    this.inventoryOverlayBg.strokeRect(x, y, width, height);
+
+    this.inventoryOverlayText.setPosition(
+      x + this.INVENTORY_OVERLAY_PADDING,
+      y + this.INVENTORY_OVERLAY_PADDING,
+    );
+    this.inventoryOverlayText.setText(lines.join('\n'));
+  }
+
+  /**
    * Tints the player sprite while slowed (enemy-behavior-02) as the
    * minimal on-screen indicator required by the design — no new HUD text,
    * no numeric duration display. Cleared as soon as state.player.slowed
@@ -499,18 +610,84 @@ class MainScene extends Phaser.Scene {
       return;
     }
 
+    // While a move tween is in flight, ignore further input (including OS
+    // key-repeat from a held key) so overlapping tweens can't make a sprite
+    // appear to skip through tiles/walls. Applies to every branch below
+    // (Tab, inventory navigation/use, and normal move/attack/wait).
+    if (this.activeAnimations > 0) return;
+
+    // Tab toggles the inventory overlay from anywhere in normal play, and
+    // never consumes a turn either way.
+    if (key === 'Tab') {
+      toggleInventory(this.state);
+      this.refreshInventoryOverlay();
+      return;
+    }
+
+    if (this.state.inventoryOpen) {
+      this.handleInventoryKey(key);
+      return;
+    }
+
     const action = actionForKey(key);
     if (!action) return;
 
-    // While a move tween is in flight, ignore further input (including OS
-    // key-repeat from a held key) so overlapping tweens can't make a sprite
-    // appear to skip through tiles/walls.
-    if (this.activeAnimations > 0) return;
-
     const playerBefore = { ...this.state.player.pos };
     const enemiesBefore = this.state.enemies.map((enemy) => ({ ...enemy.pos }));
-
     const result = processTurn(this.state, action);
+    this.applyTurnResult(result, playerBefore, enemiesBefore);
+  }
+
+  /**
+   * Handles a keypress while the inventory overlay is open
+   * (inventory_ui.navigation): ArrowUp/ArrowDown move the selection,
+   * Escape closes, Enter uses the selected item, and every other key is
+   * swallowed here — normal move/attack/wait input never reaches
+   * processTurn while the overlay is shown (processTurn's own
+   * inventoryOpen guard enforces the same rule at the state level as a
+   * second line of defense). None of open/close/select consume a turn.
+   */
+  private handleInventoryKey(key: string): void {
+    if (key === 'Escape') {
+      closeInventory(this.state);
+      this.refreshInventoryOverlay();
+      return;
+    }
+    if (key === 'ArrowUp') {
+      moveInventorySelection(this.state, -1);
+      this.refreshInventoryOverlay();
+      return;
+    }
+    if (key === 'ArrowDown') {
+      moveInventorySelection(this.state, 1);
+      this.refreshInventoryOverlay();
+      return;
+    }
+    if (key === 'Enter') {
+      const playerBefore = { ...this.state.player.pos };
+      const enemiesBefore = this.state.enemies.map((enemy) => ({ ...enemy.pos }));
+      const result = useSelectedInventoryItem(this.state);
+      this.applyTurnResult(result, playerBefore, enemiesBefore);
+      this.refreshInventoryOverlay();
+      return;
+    }
+    // Every other key (movement, wait, etc.) is ignored while the overlay
+    // is open.
+  }
+
+  /**
+   * Shared post-action pipeline for both normal move/wait/attack input and
+   * a successful/failed item use: logs events, handles the immediate
+   * floor-cleared regeneration, and animates/snaps every actor sprite to
+   * its (possibly unchanged) position. `result.consumed === false` still
+   * runs this safely — no positions will have changed, so every actor is
+   * simply snapped in place.
+   */
+  private applyTurnResult(
+    result: TurnResult,
+    playerBefore: { x: number; y: number },
+    enemiesBefore: { x: number; y: number }[],
+  ): void {
     this.messageLog.pushMany(formatEvents(result.events));
     const phaseAfterTurn = this.state.phase as import('./game/types').GamePhase;
 
@@ -561,6 +738,7 @@ class MainScene extends Phaser.Scene {
   private resetSceneToCurrentState(): void {
     this.drawTerrain();
     this.drawExit();
+    this.drawGroundItems();
     this.cameras.main.setBounds(
       0,
       0,
@@ -571,6 +749,10 @@ class MainScene extends Phaser.Scene {
     this.refreshStaticView();
     this.snapActor(this.playerSprite, this.state.player);
     this.snapAllEnemies();
+    // A new run/floor never starts with the overlay open (state.inventoryOpen
+    // is always freshly false from buildFloorState), but keep the on-screen
+    // overlay in sync regardless.
+    this.refreshInventoryOverlay();
   }
 
   /** Snaps a non-moving actor's sprite to its tile; it keeps idle-stepping in place. */
@@ -637,9 +819,11 @@ class MainScene extends Phaser.Scene {
     const { player } = this.state;
 
     this.drawWebs();
+    this.drawGroundItems();
     this.drawTelegraphs();
     this.updatePlayerSlowedTint();
     this.refreshLogPanel();
+    this.refreshInventoryOverlay();
 
     this.hudText.setText(
       `FLOOR ${this.state.floor}/${this.state.totalFloors}   HP: ${player.hp}/${player.maxHp}   Turn: ${this.state.turn}\n` +

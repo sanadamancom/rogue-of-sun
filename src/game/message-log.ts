@@ -1,4 +1,5 @@
 import { ENEMY_DEFINITIONS } from './enemy-def';
+import { ITEM_DEFINITIONS } from './item-def';
 import { GameEvent } from './events';
 
 /**
@@ -73,6 +74,18 @@ export function formatEvent(event: GameEvent): string {
       return '次のフロアへ進んだ。';
     case 'player_defeated':
       return '力尽きた。';
+    case 'item_picked_up': {
+      const name = ITEM_DEFINITIONS[event.itemId].displayName;
+      return `${name}をひろった。`;
+    }
+    case 'item_used': {
+      const name = ITEM_DEFINITIONS[event.itemId].displayName;
+      return `${name}を食べた。HPが${event.healed}回復した。`;
+    }
+    case 'item_use_failed': {
+      const name = ITEM_DEFINITIONS[event.itemId].displayName;
+      return `HPは満タンで、${name}は使えない。`;
+    }
     default: {
       const exhaustiveCheck: never = event;
       throw new Error(`Unhandled game event: ${JSON.stringify(exhaustiveCheck)}`);

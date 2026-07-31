@@ -76,6 +76,11 @@ function cockatriceState(
     regenProgress: 0,
     webs: [],
     nextWebId: 0,
+    groundItems: [],
+    nextGroundItemId: 0,
+    inventory: { apple: 0 },
+    inventoryOpen: false,
+    selectedItemIndex: 0,
   };
 }
 

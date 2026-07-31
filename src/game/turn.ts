@@ -1,6 +1,7 @@
 import { directionBetweenAdjacent, isAdjacent, isOrthogonallyAdjacent } from './direction';
 import { canMove, destinationOf, isInBounds, isWalkable } from './map';
 import { ENEMY_DEFINITIONS } from './enemy-def';
+import { ITEM_DEFINITIONS } from './item-def';
 import { canPlaceWebNow, expireWebs, placeWeb } from './web';
 import { GameEvent } from './events';
 import {
@@ -62,6 +63,17 @@ function applyPlayerAction(
     return { consumed: true, attacked: false, defeated: false };
   }
 
+  // Inventory item use (Phase 08.2): resolved before the move/wait guard
+  // below so it works whether or not the inventory overlay's own
+  // move/wait rejection (see processTurn) is in effect. Never itself
+  // re-implements enemy AI — a successful use returns consumed: true and
+  // processTurn's normal post-player-action pipeline (enemy actions,
+  // regen, floor check, turn increment) runs exactly as for any other
+  // consumed action.
+  if (action.type === 'use_item') {
+    return applyItemUse(state, action.itemId, events);
+  }
+
   if (action.type === 'wait') {
     return { consumed: true, attacked: false, defeated: false };
   }
@@ -112,10 +124,66 @@ function applyPlayerAction(
       player.slowed = true;
       events.push({ type: 'player_webbed' });
     }
+    // Auto-pickup (Phase 08.2): stepping onto a ground item tile collects
+    // it as part of this same move — no extra turn, and enemies still act
+    // this turn exactly as for any other normal move.
+    const itemIndex = state.groundItems.findIndex(
+      (item) => item.pos.x === destination.x && item.pos.y === destination.y,
+    );
+    if (itemIndex !== -1) {
+      const item = state.groundItems[itemIndex];
+      state.groundItems.splice(itemIndex, 1);
+      state.inventory[item.itemId] = (state.inventory[item.itemId] ?? 0) + 1;
+      events.push({ type: 'item_picked_up', itemId: item.itemId });
+    }
     return { consumed: true, attacked: false, defeated: false };
   }
 
   // Blocked movement (wall or out of bounds): does not consume a turn.
+  return { consumed: false, attacked: false, defeated: false };
+}
+
+/**
+ * Resolves a 'use_item' action (Phase 08.2). Only 'apple' is registered as
+ * of this phase, so this only implements the healing-item path; a future
+ * non-healing item would need its own branch here without touching this
+ * one. Never moves the player, never itself resolves enemy actions —
+ * successful uses return consumed: true and the caller (processTurn) runs
+ * the normal enemy-resolution/regen/floor-check pipeline exactly as for
+ * any other consumed action, so item use never reimplements enemy AI.
+ */
+function applyItemUse(
+  state: GameState,
+  itemId: import('./types').ItemId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const { player } = state;
+  const def = ITEM_DEFINITIONS[itemId];
+  const owned = state.inventory[itemId] ?? 0;
+
+  // Guard against a stale/invalid selection (e.g. an item the player does
+  // not actually have); the inventory UI only ever offers items with a
+  // positive count, so this should not occur via normal play, but this
+  // keeps the count invariant (never negative) even if reached directly.
+  if (owned <= 0) {
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  if (def.healAmount > 0) {
+    if (player.hp >= player.maxHp) {
+      events.push({ type: 'item_use_failed', itemId, reason: 'full_hp' });
+      return { consumed: false, attacked: false, defeated: false };
+    }
+    const before = player.hp;
+    player.hp = Math.min(player.maxHp, player.hp + def.healAmount);
+    const healed = player.hp - before;
+    state.inventory[itemId] = owned - 1;
+    events.push({ type: 'item_used', itemId, healed });
+    state.inventoryOpen = false;
+    return { consumed: true, attacked: false, defeated: false };
+  }
+
+  // No other item effect is registered yet.
   return { consumed: false, attacked: false, defeated: false };
 }
 
@@ -926,6 +994,25 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
     };
   }
 
+  // Inventory overlay open (Phase 08.2): normal move/wait/attack input is
+  // rejected outright (no turn consumed) while the overlay is shown;
+  // opening/closing/navigating the overlay and using an item go through
+  // their own dedicated functions (see src/game/inventory.ts), not this
+  // guard. 'use_item' itself is exempt so a successful use can still run
+  // the full turn pipeline below.
+  if (state.inventoryOpen && action.type !== 'use_item') {
+    return {
+      consumed: false,
+      playerAttacked: false,
+      enemyDefeated: false,
+      enemyActed: false,
+      enemyAttacked: false,
+      playerDefeated: false,
+      playerRegenerated: false,
+      events: [],
+    };
+  }
+
   const events: GameEvent[] = [];
   const { consumed, attacked, defeated } = applyPlayerAction(state, action, events);
 
@@ -938,7 +1025,12 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
       enemyAttacked: false,
       playerDefeated: false,
       playerRegenerated: false,
-      events: [],
+      // Blocked moves push nothing (events stays []), but an unconsumed
+      // item-use failure (e.g. full HP) still pushes an explanatory event
+      // (Phase 08.2 apple_use.full_hp requirement: "使用できない理由を表
+      // 示する") — so this reflects whatever applyPlayerAction actually
+      // pushed rather than always discarding it.
+      events,
     };
   }
 

@@ -1,4 +1,4 @@
-import { Direction8, EnemyType, Vec2 } from './types';
+import { Direction8, EnemyType, ItemId, Vec2 } from './types';
 
 /**
  * Typed, display-agnostic record of a notable action that happened during
@@ -45,4 +45,7 @@ export type GameEvent =
   | { type: 'player_webbed' }
   | { type: 'slowed_move_cancelled' }
   | { type: 'floor_advanced' }
-  | { type: 'player_defeated' };
+  | { type: 'player_defeated' }
+  | { type: 'item_picked_up'; itemId: ItemId }
+  | { type: 'item_used'; itemId: ItemId; healed: number }
+  | { type: 'item_use_failed'; itemId: ItemId; reason: 'full_hp' };

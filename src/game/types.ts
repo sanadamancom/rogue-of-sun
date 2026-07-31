@@ -249,8 +249,56 @@ export interface GameState {
   webs: WebTile[];
   /** Monotonically increasing counter used to assign each new WebTile's id (also its creation order); always reset to 0 on a new floor/restart. */
   nextWebId: number;
+  /**
+   * Items lying on this floor's ground (Phase 08.2 inventory foundation).
+   * Always reset per floor/restart, like webs. Never embedded into
+   * map.terrain; a tile can hold at most one ground item by construction
+   * (placement excludes existing ground item tiles).
+   */
+  groundItems: GroundItem[];
+  /** Monotonically increasing counter used to assign each new GroundItem's id; always reset to 0 on a new floor/restart. */
+  nextGroundItemId: number;
+  /**
+   * The player's stacked item counts. Persists across floor transitions
+   * (carried over by advanceToNextFloor) and resets to empty on a brand
+   * new run (createInitialState).
+   */
+  inventory: Inventory;
+  /**
+   * Whether the inventory overlay is currently open (Phase 08.2). Toggled
+   * by Tab, closed by Escape or a successful item use. While true, normal
+   * move/wait player actions are rejected by processTurn (no turn
+   * consumed) — see applyPlayerAction's inventoryOpen guard.
+   */
+  inventoryOpen: boolean;
+  /** Index into the current non-zero inventory entries (display order = ITEM_IDS_IN_ORDER), used by ArrowUp/ArrowDown navigation. Resets to 0 whenever the inventory opens. */
+  selectedItemIndex: number;
+}
+
+/**
+ * Item species (Phase 08.2 inventory foundation). 'apple' is the only
+ * registered item; the type is a union (not a bare string) so future items
+ * extend it in one place (see src/game/item-def.ts for each item's
+ * definition, including its heal amount and display name).
+ */
+export type ItemId = 'apple';
+
+/** Stacked item counts held by the player; never negative, absent/0 entries are not shown in UI. */
+export type Inventory = Record<ItemId, number>;
+
+/**
+ * A single item lying on the floor. `id` is a stable per-floor identifier
+ * (assigned from GameState.nextGroundItemId, like WebTile.id), independent
+ * of array order. Never embedded into map.terrain; kept as its own list
+ * alongside actors and fixtures per design_policy.
+ */
+export interface GroundItem {
+  id: number;
+  itemId: ItemId;
+  pos: Vec2;
 }
 
 export type PlayerAction =
   | { type: 'move'; direction: Direction8 }
-  | { type: 'wait' };
+  | { type: 'wait' }
+  | { type: 'use_item'; itemId: ItemId };

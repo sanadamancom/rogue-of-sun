@@ -530,7 +530,7 @@ export function roomCenter(room: Room): Vec2 {
 }
 
 /** BFS distance map (in floor steps) from `start`, keyed by "x,y"; unreachable tiles are absent. */
-function bfsDistances(map: GameMap, start: Vec2): Map<string, number> {
+export function bfsDistances(map: GameMap, start: Vec2): Map<string, number> {
   const key = (p: Vec2) => `${p.x},${p.y}`;
   const dist = new Map<string, number>([[key(start), 0]]);
   const queue: Vec2[] = [start];
@@ -649,6 +649,45 @@ export function choosePlacement(
   }
 
   return { start, exit, enemies };
+}
+
+/**
+ * Chooses a single deterministic reachable-floor tile for a ground item
+ * (Phase 08.2 apple placement), excluding every position in `exclude`
+ * (player start, exit, and every live enemy position). Uses `rng` — the
+ * caller passes an independent RNG stream (its own derived seed) so item
+ * placement never perturbs the existing map-generation/enemy-placement RNG
+ * sequences or their consumption order. Throws explicitly (never silently
+ * places nothing, never loops indefinitely) if no valid candidate tile
+ * exists.
+ */
+export function chooseGroundItemPosition(
+  map: GameMap,
+  start: Vec2,
+  exclude: Vec2[],
+  rng: () => number,
+): Vec2 {
+  const distFromStart = bfsDistances(map, start);
+  const key = (p: Vec2) => `${p.x},${p.y}`;
+  const excluded = new Set(exclude.map(key));
+
+  const candidates: Vec2[] = [];
+  for (let y = 0; y < map.height; y++) {
+    for (let x = 0; x < map.width; x++) {
+      if (map.terrain[y][x] !== 'floor') continue;
+      const pos = { x, y };
+      if (!distFromStart.has(key(pos))) continue;
+      if (excluded.has(key(pos))) continue;
+      candidates.push(pos);
+    }
+  }
+
+  if (candidates.length === 0) {
+    throw new Error('No valid ground item placement candidates found.');
+  }
+
+  const pickIndex = Math.floor(rng() * candidates.length);
+  return candidates[pickIndex];
 }
 
 /**
