@@ -93,5 +93,8 @@ export function useSelectedInventoryItem(state: GameState): TurnResult {
   if (def.category === 'weapon') {
     return processTurn(state, { type: 'equip_weapon', weaponId: itemId as import('./types').WeaponId });
   }
+  if (def.category === 'armor') {
+    return processTurn(state, { type: 'equip_armor', armorId: itemId as import('./types').ArmorId });
+  }
   return processTurn(state, { type: 'use_item', itemId });
 }

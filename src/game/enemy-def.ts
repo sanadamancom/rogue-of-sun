@@ -227,9 +227,21 @@ export const ENEMY_FIRST_APPEARANCE_FLOOR: Record<EnemyType, number> = {
  * roster). Order follows ENEMY_TYPES_IN_ORDER. Does not affect species
  * count, weighting, or the underlying seeded RNG selection mechanism —
  * callers still draw uniformly at random from the returned array.
+ *
+ * Phase 08.4 exception: floor 2 additionally includes 'golem' as a
+ * candidate (so a threatening enemy is reachable early, right after armor
+ * becomes available), without changing golem's normal first-appearance
+ * floor (5) used by every other floor's cumulative calculation above —
+ * floor 3 and floor 4's candidate sets are therefore unaffected by this
+ * exception, per must_preserve. This is deliberately a floor-specific
+ * addition, not a change to ENEMY_FIRST_APPEARANCE_FLOOR itself.
  */
 export function getEnemyPoolForFloor(floor: number): EnemyType[] {
-  return ENEMY_TYPES_IN_ORDER.filter(
+  const pool = ENEMY_TYPES_IN_ORDER.filter(
     (type) => ENEMY_FIRST_APPEARANCE_FLOOR[type] <= floor,
   );
+  if (floor === 2 && !pool.includes('golem')) {
+    pool.push('golem');
+  }
+  return pool;
 }

@@ -20,6 +20,9 @@ export function formatEvent(event: GameEvent): string {
     }
     case 'enemy_attack': {
       const name = ENEMY_DEFINITIONS[event.enemyType].displayName;
+      if (event.damage === 0) {
+        return `${name}の攻撃！ アーマーで防ぎ、ダメージを受けなかった。`;
+      }
       return `${name}の攻撃！ ${event.damage}ダメージを受けた。`;
     }
     case 'enemy_defeated': {
@@ -64,9 +67,9 @@ export function formatEvent(event: GameEvent): string {
     }
     case 'kraken_tentacle_strike': {
       const name = ENEMY_DEFINITIONS[event.enemyType].displayName;
-      return event.hit
-        ? `${name}の触手が襲いかかり、${event.damage}ダメージ！`
-        : `${name}の触手が空を切った。`;
+      if (!event.hit) return `${name}の触手が空を切った。`;
+      if (event.damage === 0) return `${name}の触手が襲いかかったが、アーマーで防いだ。`;
+      return `${name}の触手が襲いかかり、${event.damage}ダメージ！`;
     }
     case 'player_pulled':
       return '触手に引き寄せられた！';
@@ -96,6 +99,14 @@ export function formatEvent(event: GameEvent): string {
     }
     case 'weapon_already_equipped': {
       const name = ITEM_DEFINITIONS[event.weaponId].displayName;
+      return `${name}はすでに装備している。`;
+    }
+    case 'armor_equipped': {
+      const name = ITEM_DEFINITIONS[event.armorId].displayName;
+      return `${name}を装備した。`;
+    }
+    case 'armor_already_equipped': {
+      const name = ITEM_DEFINITIONS[event.armorId].displayName;
       return `${name}はすでに装備している。`;
     }
     default: {

@@ -3,6 +3,7 @@ import { toDirection4 } from './game/direction';
 import { actionForKey } from './game/input';
 import { ENEMY_DEFINITIONS } from './game/enemy-def';
 import { ITEM_DEFINITIONS } from './game/item-def';
+import { ARMOR_DEFINITIONS } from './game/armor-def';
 import {
   closeInventory,
   inventoryEntries,
@@ -556,15 +557,19 @@ class MainScene extends Phaser.Scene {
       entries.forEach((entry, i) => {
         const def = ITEM_DEFINITIONS[entry.itemId];
         const marker = i === this.state.selectedItemIndex ? '> ' : '  ';
-        // Weapons (Phase 08.3) show equip status instead of a stack count
-        // (a count would misleadingly imply consumption); consumables
-        // (apple) keep the existing x{count} display.
-        const suffix =
-          def.category === 'weapon'
-            ? this.state.equippedWeaponId === entry.itemId
-              ? '（装備中）'
-              : '（未装備）'
-            : `x${entry.count}`;
+        // Weapons/armor (Phase 08.3/08.4) show equip status instead of a
+        // stack count (a count would misleadingly imply consumption);
+        // consumables (apple) keep the existing x{count} display.
+        let suffix: string;
+        if (def.category === 'weapon') {
+          suffix = this.state.equippedWeaponId === entry.itemId ? '（装備中）' : '（未装備）';
+        } else if (def.category === 'armor') {
+          const armorValue = ARMOR_DEFINITIONS[entry.itemId as 'armor'].armorValue;
+          const status = this.state.equippedArmorId === entry.itemId ? '装備中' : '未装備';
+          suffix = `（${status} 防御${armorValue}）`;
+        } else {
+          suffix = `x${entry.count}`;
+        }
         lines.push(`${marker}${def.glyph} ${def.displayName} ${suffix}`);
       });
     }

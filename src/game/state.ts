@@ -3,7 +3,7 @@ import { createInitialActor, createInitialEnemy } from './turn';
 import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
 import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
 import { createEmptyInventory } from './item-def';
-import { Actor, EnemyActor, EnemyType, GameState, GroundItem, Inventory, Vec2, WeaponId } from './types';
+import { Actor, EnemyActor, EnemyType, GameState, GroundItem, Inventory, Vec2, WeaponId, ArmorId } from './types';
 
 /** Generates a random run seed without relying on Math.random's implicit global state at call sites. */
 export function randomSeed(): number {
@@ -17,6 +17,7 @@ interface CarryOverStats {
   regenProgress: number;
   inventory: Inventory;
   equippedWeaponId: WeaponId | null;
+  equippedArmorId: ArmorId | null;
 }
 
 /**
@@ -93,7 +94,23 @@ function buildFloorState(
   // placement-position RNG sequence/determinism.
   const speciesRng = createRng(floorSeed ^ 0x8f3c9d21);
   const floorPool = getEnemyPoolForFloor(floor);
-  const types = forcedSpecies ?? chooseSpecies(placement.enemies.length, speciesRng, floorPool);
+  let types = forcedSpecies ?? chooseSpecies(placement.enemies.length, speciesRng, floorPool);
+  // Phase 08.4 floor-2 golem exception: golem is a candidate on floor 2
+  // but must never appear more than once there. This is a deterministic
+  // post-processing step (no additional rng() calls, so it doesn't
+  // perturb the species RNG stream/consumption count) that demotes any
+  // golem draw beyond the first to 'bok' (always present in every
+  // floor's pool). Only applies to the real random-draw path, never to
+  // forcedSpecies (buildRosterPreviewFloorState).
+  if (!forcedSpecies && floor === 2) {
+    let sawGolem = false;
+    types = types.map((type) => {
+      if (type !== 'golem') return type;
+      if (sawGolem) return 'bok';
+      sawGolem = true;
+      return type;
+    });
+  }
   const enemies = buildEnemies(placement.enemies, types, turn);
 
   // Ground item placement (Phase 08.2) uses its own independent RNG stream
@@ -125,6 +142,20 @@ function buildFloorState(
       swordRng,
     );
     groundItems.push({ id: 1, itemId: 'sword', pos: swordPos });
+
+    // Armor placement (Phase 08.4 armor/defense foundation): floor 1
+    // only, using a fifth distinct independent RNG stream so it never
+    // perturbs the map/placement/species/apple/sword RNG sequences or
+    // their consumption order. Excludes the sword's tile too, in
+    // addition to start/exit/every enemy position/apple's tile.
+    const armorRng = createRng(floorSeed ^ 0x91b6d8e4);
+    const armorPos = chooseGroundItemPosition(
+      map,
+      placement.start,
+      [placement.start, placement.exit, ...placement.enemies, applePos, swordPos],
+      armorRng,
+    );
+    groundItems.push({ id: 2, itemId: 'armor', pos: armorPos });
   }
 
   return {
@@ -152,6 +183,7 @@ function buildFloorState(
     inventoryOpen: false,
     selectedItemIndex: 0,
     equippedWeaponId: carry ? carry.equippedWeaponId : null,
+    equippedArmorId: carry ? carry.equippedArmorId : null,
   };
 }
 
@@ -173,6 +205,7 @@ export function advanceToNextFloor(state: GameState): GameState {
     regenProgress: state.regenProgress,
     inventory: state.inventory,
     equippedWeaponId: state.equippedWeaponId,
+    equippedArmorId: state.equippedArmorId,
   };
   return buildFloorState(state.runSeed, state.floor + 1, state.turn, carry);
 }

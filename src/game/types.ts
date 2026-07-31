@@ -282,16 +282,28 @@ export interface GameState {
    * resets to null on a brand new run.
    */
   equippedWeaponId: WeaponId | null;
+  /**
+   * The currently equipped armor, or null for unarmored (Phase 08.4).
+   * Independent of equippedWeaponId — equipping one never affects the
+   * other. Equipping never removes the armor from `inventory` and never
+   * changes player.maxHp/hp — see turn.ts's getEffectiveArmorValue for how
+   * this is applied when the player takes damage. Persists across floor
+   * transitions like `inventory`/`equippedWeaponId`; resets to null on a
+   * brand new run.
+   */
+  equippedArmorId: ArmorId | null;
 }
 
 /**
- * Item species (Phase 08.2 inventory foundation; Phase 08.3 adds 'sword').
- * 'apple' is a consumable; 'sword' is an equippable weapon. The type is a
- * union (not a bare string) so future items extend it in one place (see
- * src/game/item-def.ts for each item's shared display data and
- * src/game/weapon-def.ts for weapon-specific combat data).
+ * Item species (Phase 08.2 inventory foundation; Phase 08.3 adds 'sword';
+ * Phase 08.4 adds 'armor'). 'apple' is a consumable; 'sword' is an
+ * equippable weapon; 'armor' is an equippable piece of armor. The type is
+ * a union (not a bare string) so future items extend it in one place (see
+ * src/game/item-def.ts for each item's shared display data,
+ * src/game/weapon-def.ts for weapon combat data, and
+ * src/game/armor-def.ts for armor combat data).
  */
-export type ItemId = 'apple' | 'sword';
+export type ItemId = 'apple' | 'sword' | 'armor';
 
 /**
  * Weapon species — Phase 08.3 registers only 'sword'. Deliberately a
@@ -299,9 +311,18 @@ export type ItemId = 'apple' | 'sword';
  * values that are equippable, rather than reusing ItemId directly: not
  * every ItemId is a weapon (e.g. 'apple' never is), and this keeps
  * weapon-only code (equippedWeaponId, WEAPON_DEFINITIONS) from silently
- * accepting a consumable's id.
+ * accepting a consumable's or armor's id.
  */
 export type WeaponId = 'sword';
+
+/**
+ * Armor species — Phase 08.4 registers only 'armor'. A separate union
+ * from ItemId/WeaponId for the same reason WeaponId is separate: armor
+ * occupies its own independent equipment slot (equippedArmorId), distinct
+ * from the weapon slot, so the two can never be confused at the type
+ * level.
+ */
+export type ArmorId = 'armor';
 
 /** Stacked item counts held by the player; never negative, absent/0 entries are not shown in UI. */
 export type Inventory = Record<ItemId, number>;
@@ -322,4 +343,5 @@ export type PlayerAction =
   | { type: 'move'; direction: Direction8 }
   | { type: 'wait' }
   | { type: 'use_item'; itemId: ItemId }
-  | { type: 'equip_weapon'; weaponId: WeaponId };
+  | { type: 'equip_weapon'; weaponId: WeaponId }
+  | { type: 'equip_armor'; armorId: ArmorId };

@@ -1,4 +1,4 @@
-import { Direction8, EnemyType, ItemId, WeaponId, Vec2 } from './types';
+import { Direction8, EnemyType, ItemId, WeaponId, ArmorId, Vec2 } from './types';
 
 /**
  * Typed, display-agnostic record of a notable action that happened during
@@ -50,4 +50,6 @@ export type GameEvent =
   | { type: 'item_used'; itemId: ItemId; healed: number }
   | { type: 'item_use_failed'; itemId: ItemId; reason: 'full_hp' }
   | { type: 'weapon_equipped'; weaponId: WeaponId }
-  | { type: 'weapon_already_equipped'; weaponId: WeaponId };
+  | { type: 'weapon_already_equipped'; weaponId: WeaponId }
+  | { type: 'armor_equipped'; armorId: ArmorId }
+  | { type: 'armor_already_equipped'; armorId: ArmorId };

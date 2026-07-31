@@ -10,8 +10,8 @@ describe('floor-based enemy pools (Phase 08.1)', () => {
     expect(asSet(getEnemyPoolForFloor(1))).toEqual(new Set(['bok', 'bat']));
   });
 
-  it('2F is exactly bok, bat, spider', () => {
-    expect(asSet(getEnemyPoolForFloor(2))).toEqual(new Set(['bok', 'bat', 'spider']));
+  it('2F is exactly bok, bat, spider, plus golem as a Phase 08.4 floor-2 exception', () => {
+    expect(asSet(getEnemyPoolForFloor(2))).toEqual(new Set(['bok', 'bat', 'spider', 'golem']));
   });
 
   it('3F is exactly bok, bat, spider, cockatrice, mummy', () => {
@@ -42,9 +42,9 @@ describe('floor-based enemy pools (Phase 08.1)', () => {
     }
   });
 
-  it('2F never includes any species unlocked from 3F onward', () => {
+  it('2F never includes any species unlocked from 3F onward (golem is excepted, see Phase 08.4)', () => {
     const pool = getEnemyPoolForFloor(2);
-    for (const type of ['cockatrice', 'mummy', 'sword', 'axe', 'golem', 'kraken'] as const) {
+    for (const type of ['cockatrice', 'mummy', 'sword', 'axe', 'kraken'] as const) {
       expect(pool).not.toContain(type);
     }
   });
@@ -62,15 +62,21 @@ describe('floor-based enemy pools (Phase 08.1)', () => {
     expect(pool).not.toContain('kraken');
   });
 
-  it('is cumulative: every floor\'s pool is a superset of the previous floor\'s pool', () => {
-    for (let floor = 2; floor <= 6; floor++) {
-      const prev = asSet(getEnemyPoolForFloor(floor - 1));
-      const curr = asSet(getEnemyPoolForFloor(floor));
-      for (const type of prev) {
-        expect(curr.has(type)).toBe(true);
+  it(
+    'is cumulative: every floor\'s pool is a superset of the previous floor\'s pool ' +
+      '(except across the Phase 08.4 floor-2 golem exception, which is deliberately ' +
+      'not part of the cumulative unlock chain)',
+    () => {
+      for (let floor = 2; floor <= 6; floor++) {
+        const prev = asSet(getEnemyPoolForFloor(floor - 1));
+        const curr = asSet(getEnemyPoolForFloor(floor));
+        for (const type of prev) {
+          if (floor - 1 === 2 && type === 'golem') continue; // floor-2-only exception
+          expect(curr.has(type)).toBe(true);
+        }
       }
-    }
-  });
+    },
+  );
 });
 
 describe('floor-based enemy pools: real generation stays within the floor pool (integration)', () => {

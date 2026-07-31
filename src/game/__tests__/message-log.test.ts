@@ -58,10 +58,11 @@ function singleEnemyState(
     nextWebId: 0,
     groundItems: [],
     nextGroundItemId: 0,
-    inventory: { apple: 0, sword: 0 },
+    inventory: { apple: 0, sword: 0, armor: 0 },
     inventoryOpen: false,
     selectedItemIndex: 0,
     equippedWeaponId: null,
+    equippedArmorId: null,
   };
 }
 

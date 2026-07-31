@@ -3,6 +3,7 @@ import { canMove, destinationOf, isInBounds, isWalkable } from './map';
 import { ENEMY_DEFINITIONS } from './enemy-def';
 import { ITEM_DEFINITIONS } from './item-def';
 import { WEAPON_DEFINITIONS } from './weapon-def';
+import { ARMOR_DEFINITIONS } from './armor-def';
 import { canPlaceWebNow, expireWebs, placeWeb } from './web';
 import { GameEvent } from './events';
 import {
@@ -33,6 +34,31 @@ export function getEffectiveAttackPower(state: GameState): number {
     return WEAPON_DEFINITIONS[state.equippedWeaponId].attackPower;
   }
   return state.player.attack;
+}
+
+/**
+ * The player's current armor value (Phase 08.4 armor/defense foundation):
+ * the equipped armor's armorValue if one is equipped, otherwise 0
+ * (unarmored). Never added to any permanent player stat.
+ */
+export function getEffectiveArmorValue(state: GameState): number {
+  if (state.equippedArmorId) {
+    return ARMOR_DEFINITIONS[state.equippedArmorId].armorValue;
+  }
+  return 0;
+}
+
+/**
+ * The final damage an incoming attack of `attackPower` deals to the
+ * player, after armor reduction: `max(0, attackPower - armorValue)`. Per
+ * design (shonen-mystery-dungeon-style, not a "minimum 1 damage" model),
+ * this can reach exactly 0 — no special-cased pierce/minimum-damage
+ * exists for any attacker. Every site that applies enemy damage to the
+ * player's HP must route through this (see tryMeleeAttack,
+ * resolveSpiderEnemy, resolveKrakenEnemy) so armor is applied uniformly.
+ */
+export function getIncomingDamage(state: GameState, attackPower: number): number {
+  return Math.max(0, attackPower - getEffectiveArmorValue(state));
 }
 
 export interface TurnResult {
@@ -92,6 +118,10 @@ function applyPlayerAction(
 
   if (action.type === 'equip_weapon') {
     return applyWeaponEquip(state, action.weaponId, events);
+  }
+
+  if (action.type === 'equip_armor') {
+    return applyArmorEquip(state, action.armorId, events);
   }
 
   if (action.type === 'wait') {
@@ -243,6 +273,34 @@ function applyWeaponEquip(
 }
 
 /**
+ * Resolves an 'equip_armor' action (Phase 08.4). Equipping never removes
+ * the armor from the inventory and never touches player.maxHp/hp, and is
+ * fully independent of equippedWeaponId (equipping armor never changes
+ * the equipped weapon and vice versa). Already-equipped is a no-op (no
+ * turn, inventory stays open); unowned armor cannot be equipped.
+ */
+function applyArmorEquip(
+  state: GameState,
+  armorId: import('./types').ArmorId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const owned = state.inventory[armorId] ?? 0;
+  if (owned <= 0) {
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  if (state.equippedArmorId === armorId) {
+    events.push({ type: 'armor_already_equipped', armorId });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  state.equippedArmorId = armorId;
+  events.push({ type: 'armor_equipped', armorId });
+  state.inventoryOpen = false;
+  return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
  * Resolves an attack against the player if `enemy` is adjacent to them
  * (8-direction adjacency), updating facing and player HP/alive. Returns
  * whether an attack happened. Shared by every 8-direction melee
@@ -254,8 +312,9 @@ function tryMeleeAttack(state: GameState, enemy: EnemyActor, events: GameEvent[]
   if (!isAdjacent(enemy.pos, player.pos)) return false;
   const dir = directionBetweenAdjacent(enemy.pos, player.pos);
   if (dir) enemy.facing = dir;
-  player.hp = Math.max(0, player.hp - enemy.attack);
-  events.push({ type: 'enemy_attack', enemyType: enemy.type, damage: enemy.attack });
+  const damage = getIncomingDamage(state, enemy.attack);
+  player.hp = Math.max(0, player.hp - damage);
+  events.push({ type: 'enemy_attack', enemyType: enemy.type, damage });
   if (player.hp === 0) player.alive = false;
   return true;
 }
@@ -545,8 +604,9 @@ function resolveSpiderEnemy(
   if (isOrthogonallyAdjacent(enemy.pos, state.player.pos)) {
     const dir = directionBetweenAdjacent(enemy.pos, state.player.pos);
     if (dir) enemy.facing = dir;
-    state.player.hp = Math.max(0, state.player.hp - enemy.attack);
-    events.push({ type: 'enemy_attack', enemyType: enemy.type, damage: enemy.attack });
+    const damage = getIncomingDamage(state, enemy.attack);
+    state.player.hp = Math.max(0, state.player.hp - damage);
+    events.push({ type: 'enemy_attack', enemyType: enemy.type, damage });
     if (state.player.hp === 0) state.player.alive = false;
     decrementWebCooldown(enemy);
     return { acted: true, attacked: true };
@@ -848,7 +908,7 @@ function resolveKrakenEnemy(
     enemy.tentacleTarget = undefined;
     const area = tentacleCrossCells(map, target);
     const hit = area.some((pos) => pos.x === player.pos.x && pos.y === player.pos.y);
-    const damage = hit ? enemy.attack : 0;
+    const damage = hit ? getIncomingDamage(state, enemy.attack) : 0;
     events.push({
       type: 'kraken_tentacle_strike',
       enemyId: enemy.id ?? 0,
@@ -859,7 +919,7 @@ function resolveKrakenEnemy(
     });
 
     if (hit) {
-      player.hp = Math.max(0, player.hp - enemy.attack);
+      player.hp = Math.max(0, player.hp - damage);
       if (player.hp === 0) player.alive = false;
 
       // Pull: only attempted if the player survived the hit.
@@ -1055,7 +1115,12 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
   // their own dedicated functions (see src/game/inventory.ts), not this
   // guard. 'use_item' itself is exempt so a successful use can still run
   // the full turn pipeline below.
-  if (state.inventoryOpen && action.type !== 'use_item' && action.type !== 'equip_weapon') {
+  if (
+    state.inventoryOpen &&
+    action.type !== 'use_item' &&
+    action.type !== 'equip_weapon' &&
+    action.type !== 'equip_armor'
+  ) {
     return {
       consumed: false,
       playerAttacked: false,
