@@ -132,6 +132,16 @@ export function formatEvent(event: GameEvent): string {
       return '太陽の実を使い、太陽エネルギーが回復した。';
     case 'sun_fruit_use_failed':
       return '太陽エネルギーは満タンだ。';
+    case 'chocolate_used':
+      return `チョコレートを食べ、満腹度が${event.recovered}回復した。`;
+    case 'chocolate_use_failed':
+      return '満腹度は満タンで、チョコレートは使えない。';
+    case 'hunger_low_warning':
+      return 'お腹が空いてきた。食料を探そう。';
+    case 'hunger_zero_warning':
+      return '空腹で力が入らない…このままでは危険だ。';
+    case 'starvation_damage':
+      return `空腹でLIFEが${event.damage}減った。`;
     case 'solar_gun_insufficient_solar':
       return '太陽エネルギーが足りない。';
     case 'solar_charge_used':

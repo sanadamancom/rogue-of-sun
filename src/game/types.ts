@@ -314,6 +314,45 @@ export interface GameState {
    */
   discardConfirmItemId?: ItemId | null;
   /**
+   * Phase 11.3 hunger: current hunger (0..HUNGER_MAX, default HUNGER_MAX
+   * when absent — see hunger.ts's getHunger). Run-wide state, persists
+   * across floor transitions (carried by advanceToNextFloor's
+   * CarryOverStats), resets to HUNGER_MAX on a brand new run or a
+   * post-death retry. Optional for the same reason
+   * discardConfirmItemId is: existing GameState object literals across
+   * the test suite remain valid without every one of them being updated.
+   */
+  hunger?: number;
+  /**
+   * Phase 11.3 hunger: progress toward the next 1-point hunger decrease
+   * (0..HUNGER_DECREASE_INTERVAL-1, default 0 when absent). Incremented
+   * by exactly 1 per successfully consumed player turn while hunger >= 1;
+   * reset to 0 whenever it triggers a decrease. Persists across floor
+   * transitions like `hunger`; resets to 0 on a new run/retry.
+   */
+  hungerDecreaseProgress?: number;
+  /**
+   * Phase 11.3 hunger: progress toward the next starvation damage tick
+   * (0..STARVATION_INTERVAL-1, default 0 when absent). Only increments
+   * while hunger is exactly 0; reset to 0 the moment hunger becomes >= 1
+   * again (and also when it triggers damage). Persists across floor
+   * transitions like `hunger`; resets to 0 on a new run/retry.
+   */
+  starvationProgress?: number;
+  /**
+   * Phase 11.3 hunger: whether the "hunger reached 20 or below" warning
+   * has already been shown for the current low-hunger dip (cleared once
+   * hunger rises back above 20, so a later dip warns again). Optional,
+   * default false when absent.
+   */
+  hungerLowWarned?: boolean;
+  /**
+   * Phase 11.3 hunger: whether the "hunger reached 0" warning has already
+   * been shown for the current starvation period (cleared once hunger
+   * rises back above 0). Optional, default false when absent.
+   */
+  hungerZeroWarned?: boolean;
+  /**
    * The currently equipped weapon, or null for unarmed (Phase 08.3).
    * Equipping never removes the weapon from `inventory` (not consumable,
    * not stackable) and never changes player.attack (the permanent unarmed
@@ -411,7 +450,7 @@ export interface GameState {
  * item's shared display data, src/game/weapon-def.ts for weapon combat
  * data, and src/game/armor-def.ts for armor combat data).
  */
-export type ItemId = 'apple' | 'sword' | 'armor' | 'spear' | 'hammer' | 'sun_fruit' | 'solar_gun' | 'sol_enchantment';
+export type ItemId = 'apple' | 'sword' | 'armor' | 'spear' | 'hammer' | 'sun_fruit' | 'solar_gun' | 'sol_enchantment' | 'chocolate';
 
 /**
  * Selectable melee enchantment (Phase 10.1 sol enchant foundation). 'none'

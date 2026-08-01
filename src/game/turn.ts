@@ -3,6 +3,17 @@ import { canMove, destinationOf, isInBounds, isWalkable } from './map';
 import { ENEMY_DEFINITIONS } from './enemy-def';
 import { ITEM_DEFINITIONS } from './item-def';
 import { hasInventoryCapacity, inventoryEntries } from './inventory';
+import {
+  getHunger,
+  getHungerDecreaseProgress,
+  getStarvationProgress,
+  HUNGER_DECREASE_AMOUNT,
+  HUNGER_DECREASE_INTERVAL,
+  HUNGER_LOW_THRESHOLD,
+  HUNGER_MAX,
+  STARVATION_DAMAGE,
+  STARVATION_INTERVAL,
+} from './hunger';
 import { WEAPON_DEFINITIONS } from './weapon-def';
 import { ARMOR_DEFINITIONS } from './armor-def';
 import { computeAttackDamage, computeIncomingDamage, computeHitChance, resolvesAsHit } from './combat';
@@ -673,6 +684,12 @@ function applyItemUse(
     return { consumed: false, attacked: false, defeated: false };
   }
 
+  // Chocolate (Phase 11.3): restores hunger, handled by its own function
+  // since it reads/writes hunger.ts state rather than player.hp/solarEnergy.
+  if ((def.hungerAmount ?? 0) > 0) {
+    return applyChocolateUse(state, itemId, events);
+  }
+
   const healAmount = def.healAmount ?? 0;
   if (healAmount > 0) {
     if (player.hp >= player.maxHp) {
@@ -709,6 +726,43 @@ function applyItemUse(
 
   // No other item effect is registered yet.
   return { consumed: false, attacked: false, defeated: false };
+}
+
+/**
+ * Chocolate use (Phase 11.3 hunger foundation): restores hunger, never
+ * HP/SOL. Split out from applyItemUse (unlike heal/solar branches which
+ * stayed inline) so the hunger-specific getHunger/HUNGER_MAX helpers stay
+ * localized to hunger.ts callers. Rejected (no consumption, no turn) when
+ * hunger is already at HUNGER_MAX — mirrors apple's full_hp / sun_fruit's
+ * sol_full rejection but on the hunger stat. Turn-order note (Phase 11.3
+ * fixed_specification.chocolate.same_turn_order): this only applies the
+ * recovery itself; the generic per-consumed-turn hunger decrease/
+ * starvation step in processTurn runs afterward against the
+ * already-recovered hunger value, which is what makes "using chocolate
+ * from 0 hunger never starves on that same action" fall out naturally
+ * without any special-casing here.
+ */
+function applyChocolateUse(
+  state: GameState,
+  itemId: import('./types').ItemId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const owned = state.inventory[itemId] ?? 0;
+  if (owned <= 0) {
+    return { consumed: false, attacked: false, defeated: false };
+  }
+  const hungerAmount = ITEM_DEFINITIONS[itemId].hungerAmount ?? 0;
+  const before = getHunger(state);
+  if (before >= HUNGER_MAX) {
+    events.push({ type: 'chocolate_use_failed', itemId, reason: 'hunger_full' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+  state.hunger = Math.min(HUNGER_MAX, before + hungerAmount);
+  const recovered = state.hunger - before;
+  state.inventory[itemId] = owned - 1;
+  events.push({ type: 'chocolate_used', itemId, recovered });
+  state.inventoryOpen = false;
+  return { consumed: true, attacked: false, defeated: false };
 }
 
 /**
@@ -1695,6 +1749,86 @@ function pickChaseDirections(dx: number, dy: number) {
  * Invalid/unused inputs and blocked moves do not consume a turn and do not
  * advance enemy actions or natural regeneration.
  */
+/**
+ * Phase 11.3 hunger/starvation: advances hunger exactly once for a
+ * successfully-consumed player turn (called from processTurn only when
+ * `state.player.alive`). Reads hunger once at the top, before any change
+ * this tick, so the branch taken reflects hunger's value at the *start*
+ * of this turn:
+ * - hunger >= 1 at the start: runs the decrease progression (and always
+ *   resets starvationProgress to 0 — this is what implements the "no
+ *   starvation damage on the same turn hunger drops from 1 to 0" grace
+ *   rule, since a hunger-0 turn only ever reaches the starvation branch
+ *   on the *next* successful turn).
+ * - hunger === 0 at the start: runs the starvation progression instead
+ *   (hungerDecreaseProgress is pinned at 0 — no point counting toward a
+ *   decrease that can't go below 0).
+ * Never uses RNG. Armor/evasion are never consulted for starvation
+ * damage (fixed_specification.starvation: "防具の防御力で飢餓ダメージを
+ * 軽減しない" / "乱数による回避・軽減を行わない") — this applies
+ * player.hp -= STARVATION_DAMAGE directly, bypassing combat.ts entirely.
+ */
+function applyHungerProgression(state: GameState, events: GameEvent[]): void {
+  const hunger = getHunger(state);
+
+  if (hunger >= 1) {
+    const progress = getHungerDecreaseProgress(state) + 1;
+    if (progress >= HUNGER_DECREASE_INTERVAL) {
+      state.hunger = Math.max(0, hunger - HUNGER_DECREASE_AMOUNT);
+      state.hungerDecreaseProgress = 0;
+    } else {
+      state.hungerDecreaseProgress = progress;
+    }
+    state.starvationProgress = 0;
+  } else {
+    const progress = getStarvationProgress(state) + 1;
+    if (progress >= STARVATION_INTERVAL) {
+      state.starvationProgress = 0;
+      state.player.hp = Math.max(0, state.player.hp - STARVATION_DAMAGE);
+      events.push({ type: 'starvation_damage', damage: STARVATION_DAMAGE });
+      if (state.player.hp <= 0) {
+        state.player.alive = false;
+      }
+    } else {
+      state.starvationProgress = progress;
+    }
+    state.hungerDecreaseProgress = 0;
+  }
+
+  updateHungerWarnings(state, events);
+}
+
+/**
+ * Pushes the one-time low(<=20)/zero(0) hunger warnings (Phase 11.3
+ * notifications), tracked via GameState.hungerLowWarned/hungerZeroWarned
+ * so each stays silent until hunger recovers back above its threshold
+ * and dips again (fixed_specification.notifications: "同じ閾値に留まっ
+ * ている間、毎ターン同じ警告を出さない" / "再度低下した場合は再通知して
+ * よい"). Called once per applyHungerProgression invocation, after that
+ * turn's hunger value is final.
+ */
+function updateHungerWarnings(state: GameState, events: GameEvent[]): void {
+  const hunger = getHunger(state);
+
+  if (hunger <= 0) {
+    if (!state.hungerZeroWarned) {
+      events.push({ type: 'hunger_zero_warning' });
+      state.hungerZeroWarned = true;
+    }
+  } else {
+    state.hungerZeroWarned = false;
+  }
+
+  if (hunger > 0 && hunger <= HUNGER_LOW_THRESHOLD) {
+    if (!state.hungerLowWarned) {
+      events.push({ type: 'hunger_low_warning' });
+      state.hungerLowWarned = true;
+    }
+  } else if (hunger > HUNGER_LOW_THRESHOLD) {
+    state.hungerLowWarned = false;
+  }
+}
+
 export function processTurn(state: GameState, action: PlayerAction): TurnResult {
   if (state.phase !== 'playing') {
     return {
@@ -1758,6 +1892,20 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
 
   const { acted: enemyActed, attacked: enemyAttacked } = resolveEnemiesAction(state, events);
 
+  // Phase 11.3 hunger/starvation: runs once per consumed turn, after
+  // enemy actions resolve (so enemies still act exactly once per player
+  // turn, unchanged from before this phase) but only if the player
+  // survived those enemy actions — starvation never applies to an
+  // already-dead player, and never causes enemies to act an extra time.
+  // Chocolate's own hunger recovery already happened inside
+  // applyPlayerAction/applyChocolateUse above, so this sees the
+  // post-recovery hunger value — which is what makes "no starvation
+  // damage on the same action that used chocolate from 0" fall out
+  // naturally (see applyChocolateUse's doc comment).
+  if (state.player.alive) {
+    applyHungerProgression(state, events);
+  }
+
   const playerDefeated = !state.player.alive;
   if (playerDefeated) {
     events.push({ type: 'player_defeated' });
@@ -1765,7 +1913,11 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
 
   let playerRegenerated = false;
   if (state.player.alive) {
-    if (state.player.hp < state.player.maxHp) {
+    // Phase 11.3: natural regen is entirely suspended while hunger is 0
+    // (fixed_specification.natural_regeneration_interaction) — regenProgress
+    // itself is left untouched (not reset) so it resumes exactly where it
+    // left off once hunger recovers above 0.
+    if (getHunger(state) >= 1 && state.player.hp < state.player.maxHp) {
       state.regenProgress += 1;
       if (state.regenProgress >= REGEN_TURNS_PER_HP) {
         // Phase 10.2 combat stat/scale redesign: scaled 10x (1->10)
@@ -1776,9 +1928,16 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
         state.regenProgress = 0;
         playerRegenerated = true;
       }
-    } else {
+    } else if (getHunger(state) >= 1) {
+      // Full HP and not starving: existing behavior (progress resets so
+      // it doesn't carry a stale partial tick into the next time HP
+      // drops below max).
       state.regenProgress = 0;
     }
+    // Hunger 0: regenProgress is left completely untouched (per
+    // natural_regeneration_interaction's "満腹度0への遷移でregenProgress
+    // を失わない" / "保持したregenProgressから再開する") — neither
+    // incremented nor reset while starving.
   }
 
   const reachedExit = state.player.pos.x === state.exit.x && state.player.pos.y === state.exit.y;

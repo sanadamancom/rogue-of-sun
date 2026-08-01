@@ -4,6 +4,7 @@ import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
 import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
 import { createEmptyInventory } from './item-def';
 import { generateSunlightLayer } from './sunlight';
+import { HUNGER_MAX } from './hunger';
 import { Actor, EnchantmentId, EnemyActor, EnemyType, GameState, GroundItem, Inventory, Vec2, WeaponId, ArmorId, Direction8 } from './types';
 
 /** Generates a random run seed without relying on Math.random's implicit global state at call sites. */
@@ -28,6 +29,11 @@ interface CarryOverStats {
   solUnlocked: boolean;
   selectedEnchantment: EnchantmentId;
   combatRngState: number;
+  hunger: number;
+  hungerDecreaseProgress: number;
+  starvationProgress: number;
+  hungerLowWarned: boolean;
+  hungerZeroWarned: boolean;
 }
 
 /** Fixed initial/maximum solar energy for a brand new run (Phase 09.1; provisional value, see history doc). */
@@ -263,6 +269,27 @@ function buildFloorState(
     groundItems.push({ id: groundItems.length, itemId: 'sol_enchantment', pos: solEnchantPos });
   }
 
+  // Chocolate placement (Phase 11.3 hunger foundation): every floor gets
+  // exactly one, using its own distinct independent RNG stream (an
+  // eleventh XOR constant) placed after every other existing ground item
+  // on that floor, so it never perturbs any prior RNG sequence/
+  // consumption order and excludes every tile already used by another
+  // ground item in addition to start/exit/every enemy position — same
+  // pattern as sun_fruit above, just unconditional on floor number
+  // (fixed_specification.chocolate.placement.initial_rule: "各フロアに1
+  // 個").
+  {
+    const chocolateExclusions = [
+      placement.start,
+      placement.exit,
+      ...placement.enemies,
+      ...groundItems.map((item) => item.pos),
+    ];
+    const chocolateRng = createRng(floorSeed ^ 0x7e1c4a92);
+    const chocolatePos = chooseGroundItemPosition(map, placement.start, chocolateExclusions, chocolateRng);
+    groundItems.push({ id: groundItems.length, itemId: 'chocolate', pos: chocolatePos });
+  }
+
   return {
     map,
     player,
@@ -312,6 +339,16 @@ function buildFloorState(
     // so combat rolls never perturb map/placement/species/item/sunlight
     // determinism, and vice versa.
     combatRngState: carry ? carry.combatRngState : runSeed ^ 0x4e6d3a17,
+    // Hunger (Phase 11.3): carried over across floor transitions like
+    // solarEnergy/combatRngState; a brand new run or a post-death retry
+    // always starts at HUNGER_MAX with both progress counters and both
+    // warning flags cleared (fixed_specification.floor_and_run_lifecycle
+    // / hunger_state's "new_run_value"/"retry_after_death_value": 100).
+    hunger: carry ? carry.hunger : HUNGER_MAX,
+    hungerDecreaseProgress: carry ? carry.hungerDecreaseProgress : 0,
+    starvationProgress: carry ? carry.starvationProgress : 0,
+    hungerLowWarned: carry ? carry.hungerLowWarned : false,
+    hungerZeroWarned: carry ? carry.hungerZeroWarned : false,
     // Sunlight layer (Phase 09.3): always regenerated fresh per floor from
     // the finished map/start, using its own independent RNG stream (see
     // sunlight.ts) — never carried over across floor transitions, like
@@ -348,6 +385,11 @@ export function advanceToNextFloor(state: GameState): GameState {
     solUnlocked: state.solUnlocked,
     selectedEnchantment: state.selectedEnchantment,
     combatRngState: state.combatRngState,
+    hunger: state.hunger ?? HUNGER_MAX,
+    hungerDecreaseProgress: state.hungerDecreaseProgress ?? 0,
+    starvationProgress: state.starvationProgress ?? 0,
+    hungerLowWarned: state.hungerLowWarned ?? false,
+    hungerZeroWarned: state.hungerZeroWarned ?? false,
   };
   return buildFloorState(state.runSeed, state.floor + 1, state.turn, carry);
 }

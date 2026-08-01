@@ -30,6 +30,7 @@ import {
   RunTelemetry,
 } from './game/telemetry';
 import { getCockatriceTelegraph, getKrakenTelegraph } from './game/telegraph';
+import { getHunger, HUNGER_MAX } from './game/hunger';
 import { processTurn, TurnResult } from './game/turn';
 import { DIRECTION_VECTORS, EnemyType, GameState } from './game/types';
 
@@ -1300,8 +1301,19 @@ class MainScene extends Phaser.Scene {
     this.refreshInventoryOverlay();
     this.updateFacingMarker();
 
+    const hunger = getHunger(this.state);
+    // Phase 11.3: 0 gets an explicit "空腹" label so starvation is
+    // unmistakable at a glance (hud.required's "0では飢餓状態を明確に認
+    // 識できる表示にする"); 1..HUNGER_LOW_THRESHOLD keeps the plain
+    // number (still visible as a low value against /100) rather than
+    // adding a second label, since a single visual treatment (color)
+    // for "low" would need a second Text object this HUD doesn't already
+    // have — the existing HUD is a single plain-color Text line, so
+    // introducing a distinct color for one segment isn't a minimal
+    // change; the number itself already conveys "low" against /100.
+    const hungerLabel = hunger <= 0 ? `${hunger} / ${HUNGER_MAX} (空腹)` : `${hunger} / ${HUNGER_MAX}`;
     this.hudText.setText(
-      `FLOOR ${this.state.floor}/${this.state.totalFloors}   HP: ${player.hp}/${player.maxHp}   SOL ${this.state.solarEnergy} / ${this.state.maxSolarEnergy}   ${this.enchantHudLabel()}   Turn: ${this.state.turn}\n` +
+      `FLOOR ${this.state.floor}/${this.state.totalFloors}   HP: ${player.hp}/${player.maxHp}   SOL ${this.state.solarEnergy} / ${this.state.maxSolarEnergy}   満腹度 ${hungerLabel}   ${this.enchantHudLabel()}   Turn: ${this.state.turn}\n` +
         `Run Seed: ${this.state.runSeed}   Floor Seed: ${this.state.seed}\n` +
         `移動:方向キー  Shift+方向:向き変更  X:攻撃  Space：待機／日向でチャージ  F:エンチャント切替  Tab:インベントリ`,
     );

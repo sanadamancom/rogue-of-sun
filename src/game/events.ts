@@ -82,6 +82,20 @@ export type GameEvent =
   | { type: 'item_discard_failed'; itemId: ItemId; reason: 'equipped' | 'item_unavailable' }
   | { type: 'sun_fruit_used'; itemId: ItemId; recovered: number }
   | { type: 'sun_fruit_use_failed'; itemId: ItemId; reason: 'sol_full' }
+  // Phase 11.3 hunger: chocolate_used/chocolate_use_failed follow the same
+  // shape as sun_fruit_used/sun_fruit_use_failed above. hunger_low_warning
+  // and hunger_zero_warning are pushed at most once per dip (see
+  // GameState.hungerLowWarned/hungerZeroWarned). starvation_damage is
+  // pushed each time the starvation interval ticks over into damage;
+  // death itself still goes through the existing generic
+  // 'player_defeated' event below (no separate death-cause event —
+  // starvation_damage immediately preceding player_defeated in the same
+  // turn's event list is how a starvation death is identified).
+  | { type: 'chocolate_used'; itemId: ItemId; recovered: number }
+  | { type: 'chocolate_use_failed'; itemId: ItemId; reason: 'hunger_full' }
+  | { type: 'hunger_low_warning' }
+  | { type: 'hunger_zero_warning' }
+  | { type: 'starvation_damage'; damage: number }
   | { type: 'solar_gun_insufficient_solar' }
   | { type: 'solar_charge_used'; recovered: number }
   | { type: 'weapon_equipped'; weaponId: WeaponId }

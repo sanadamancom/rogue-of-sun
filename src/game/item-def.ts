@@ -24,6 +24,8 @@ export interface ItemDefinition {
   healAmount?: number;
   /** Solar energy restored by one use, before clamping to maxSolarEnergy. Only meaningful for sun_fruit (Phase 09.1). */
   solarAmount?: number;
+  /** Hunger restored by one use, before clamping to HUNGER_MAX (Phase 11.3 hunger.ts). Only meaningful for chocolate. */
+  hungerAmount?: number;
 }
 
 // Single source of truth for every registered item's name, glyph, and
@@ -110,10 +112,29 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     consumable: false,
     stackable: false,
   },
+  // Chocolate (Phase 11.3 hunger foundation): restores hunger, never
+  // HP/SOL. Reuses the existing 'consumable' category (same UI/inventory
+  // mechanism as apple/sun_fruit — category is a display grouping, not a
+  // per-effect type; the effect itself is distinguished by which of
+  // healAmount/solarAmount/hungerAmount is set) rather than introducing a
+  // new 'food' ItemDefinition category, since nothing else needs one.
+  chocolate: {
+    id: 'chocolate',
+    displayName: 'チョコレート',
+    // Phase 11.3: no processed sprite asset yet; a plain emoji glyph is
+    // used, following the same substitution precedent as sun_fruit/apple
+    // (see item-def.ts's `glyph` doc comment) rather than introducing any
+    // new asset-loading mechanism.
+    glyph: '🍫',
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+    hungerAmount: 30,
+  },
 };
 
 /** Fixed display/iteration order for items (Phase 08.2: apple; Phase 08.3 adds sword; Phase 08.4 adds armor; Phase 08.5 adds spear; Phase 08.7 adds hammer; Phase 09.1 adds sun_fruit; Phase 09.2 adds solar_gun). */
-export const ITEM_IDS_IN_ORDER: ItemId[] = ['apple', 'sword', 'armor', 'spear', 'hammer', 'sun_fruit', 'solar_gun'];
+export const ITEM_IDS_IN_ORDER: ItemId[] = ['apple', 'sword', 'armor', 'spear', 'hammer', 'sun_fruit', 'solar_gun', 'chocolate'];
 
 /** An inventory with every registered item at count 0 (used for new-run initialization). */
 export function createEmptyInventory(): Inventory {
