@@ -87,21 +87,38 @@ export interface EnemyDefinition {
   spriteKey: string;
   hp: number;
   attack: number;
+  /**
+   * Flat defense (Phase 10.2 combat stat/scale redesign), subtracted from
+   * the player's outgoing attack before it's applied — see combat.ts's
+   * computeAttackDamage. 0 for every species except golem and kraken (1
+   * each): both are already singled out elsewhere in the codebase as
+   * "heavy/fixed-type" (see turn.ts's tryKnockback, which exempts exactly
+   * these two from knockback), so giving them the roster's only nonzero
+   * defense is a minimal, already-established-by-the-code distinction
+   * rather than an arbitrary new one. See docs/history/phase-10-2-combat
+   * -stat-scale-redesign.md for the resulting hit-count comparison (a
+   * small, explicitly accepted deviation from exact old/new hit-count
+   * parity for these two species only).
+   */
+  defense: number;
   behaviorType: BehaviorType;
   movementType: MovementType;
   stationary: boolean;
 }
 
 // Fixed spawn/species order used whenever a floor spawns one of each
-// species (see ENEMY_COUNT_PER_FLOOR in mapgen.ts). Provisional hp/attack
-// values only; see docs/history for the record of this foundation pass.
+// species (see ENEMY_COUNT_PER_FLOOR in mapgen.ts). Phase 10.2 combat
+// stat/scale redesign: hp/attack values are the Phase 08/09-era
+// provisional numbers scaled up roughly 10x (see the history doc for the
+// full old/new table and rationale); defense is new this phase.
 export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
   bok: {
     id: 'bok',
     displayName: 'ボク',
     spriteKey: 'bok_lv1',
-    hp: 3,
-    attack: 1,
+    hp: 30,
+    attack: 10,
+    defense: 0,
     behaviorType: 'generic_melee',
     movementType: 'ground',
     stationary: false,
@@ -110,8 +127,9 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     id: 'cockatrice',
     displayName: 'コカトリス',
     spriteKey: 'cockatrice',
-    hp: 3,
-    attack: 1,
+    hp: 30,
+    attack: 10,
+    defense: 0,
     behaviorType: 'cockatrice_gaze',
     movementType: 'ground',
     stationary: false,
@@ -120,8 +138,9 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     id: 'spider',
     displayName: 'スパイダー',
     spriteKey: 'spider',
-    hp: 2,
-    attack: 1,
+    hp: 20,
+    attack: 10,
+    defense: 0,
     behaviorType: 'spider_cardinal',
     movementType: 'ground',
     stationary: false,
@@ -130,8 +149,9 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     id: 'bat',
     displayName: 'コウモリ',
     spriteKey: 'bat',
-    hp: 2,
-    attack: 1,
+    hp: 20,
+    attack: 10,
+    defense: 0,
     behaviorType: 'bat_retreat',
     movementType: 'flying',
     stationary: false,
@@ -140,8 +160,9 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     id: 'mummy',
     displayName: 'マミー',
     spriteKey: 'mummy_lv1',
-    hp: 5,
-    attack: 2,
+    hp: 50,
+    attack: 20,
+    defense: 0,
     behaviorType: 'mummy_shamble',
     movementType: 'ground',
     stationary: false,
@@ -150,8 +171,9 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     id: 'golem',
     displayName: 'ゴーレム',
     spriteKey: 'claygolem',
-    hp: 4,
-    attack: 3,
+    hp: 40,
+    attack: 30,
+    defense: 1,
     behaviorType: 'slow_melee',
     movementType: 'ground',
     stationary: false,
@@ -160,8 +182,9 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     id: 'sword',
     displayName: 'ソード',
     spriteKey: 'sword',
-    hp: 4,
-    attack: 2,
+    hp: 40,
+    attack: 20,
+    defense: 0,
     behaviorType: 'fast_melee',
     movementType: 'ground',
     stationary: false,
@@ -170,8 +193,9 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     id: 'axe',
     displayName: 'アックス',
     spriteKey: 'axe',
-    hp: 6,
-    attack: 2,
+    hp: 60,
+    attack: 20,
+    defense: 0,
     behaviorType: 'recovery_melee',
     movementType: 'ground',
     stationary: false,
@@ -180,8 +204,9 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     id: 'kraken',
     displayName: 'クラーケン',
     spriteKey: 'kraken',
-    hp: 6,
-    attack: 2,
+    hp: 60,
+    attack: 20,
+    defense: 1,
     behaviorType: 'kraken_tentacle',
     movementType: 'none',
     stationary: true,

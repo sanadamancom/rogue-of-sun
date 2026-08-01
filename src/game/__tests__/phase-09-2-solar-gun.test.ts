@@ -75,13 +75,13 @@ function freshState(overrides?: Partial<GameState>): GameState {
 }
 
 describe('solar gun definition and inventory (Phase 09.2)', () => {
-  it('registers solar_gun as a weapon with attackPower 1, reach(range) 5, solarCost 1', () => {
+  it('registers solar_gun as a weapon with attackPower 0 (bare-hands-equivalent bonus; Phase 10.2, see weapon-def.ts), reach(range) 5, solarCost 1', () => {
     expect(ITEM_IDS_IN_ORDER).toContain('solar_gun');
     expect(WEAPON_IDS_IN_ORDER).toContain('solar_gun');
     expect(ITEM_DEFINITIONS.solar_gun.displayName).toBe('太陽銃');
     expect(ITEM_DEFINITIONS.solar_gun.category).toBe('weapon');
     expect(ITEM_DEFINITIONS.solar_gun.consumable).toBe(false);
-    expect(WEAPON_DEFINITIONS.solar_gun.attackPower).toBe(1);
+    expect(WEAPON_DEFINITIONS.solar_gun.attackPower).toBe(0);
     expect(WEAPON_DEFINITIONS.solar_gun.reach).toBe(5);
     expect(WEAPON_DEFINITIONS.solar_gun.solarCost).toBe(1);
   });

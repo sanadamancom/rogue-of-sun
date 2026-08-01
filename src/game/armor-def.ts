@@ -7,6 +7,11 @@ import { ArmorId } from './types';
  * never added to the player's own stats. No durability, upgrade level, or
  * random-affix fields exist yet; a future second armor piece is expected
  * to extend this table rather than add parallel ad-hoc fields elsewhere.
+ *
+ * Phase 10.2 combat stat/scale redesign: armorValue is scaled 10x (1->10)
+ * alongside every other combat stat, preserving its exact old effect —
+ * see turn.ts's getEffectivePlayerDefense (armorValue is added on top of
+ * the player's own base `defense`, currently always 0).
  */
 export interface ArmorDefinition {
   id: ArmorId;
@@ -18,7 +23,7 @@ export interface ArmorDefinition {
 export const ARMOR_DEFINITIONS: Record<ArmorId, ArmorDefinition> = {
   armor: {
     id: 'armor',
-    armorValue: 1,
+    armorValue: 10,
   },
 };
 

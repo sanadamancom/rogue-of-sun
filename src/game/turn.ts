@@ -4,6 +4,7 @@ import { ENEMY_DEFINITIONS } from './enemy-def';
 import { ITEM_DEFINITIONS } from './item-def';
 import { WEAPON_DEFINITIONS } from './weapon-def';
 import { ARMOR_DEFINITIONS } from './armor-def';
+import { computeAttackDamage, computeIncomingDamage } from './combat';
 import { canPlaceWebNow, expireWebs, placeWeb } from './web';
 import { isSunlitAt } from './sunlight';
 import { GameEvent } from './events';
@@ -33,25 +34,43 @@ const SOL_ENCHANT_ELIGIBLE_WEAPONS: WeaponId[] = ['sword', 'spear', 'hammer'];
 /** SOL consumed per successful sol-enchanted hit (Phase 10.1 provisional value). */
 const SOL_ENCHANT_COST = 1;
 
-/** Bonus damage added to a hit's final damage when the sol enchantment activates (Phase 10.1 provisional value). */
-const SOL_ENCHANT_BONUS_DAMAGE = 1;
+/**
+ * Bonus damage added to a hit's final damage when the sol enchantment
+ * activates (Phase 10.1 introduced this at 1; Phase 10.2 combat
+ * stat/scale redesign raises it to 10 to match the new ~10x damage
+ * scale — still a provisional value, applied on top of the already-
+ * defense-reduced base damage per confirmed_design's application_order).
+ */
+const SOL_ENCHANT_BONUS_DAMAGE = 10;
 
 /** Consumed player actions required for one natural HP tick (Phase 04 initial setting). */
 export const REGEN_TURNS_PER_HP = 5;
 
 /**
- * The attack power the player's next adjacent-tile attack will deal
- * (Phase 08.3 weapon/equipment foundation): the equipped weapon's
- * attackPower if one is equipped, otherwise the permanent unarmed
- * player.attack stat. The weapon's power replaces the unarmed value; it is
- * never added on top of it, and equipping/unequipping never mutates
- * player.attack itself.
+ * The equipped weapon's attack bonus over bare hands (Phase 10.2 combat
+ * stat/scale redesign — see weapon-def.ts's doc comment): 0 if unarmed or
+ * if the equipped weapon has no bonus (spear, solar gun currently both
+ * 0). Always added to, never a replacement for, player.attack — see
+ * getEffectiveAttackPower and combat.ts's computeAttackDamage.
  */
-export function getEffectiveAttackPower(state: GameState): number {
+function getPlayerWeaponBonus(state: GameState): number {
   if (state.equippedWeaponId) {
     return WEAPON_DEFINITIONS[state.equippedWeaponId].attackPower;
   }
-  return state.player.attack;
+  return 0;
+}
+
+/**
+ * The player's total attack power before any defense is subtracted
+ * (Phase 10.2 combat stat/scale redesign): player.attack + the equipped
+ * weapon's bonus (0 if unarmed). This is a display/inspection helper —
+ * actual damage resolution goes through combat.ts's computeAttackDamage
+ * directly (see applyPlayerAttackToEnemy), which performs the same
+ * addition internally before subtracting the target's defense and
+ * flooring at 1.
+ */
+export function getEffectiveAttackPower(state: GameState): number {
+  return state.player.attack + getPlayerWeaponBonus(state);
 }
 
 /**
@@ -67,16 +86,28 @@ export function getEffectiveArmorValue(state: GameState): number {
 }
 
 /**
+ * The player's total defense against incoming attacks (Phase 10.2 combat
+ * stat/scale redesign): the player's own base `defense` stat (currently
+ * always 0 — there is no permanent source of player defense yet besides
+ * equipment) plus the equipped armor's value.
+ */
+export function getEffectivePlayerDefense(state: GameState): number {
+  return state.player.defense + getEffectiveArmorValue(state);
+}
+
+/**
  * The final damage an incoming attack of `attackPower` deals to the
- * player, after armor reduction: `max(0, attackPower - armorValue)`. Per
- * design (shonen-mystery-dungeon-style, not a "minimum 1 damage" model),
- * this can reach exactly 0 — no special-cased pierce/minimum-damage
- * exists for any attacker. Every site that applies enemy damage to the
+ * player, after total defense reduction (see getEffectivePlayerDefense):
+ * `max(0, attackPower - defense)`. Per design (shonen-mystery-dungeon-
+ * style, not a "minimum 1 damage" model — see combat.ts's module doc
+ * comment for why this floor was deliberately kept at Phase 10.2), this
+ * can reach exactly 0. Every site that applies enemy damage to the
  * player's HP must route through this (see tryMeleeAttack,
- * resolveSpiderEnemy, resolveKrakenEnemy) so armor is applied uniformly.
+ * resolveSpiderEnemy, resolveKrakenEnemy) so defense is applied
+ * uniformly.
  */
 export function getIncomingDamage(state: GameState, attackPower: number): number {
-  return Math.max(0, attackPower - getEffectiveArmorValue(state));
+  return computeIncomingDamage(attackPower, getEffectivePlayerDefense(state));
 }
 
 /**
@@ -88,7 +119,7 @@ export function getIncomingDamage(state: GameState, attackPower: number): number
  * weapon. Never itself resolves enemy actions.
  */
 function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: GameEvent[]): boolean {
-  const baseDamage = getEffectiveAttackPower(state);
+  const baseDamage = computeAttackDamage(state.player.attack, getPlayerWeaponBonus(state), target.defense);
   let damage = baseDamage;
 
   // Sol melee enchantment activation (Phase 10.1): only for sword/spear/
@@ -1540,7 +1571,11 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
     if (state.player.hp < state.player.maxHp) {
       state.regenProgress += 1;
       if (state.regenProgress >= REGEN_TURNS_PER_HP) {
-        state.player.hp = Math.min(state.player.maxHp, state.player.hp + 1);
+        // Phase 10.2 combat stat/scale redesign: scaled 10x (1->10)
+        // alongside player maxHp, preserving the same regen rate
+        // relative to max HP (still 1/REGEN_TURNS_PER_HP of maxHp per
+        // interval, at the new scale).
+        state.player.hp = Math.min(state.player.maxHp, state.player.hp + 10);
         state.regenProgress = 0;
         playerRegenerated = true;
       }
@@ -1581,8 +1616,8 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
   };
 }
 
-export function createInitialActor(pos: Vec2, hp: number, attack: number): Actor {
-  return { pos, hp, maxHp: hp, attack, facing: 'S', alive: true };
+export function createInitialActor(pos: Vec2, hp: number, attack: number, defense: number = 0): Actor {
+  return { pos, hp, maxHp: hp, attack, defense, facing: 'S', alive: true };
 }
 
 export function createInitialEnemy(
@@ -1592,9 +1627,10 @@ export function createInitialEnemy(
   attack: number,
   spawnTurn: number = 0,
   id: number = 0,
+  defense: number = 0,
 ): EnemyActor {
   return {
-    ...createInitialActor(pos, hp, attack),
+    ...createInitialActor(pos, hp, attack, defense),
     type,
     spawnTurn,
     recovering: false,

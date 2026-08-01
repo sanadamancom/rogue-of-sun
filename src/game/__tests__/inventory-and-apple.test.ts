@@ -68,10 +68,10 @@ function freshState(overrides?: Partial<GameState>): GameState {
 }
 
 describe('item definition (Phase 08.2/08.3)', () => {
-  it('registers apple with the correct display name and heal amount', () => {
+  it('registers apple with the correct display name and heal amount (Phase 10.2, scaled 10x from 2)', () => {
     expect(ITEM_IDS_IN_ORDER).toContain('apple');
     expect(ITEM_DEFINITIONS.apple.displayName).toBe('リンゴ');
-    expect(ITEM_DEFINITIONS.apple.healAmount).toBe(2);
+    expect(ITEM_DEFINITIONS.apple.healAmount).toBe(20);
     expect(ITEM_DEFINITIONS.apple.category).toBe('consumable');
   });
 

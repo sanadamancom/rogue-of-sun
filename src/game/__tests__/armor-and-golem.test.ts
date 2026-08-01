@@ -73,8 +73,8 @@ describe('armor definition (Phase 08.4)', () => {
     expect(ITEM_DEFINITIONS.armor.stackable).toBe(false);
   });
 
-  it('registers armor with armorValue 1', () => {
-    expect(ARMOR_DEFINITIONS.armor.armorValue).toBe(1);
+  it('registers armor with armorValue 10 (Phase 10.2 combat stat/scale redesign, scaled 10x from 1)', () => {
+    expect(ARMOR_DEFINITIONS.armor.armorValue).toBe(10);
   });
 });
 
@@ -245,31 +245,31 @@ describe('armor damage reduction', () => {
     expect(getEffectiveArmorValue(state)).toBe(0);
   });
 
-  it('armor-equipped armor value is 1', () => {
+  it('armor-equipped armor value is 10 (Phase 10.2, scaled 10x from 1)', () => {
     const state = freshState({ equippedArmorId: 'armor' });
-    expect(getEffectiveArmorValue(state)).toBe(1);
+    expect(getEffectiveArmorValue(state)).toBe(10);
   });
 
   it('unarmored: incoming damage equals attack power unchanged', () => {
     const state = freshState();
-    expect(getIncomingDamage(state, 1)).toBe(1);
-    expect(getIncomingDamage(state, 2)).toBe(2);
-    expect(getIncomingDamage(state, 3)).toBe(3);
+    expect(getIncomingDamage(state, 10)).toBe(10);
+    expect(getIncomingDamage(state, 20)).toBe(20);
+    expect(getIncomingDamage(state, 30)).toBe(30);
   });
 
-  it('armor 1: attack power 1 becomes 0 damage', () => {
+  it('armor 10: attack power 10 becomes 0 damage (Phase 10.2, scaled 10x from armor1/attack1)', () => {
     const state = freshState({ equippedArmorId: 'armor' });
-    expect(getIncomingDamage(state, 1)).toBe(0);
+    expect(getIncomingDamage(state, 10)).toBe(0);
   });
 
-  it('armor 1: attack power 2 becomes 1 damage', () => {
+  it('armor 10: attack power 20 becomes 10 damage (Phase 10.2, scaled 10x from armor1/attack2)', () => {
     const state = freshState({ equippedArmorId: 'armor' });
-    expect(getIncomingDamage(state, 2)).toBe(1);
+    expect(getIncomingDamage(state, 20)).toBe(10);
   });
 
-  it('armor 1: golem attack power 3 becomes 2 damage', () => {
+  it('armor 10: golem attack power 30 becomes 20 damage (Phase 10.2, scaled 10x from armor1/attack3)', () => {
     const state = freshState({ equippedArmorId: 'armor' });
-    expect(getIncomingDamage(state, 3)).toBe(2);
+    expect(getIncomingDamage(state, 30)).toBe(20);
   });
 
   it('an armored player takes 0 damage from a bok (attack 1) melee hit; HP unchanged', () => {
@@ -367,7 +367,7 @@ describe('floor 2 golem availability (Phase 08.4)', () => {
     expect(state.enemies).toHaveLength(2);
   });
 
-  it('golem stats are unchanged when it appears on 2F (HP4, attack 3, slow_melee)', () => {
+  it('golem stats are unchanged when it appears on 2F (HP40, attack 30, slow_melee) (Phase 10.2, scaled 10x from HP4/attack3)', () => {
     for (let runSeed = 0; runSeed < 200; runSeed++) {
       let s: GameState = createInitialState(runSeed);
       s.enemies.forEach((e) => (e.alive = false));
@@ -376,8 +376,8 @@ describe('floor 2 golem availability (Phase 08.4)', () => {
       s = advanceToNextFloor(s);
       const golem = s.enemies.find((e) => e.type === 'golem');
       if (golem) {
-        expect(golem.maxHp).toBe(4);
-        expect(golem.attack).toBe(3);
+        expect(golem.maxHp).toBe(40);
+        expect(golem.attack).toBe(30);
       }
     }
   });
@@ -473,21 +473,21 @@ describe('inventory controls with apple, sword, and armor (Phase 08.4)', () => {
 });
 
 describe('regression: Phase 08.2/08.3 behavior unaffected', () => {
-  it('sword attack power is still 2', () => {
+  it('sword still deals its defined bonus damage (Phase 10.2: fixture player.attack 1 + sword bonus 10 - defense 0 = 11)', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
     state.player.facing = 'E';
-    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 5, 1);
+    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 20, 1);
     state.enemies = [enemy];
     processTurn(state, { type: 'action' });
-    expect(enemy.hp).toBe(3);
+    expect(enemy.hp).toBe(9);
   });
 
-  it('apple still heals 2 HP and consumes 1 apple on success', () => {
+  it('apple still heals, clamped to this fixture maxHp 3, and consumes 1 apple on success', () => {
     const state = freshState({ inventory: { apple: 1, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0 } });
     state.player.hp = 1;
     const result = processTurn(state, { type: 'use_item', itemId: 'apple' });
     expect(result.consumed).toBe(true);
-    expect(state.player.hp).toBe(3);
+    expect(state.player.hp).toBe(3); // real healAmount is 20 but this fixture's maxHp is 3
     expect(state.inventory.apple).toBe(0);
   });
 });

@@ -62,6 +62,18 @@ export interface Actor {
   hp: number;
   maxHp: number;
   attack: number;
+  /**
+   * Flat defense subtracted from an incoming attack's power before it's
+   * applied (Phase 10.2 combat stat/scale redesign) — see combat.ts's
+   * computeAttackDamage/computeIncomingDamage for the exact formulas. For
+   * the player this is the *base* value only (almost always 0 right now,
+   * since there is no permanent source of player defense yet besides
+   * equipped armor — see turn.ts's getEffectivePlayerDefense, which adds
+   * getEffectiveArmorValue on top of this field). For an enemy this is
+   * its full defense (enemies have no separate "equipment" layer), copied
+   * from EnemyDefinition.defense at spawn time, same as attack/hp.
+   */
+  defense: number;
   facing: Direction8;
   alive: boolean;
   /**

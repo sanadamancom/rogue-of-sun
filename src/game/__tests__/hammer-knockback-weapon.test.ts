@@ -66,8 +66,8 @@ describe('weapon definition (Phase 08.7)', () => {
     expect(ITEM_DEFINITIONS.hammer.stackable).toBe(false);
   });
 
-  it('registers hammer with attackPower 3, reach 1, knockbackDistance 1, hasRecoil true', () => {
-    expect(WEAPON_DEFINITIONS.hammer.attackPower).toBe(3);
+  it('registers hammer with attackPower 20 (bonus over bare hands; Phase 10.2, see weapon-def.ts), reach 1, knockbackDistance 1, hasRecoil true', () => {
+    expect(WEAPON_DEFINITIONS.hammer.attackPower).toBe(20);
     expect(WEAPON_DEFINITIONS.hammer.reach).toBe(1);
     expect(WEAPON_DEFINITIONS.hammer.knockbackDistance).toBe(1);
     expect(WEAPON_DEFINITIONS.hammer.hasRecoil).toBe(true);
@@ -201,29 +201,29 @@ describe('hammer pickup, equip, and persistence', () => {
 });
 
 describe('hammer attack', () => {
-  it('deals 3 damage to an adjacent enemy', () => {
+  it('deals 21 damage to an adjacent enemy (Phase 10.2: fixture player.attack 1 + hammer bonus 20 - defense 0)', () => {
     const state = freshState({ equippedWeaponId: 'hammer' });
     state.player.facing = 'E';
-    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 10, 1);
+    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 30, 1);
     state.enemies = [enemy];
     processTurn(state, { type: 'action' });
-    expect(enemy.hp).toBe(7);
+    expect(enemy.hp).toBe(9);
   });
 
   it('cannot hit an enemy 2 tiles away (reach 1)', () => {
     const state = freshState({ equippedWeaponId: 'hammer' });
     state.player.facing = 'E';
-    const enemy = createInitialEnemy('bok', { x: 4, y: 1 }, 10, 1);
+    const enemy = createInitialEnemy('bok', { x: 4, y: 1 }, 30, 1);
     state.enemies = [enemy];
     const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(false);
-    expect(enemy.hp).toBe(10);
+    expect(enemy.hp).toBe(30);
   });
 
   it('never moves the player', () => {
     const state = freshState({ equippedWeaponId: 'hammer' });
     state.player.facing = 'E';
-    state.enemies = [createInitialEnemy('bok', { x: 3, y: 1 }, 10, 1)];
+    state.enemies = [createInitialEnemy('bok', { x: 3, y: 1 }, 30, 1)];
     const posBefore = { ...state.player.pos };
     processTurn(state, { type: 'action' });
     expect(state.player.pos).toEqual(posBefore);
@@ -232,11 +232,11 @@ describe('hammer attack', () => {
   it('does not damage more than one enemy per attack', () => {
     const state = freshState({ equippedWeaponId: 'hammer' });
     state.player.facing = 'E';
-    const target = createInitialEnemy('bok', { x: 3, y: 1 }, 10, 1);
+    const target = createInitialEnemy('bok', { x: 3, y: 1 }, 30, 1);
     const bystander = createInitialEnemy('bat', { x: 3, y: 5 }, 5, 1);
     state.enemies = [target, bystander];
     processTurn(state, { type: 'action' });
-    expect(target.hp).toBe(7);
+    expect(target.hp).toBe(9);
     expect(bystander.hp).toBe(5);
   });
 
@@ -259,7 +259,7 @@ describe('hammer knockback', () => {
   it('pushes a surviving enemy back 1 tile in the attack direction', () => {
     const state = freshState({ equippedWeaponId: 'hammer' });
     state.player.facing = 'E';
-    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 10, 1);
+    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 30, 1);
     state.enemies = [enemy];
     const result = processTurn(state, { type: 'action' });
     // The enemy also takes its own normal turn immediately afterward (per
@@ -287,10 +287,10 @@ describe('hammer knockback', () => {
       player: createInitialActor({ x: 3, y: 1 }, 3, 1),
     });
     state.player.facing = 'E';
-    const enemy = createInitialEnemy('bok', { x: 4, y: 1 }, 10, 1);
+    const enemy = createInitialEnemy('bok', { x: 4, y: 1 }, 30, 1);
     state.enemies = [enemy];
     processTurn(state, { type: 'action' });
-    expect(enemy.hp).toBe(7); // damage still applied
+    expect(enemy.hp).toBe(9); // damage still applied (30 - 21)
     expect(enemy.pos).toEqual({ x: 4, y: 1 }); // did not move into the wall
   });
 
@@ -303,7 +303,7 @@ describe('hammer knockback', () => {
     // directly: attack west from x=1 toward an enemy at x=0 would push to x=-1.
     state.player.pos = { x: 1, y: 1 };
     state.player.facing = 'W';
-    const enemy = createInitialEnemy('bok', { x: 0, y: 1 }, 10, 1);
+    const enemy = createInitialEnemy('bok', { x: 0, y: 1 }, 30, 1);
     // x=0 is technically a wall tile per the border layout, so instead
     // verify canMove-based rejection using the existing wall check above;
     // this test focuses on out-of-bounds safety at the map's inner edge.
@@ -315,12 +315,12 @@ describe('hammer knockback', () => {
   it('does not knock the enemy onto another living enemy (actor occupancy)', () => {
     const state = freshState({ equippedWeaponId: 'hammer' });
     state.player.facing = 'E';
-    const target = createInitialEnemy('bok', { x: 3, y: 1 }, 10, 1);
+    const target = createInitialEnemy('bok', { x: 3, y: 1 }, 30, 1);
     const blocker = createInitialEnemy('bat', { x: 4, y: 1 }, 5, 1);
     state.enemies = [target, blocker];
     processTurn(state, { type: 'action' });
     expect(target.pos).toEqual({ x: 3, y: 1 }); // blocked by blocker
-    expect(target.hp).toBe(7); // damage still applied
+    expect(target.hp).toBe(9); // damage still applied (30 - 21)
   });
 
   it('does not knock the enemy onto the player position', () => {
@@ -340,7 +340,7 @@ describe('hammer knockback', () => {
       groundItems: [{ id: 0, itemId: 'apple', pos: { x: 4, y: 1 } }],
     });
     state.player.facing = 'E';
-    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 10, 1);
+    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 30, 1);
     state.enemies = [enemy];
     const result = processTurn(state, { type: 'action' });
     expect(result.events).toContainEqual({ type: 'enemy_knocked_back', enemyType: 'bok' });
@@ -349,7 +349,7 @@ describe('hammer knockback', () => {
   it('the exit tile at the knockback destination does not block the push', () => {
     const state = freshState({ equippedWeaponId: 'hammer', exit: { x: 4, y: 1 } });
     state.player.facing = 'E';
-    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 10, 1);
+    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 30, 1);
     state.enemies = [enemy];
     const result = processTurn(state, { type: 'action' });
     expect(result.events).toContainEqual({ type: 'enemy_knocked_back', enemyType: 'bok' });
@@ -370,7 +370,7 @@ describe('hammer knockback', () => {
       exit: { x: 199, y: 199 },
     });
     state.player.facing = 'SE';
-    const enemy = createInitialEnemy('bok', { x: 2, y: 2 }, 10, 1);
+    const enemy = createInitialEnemy('bok', { x: 2, y: 2 }, 30, 1);
     state.enemies = [enemy];
     const result = processTurn(state, { type: 'action' });
     expect(result.events).toContainEqual({ type: 'enemy_knocked_back', enemyType: 'bok' });
@@ -399,16 +399,16 @@ describe('hammer knockback', () => {
       player: createInitialActor({ x: 3, y: 1 }, 3, 1),
     });
     state.player.facing = 'E';
-    const enemy = createInitialEnemy('bok', { x: 4, y: 1 }, 10, 1);
+    const enemy = createInitialEnemy('bok', { x: 4, y: 1 }, 30, 1);
     state.enemies = [enemy];
     processTurn(state, { type: 'action' });
-    expect(enemy.hp).toBe(7); // exactly attackPower 3, no bonus damage
+    expect(enemy.hp).toBe(9); // exactly the hammer's bonus damage (30 - 21), no extra from a failed knockback
   });
 
   it('never pushes multiple enemies in a chain (only the directly-hit target can move)', () => {
     const state = freshState({ equippedWeaponId: 'hammer' });
     state.player.facing = 'E';
-    const target = createInitialEnemy('bok', { x: 3, y: 1 }, 10, 1);
+    const target = createInitialEnemy('bok', { x: 3, y: 1 }, 30, 1);
     const farAway = createInitialEnemy('bat', { x: 5, y: 1 }, 5, 1);
     state.enemies = [target, farAway];
     const result = processTurn(state, { type: 'action' });
@@ -419,7 +419,7 @@ describe('hammer knockback', () => {
   it('a knocked-back enemy acts from its new position on the same turn', () => {
     const state = freshState({ equippedWeaponId: 'hammer' });
     state.player.facing = 'E';
-    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 10, 1);
+    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 30, 1);
     state.enemies = [enemy];
     processTurn(state, { type: 'action' });
     // Enemy was pushed to (4,1); its subsequent action should originate
@@ -434,22 +434,22 @@ describe('hammer knockback', () => {
   it('golem is not knocked back but still takes normal hammer damage', () => {
     const state = freshState({ equippedWeaponId: 'hammer' });
     state.player.facing = 'E';
-    const golem = createInitialEnemy('golem', { x: 3, y: 1 }, 4, 3, 0, 0);
+    const golem = createInitialEnemy('golem', { x: 3, y: 1 }, 30, 3, 0, 0);
     state.enemies = [golem];
     const posBefore = { ...golem.pos };
     processTurn(state, { type: 'action' });
-    expect(golem.hp).toBe(1); // 4 - 3
+    expect(golem.hp).toBe(9); // 30 - 21 (fixture defense 0: createInitialEnemy's default, not real ENEMY_DEFINITIONS.golem.defense)
     expect(golem.pos).toEqual(posBefore);
   });
 
   it('kraken is not knocked back but still takes normal hammer damage', () => {
     const state = freshState({ equippedWeaponId: 'hammer' });
     state.player.facing = 'E';
-    const kraken = createInitialEnemy('kraken', { x: 3, y: 1 }, 10, 2);
+    const kraken = createInitialEnemy('kraken', { x: 3, y: 1 }, 30, 2);
     state.enemies = [kraken];
     const posBefore = { ...kraken.pos };
     processTurn(state, { type: 'action' });
-    expect(kraken.hp).toBe(7); // 10 - 3
+    expect(kraken.hp).toBe(9); // 30 - 21 (fixture defense 0: createInitialEnemy's default, not real ENEMY_DEFINITIONS.kraken.defense)
     expect(kraken.pos).toEqual(posBefore);
   });
 });
@@ -458,7 +458,7 @@ describe('hammer recoil', () => {
   it('a hit enters recoil', () => {
     const state = freshState({ equippedWeaponId: 'hammer' });
     state.player.facing = 'E';
-    state.enemies = [createInitialEnemy('bok', { x: 3, y: 1 }, 10, 1)];
+    state.enemies = [createInitialEnemy('bok', { x: 3, y: 1 }, 30, 1)];
     processTurn(state, { type: 'action' });
     expect(state.hammerRecovery).toBe(true);
   });
@@ -477,7 +477,7 @@ describe('hammer recoil', () => {
       player: createInitialActor({ x: 3, y: 1 }, 3, 1),
     });
     state.player.facing = 'E';
-    state.enemies = [createInitialEnemy('bok', { x: 4, y: 1 }, 10, 1)]; // wall at x=5 blocks push
+    state.enemies = [createInitialEnemy('bok', { x: 4, y: 1 }, 30, 1)]; // wall at x=5 blocks push
     processTurn(state, { type: 'action' });
     expect(state.hammerRecovery).toBe(true);
   });
@@ -492,10 +492,10 @@ describe('hammer recoil', () => {
   it('X does not attack while recovering', () => {
     const state = freshState({ equippedWeaponId: 'hammer', hammerRecovery: true });
     state.player.facing = 'E';
-    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 10, 1);
+    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 30, 1);
     state.enemies = [enemy];
     processTurn(state, { type: 'action' });
-    expect(enemy.hp).toBe(10);
+    expect(enemy.hp).toBe(30);
   });
 
   it('X while recovering re-cocks: consumes 1 turn, no damage', () => {
@@ -525,12 +525,12 @@ describe('hammer recoil', () => {
   it('re-cocking clears recovery, allowing the next X to attack again', () => {
     const state = freshState({ equippedWeaponId: 'hammer', hammerRecovery: true });
     state.player.facing = 'E';
-    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 10, 1);
+    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 30, 1);
     state.enemies = [enemy];
     processTurn(state, { type: 'action' }); // re-cock
     expect(state.hammerRecovery).toBe(false);
     processTurn(state, { type: 'action' }); // real attack now
-    expect(enemy.hp).toBe(7);
+    expect(enemy.hp).toBe(9);
   });
 
   it('a successful move clears recovery', () => {
@@ -604,24 +604,24 @@ describe('hammer recoil', () => {
 });
 
 describe('regression: Phase 08.2-08.6 behavior unaffected', () => {
-  it('sword still deals 2 damage and has no knockback', () => {
+  it('sword still deals its defined bonus damage and has no knockback (Phase 10.2: fixture player.attack 1 + sword bonus 10 - defense 0 = 11)', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
     state.player.facing = 'E';
-    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 10, 1);
+    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 30, 1);
     state.enemies = [enemy];
     processTurn(state, { type: 'action' });
-    expect(enemy.hp).toBe(8);
+    expect(enemy.hp).toBe(19);
     expect(enemy.pos).toEqual({ x: 3, y: 1 });
   });
 
-  it('spear still reaches 2 tiles', () => {
+  it('spear still reaches 2 tiles (Phase 10.2: fixture player.attack 1 + spear bonus 0 - defense 0 = 1)', () => {
     const state = freshState({ equippedWeaponId: 'spear' });
     state.player.facing = 'E';
-    const enemy = createInitialEnemy('bok', { x: 4, y: 1 }, 10, 1);
+    const enemy = createInitialEnemy('bok', { x: 4, y: 1 }, 30, 1);
     state.enemies = [enemy];
     const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(true);
-    expect(enemy.hp).toBe(9);
+    expect(enemy.hp).toBe(29);
   });
 
   it('armor still reduces damage', () => {

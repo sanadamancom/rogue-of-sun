@@ -28,7 +28,13 @@ function freshState(overrides?: Partial<GameState>): GameState {
   return {
     map: testMap(),
     player: createInitialActor({ x: 2, y: 1 }, 3, 1),
-    enemies: [createInitialEnemy('bok', { x: 3, y: 1 }, 10, 1)],
+    // Phase 10.2 combat stat/scale redesign raised weapon/sol damage
+    // substantially (e.g. sword+sol now deals 21+10=31 against this
+    // fixture's player.attack of 1); a large default HP keeps every
+    // activation test below from accidentally defeating the enemy
+    // (which would suppress tryKnockback/further exchanges) unless a
+    // test deliberately wants a kill and overrides hp itself.
+    enemies: [createInitialEnemy('bok', { x: 3, y: 1 }, 1000, 1)],
     turn: 0,
     phase: 'playing',
     seed: 1,
@@ -146,39 +152,42 @@ describe('sol enchantment activation (Phase 10.1)', () => {
     });
   }
 
-  it('sword hit consumes 1 SOL and adds 1 bonus damage', () => {
+  it('sword hit consumes 1 SOL and adds 10 bonus damage (Phase 10.2)', () => {
     const state = attackingState('sword');
     faceEastAtEnemy(state);
     const result = processTurn(state, { type: 'action' });
     expect(state.solarEnergy).toBe(4);
     expect(result.events.some((e) => e.type === 'sol_enchantment_used')).toBe(true);
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
-    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(3); // sword attackPower 2 + bonus 1
+    // fixture player.attack 1 + sword bonus 10 - defense 0 = 11, + sol bonus 10 = 21
+    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(21);
   });
 
-  it('spear hit consumes 1 SOL and adds 1 bonus damage', () => {
+  it('spear hit consumes 1 SOL and adds 10 bonus damage (Phase 10.2)', () => {
     const state = freshState({
       equippedWeaponId: 'spear',
       inventory: { ...createEmptyInventory(), spear: 1 },
       solUnlocked: true,
       selectedEnchantment: 'sol',
       solarEnergy: 5,
-      enemies: [createInitialEnemy('bok', { x: 4, y: 1 }, 10, 1)],
+      enemies: [createInitialEnemy('bok', { x: 4, y: 1 }, 1000, 1)],
     });
     faceEastAtEnemy(state);
     const result = processTurn(state, { type: 'action' });
     expect(state.solarEnergy).toBe(4);
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
-    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(2); // spear attackPower 1 + bonus 1
+    // fixture player.attack 1 + spear bonus 0 - defense 0 = 1, + sol bonus 10 = 11
+    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(11);
   });
 
-  it('hammer hit consumes 1 SOL and adds 1 bonus damage', () => {
+  it('hammer hit consumes 1 SOL and adds 10 bonus damage (Phase 10.2)', () => {
     const state = attackingState('hammer');
     faceEastAtEnemy(state);
     const result = processTurn(state, { type: 'action' });
     expect(state.solarEnergy).toBe(4);
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
-    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(4); // hammer attackPower 3 + bonus 1
+    // fixture player.attack 1 + hammer bonus 20 - defense 0 = 21, + sol bonus 10 = 31
+    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(31);
   });
 
   it('goes from SOL 1 to SOL 0 on a single activation', () => {
@@ -194,7 +203,7 @@ describe('sol enchantment activation (Phase 10.1)', () => {
     const result = processTurn(state, { type: 'action' });
     expect(state.solarEnergy).toBe(0);
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
-    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(2); // no bonus
+    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(11); // no bonus (fixture player.attack 1 + sword bonus 10)
     expect(result.events.some((e) => e.type === 'sol_enchantment_used')).toBe(false);
   });
 
@@ -308,7 +317,7 @@ describe('existing weapon behavior preserved under sol enchantment (Phase 10.1)'
       solUnlocked: true,
       selectedEnchantment: 'sol',
       solarEnergy: 5,
-      enemies: [createInitialEnemy('bok', { x: 3, y: 1 }, 20, 1)],
+      enemies: [createInitialEnemy('bok', { x: 3, y: 1 }, 1000, 1)],
     });
     faceEastAtEnemy(state);
     const result = processTurn(state, { type: 'action' });

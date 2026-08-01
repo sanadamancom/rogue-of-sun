@@ -15,6 +15,7 @@ interface CarryOverStats {
   hp: number;
   maxHp: number;
   attack: number;
+  defense: number;
   regenProgress: number;
   inventory: Inventory;
   equippedWeaponId: WeaponId | null;
@@ -53,7 +54,7 @@ function buildEnemies(positions: Vec2[], types: EnemyType[], spawnTurn: number):
   return positions.map((pos, i) => {
     const type = types[i];
     const def = ENEMY_DEFINITIONS[type];
-    return createInitialEnemy(type, pos, def.hp, def.attack, spawnTurn, i);
+    return createInitialEnemy(type, pos, def.hp, def.attack, spawnTurn, i, def.defense);
   });
 }
 
@@ -91,8 +92,11 @@ function buildFloorState(
   const placement = choosePlacement(map, placementRng, enemyCount);
 
   const player: Actor = carry
-    ? createInitialActor(placement.start, carry.maxHp, carry.attack)
-    : createInitialActor(placement.start, 3, 1);
+    ? createInitialActor(placement.start, carry.maxHp, carry.attack, carry.defense)
+    : // Phase 10.2 combat stat/scale redesign: hp 3->30, attack 1->10
+      // (10x scale, see docs/history for the full table); defense 0 (no
+      // permanent player defense source yet besides equipped armor).
+      createInitialActor(placement.start, 30, 10, 0);
   if (carry) {
     // maxHp/attack already set via createInitialActor above; only current
     // HP and facing need to be overridden to the carried-over values
@@ -317,6 +321,7 @@ export function advanceToNextFloor(state: GameState): GameState {
     hp: state.player.hp,
     maxHp: state.player.maxHp,
     attack: state.player.attack,
+    defense: state.player.defense,
     regenProgress: state.regenProgress,
     inventory: state.inventory,
     equippedWeaponId: state.equippedWeaponId,

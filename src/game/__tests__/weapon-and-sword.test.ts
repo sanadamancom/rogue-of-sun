@@ -66,8 +66,8 @@ describe('weapon definition (Phase 08.3)', () => {
     expect(ITEM_DEFINITIONS.sword.stackable).toBe(false);
   });
 
-  it('registers sword with attack power 2 and reach 1', () => {
-    expect(WEAPON_DEFINITIONS.sword.attackPower).toBe(2);
+  it('registers sword with attack power 10 (bonus over bare hands; Phase 10.2, see weapon-def.ts) and reach 1', () => {
+    expect(WEAPON_DEFINITIONS.sword.attackPower).toBe(10);
     expect(WEAPON_DEFINITIONS.sword.reach).toBe(1);
   });
 });
@@ -250,9 +250,9 @@ describe('weapon-aware combat', () => {
     expect(getEffectiveAttackPower(state)).toBe(1);
   });
 
-  it('sword-equipped attack power is 2', () => {
+  it('sword-equipped attack power is 11 (Phase 10.2: fixture player.attack 1 + sword bonus 10)', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
-    expect(getEffectiveAttackPower(state)).toBe(2);
+    expect(getEffectiveAttackPower(state)).toBe(11);
   });
 
   it('an adjacent attack while unarmed deals 1 damage (unchanged)', () => {
@@ -264,34 +264,34 @@ describe('weapon-aware combat', () => {
     expect(enemy.hp).toBe(4);
   });
 
-  it('an adjacent attack while sword-equipped deals 2 damage', () => {
+  it('an adjacent attack while sword-equipped deals its defined bonus damage (Phase 10.2: fixture player.attack 1 + sword bonus 10 = 11)', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
     state.player.facing = 'E';
-    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 5, 1);
+    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 20, 1);
     state.enemies = [enemy];
     processTurn(state, { type: 'action' });
-    expect(enemy.hp).toBe(3);
+    expect(enemy.hp).toBe(9);
   });
 
   it('sword attack works on diagonal adjacency too (range unchanged from unarmed)', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
     state.player.facing = 'SE';
-    const enemy = createInitialEnemy('bok', { x: 3, y: 2 }, 5, 1); // diagonal from (2,1)
+    const enemy = createInitialEnemy('bok', { x: 3, y: 2 }, 20, 1); // diagonal from (2,1)
     state.enemies = [enemy];
     processTurn(state, { type: 'action' });
-    expect(enemy.hp).toBe(3);
+    expect(enemy.hp).toBe(9);
   });
 
   it('player_attack event includes weaponId when equipped, omits it when unarmed', () => {
     const armed = freshState({ equippedWeaponId: 'sword' });
     armed.player.facing = 'E';
-    const armedEnemy = createInitialEnemy('bok', { x: 3, y: 1 }, 5, 1);
+    const armedEnemy = createInitialEnemy('bok', { x: 3, y: 1 }, 20, 1);
     armed.enemies = [armedEnemy];
     const armedResult = processTurn(armed, { type: 'action' });
     expect(armedResult.events).toContainEqual({
       type: 'player_attack',
       enemyType: 'bok',
-      damage: 2,
+      damage: 11,
       weaponId: 'sword',
     });
 
@@ -306,21 +306,21 @@ describe('weapon-aware combat', () => {
   it('sword attack still triggers normal enemy actions and special cycles afterward (golem slow_melee)', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
     state.player.facing = 'E';
-    const golem = createInitialEnemy('golem', { x: 3, y: 1 }, 4, 3, 0, 0);
+    const golem = createInitialEnemy('golem', { x: 3, y: 1 }, 40, 3, 0, 0);
     golem.spawnTurn = 0;
     state.enemies = [golem];
     const result = processTurn(state, { type: 'action' });
     expect(result.enemyAttacked).toBe(true); // golem's acting phase on turn 0
   });
 
-  it('golem (HP4) is not defeated by a single sword hit (attack power 2, not lethal in one hit)', () => {
+  it('golem (HP40) is not defeated by a single sword hit (bonus damage 11, not lethal in one hit) (Phase 10.2, scaled 10x from HP4/dmg2)', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
     state.player.facing = 'E';
-    const golem = createInitialEnemy('golem', { x: 3, y: 1 }, 4, 3, 0, 0);
+    const golem = createInitialEnemy('golem', { x: 3, y: 1 }, 40, 3, 0, 0);
     state.enemies = [golem];
     processTurn(state, { type: 'action' });
     expect(golem.alive).toBe(true);
-    expect(golem.hp).toBe(2);
+    expect(golem.hp).toBe(29);
   });
 
   it('sword attacks do not knock the enemy back (position unchanged aside from defeat)', () => {

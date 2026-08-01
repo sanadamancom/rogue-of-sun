@@ -66,13 +66,13 @@ describe('weapon definition (Phase 08.5)', () => {
     expect(ITEM_DEFINITIONS.spear.stackable).toBe(false);
   });
 
-  it('registers spear with attackPower 1 and reach 2', () => {
-    expect(WEAPON_DEFINITIONS.spear.attackPower).toBe(1);
+  it('registers spear with attackPower 0 (bare-hands-equivalent bonus; Phase 10.2, see weapon-def.ts) and reach 2', () => {
+    expect(WEAPON_DEFINITIONS.spear.attackPower).toBe(0);
     expect(WEAPON_DEFINITIONS.spear.reach).toBe(2);
   });
 
-  it('sword keeps attackPower 2 and reach 1 (regression)', () => {
-    expect(WEAPON_DEFINITIONS.sword.attackPower).toBe(2);
+  it('sword keeps attackPower 10 (bonus over bare hands; Phase 10.2) and reach 1 (regression)', () => {
+    expect(WEAPON_DEFINITIONS.sword.attackPower).toBe(10);
     expect(WEAPON_DEFINITIONS.sword.reach).toBe(1);
   });
 });
@@ -559,13 +559,13 @@ describe('persistence and reset (Phase 08.5)', () => {
 });
 
 describe('regression: Phase 08.2/08.3/08.4 behavior unaffected', () => {
-  it('sword attack power is still 2 and still only hits adjacent enemies', () => {
+  it('sword still deals its defined bonus damage and still only hits adjacent enemies (Phase 10.2: fixture player.attack 1 + sword bonus 10 - defense 0 = 11)', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
     state.player.facing = 'E';
-    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 5, 1);
+    const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 20, 1);
     state.enemies = [enemy];
     processTurn(state, { type: 'action' });
-    expect(enemy.hp).toBe(3);
+    expect(enemy.hp).toBe(9);
   });
 
   it('armor still reduces damage via max(0, attackPower - armorValue)', () => {

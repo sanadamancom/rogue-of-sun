@@ -40,7 +40,9 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     category: 'consumable',
     consumable: true,
     stackable: true,
-    healAmount: 2,
+    // Phase 10.2 combat stat/scale redesign: scaled 10x (2->20) alongside
+    // player maxHp, preserving the same ~2/3-of-old-maxHp heal fraction.
+    healAmount: 20,
   },
   sword: {
     id: 'sword',

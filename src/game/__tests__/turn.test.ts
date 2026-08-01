@@ -200,7 +200,7 @@ describe('natural HP regeneration', () => {
     expect(state.regenProgress).toBe(0);
   });
 
-  it('heals 1 HP after REGEN_TURNS_PER_HP consumed actions while damaged, and resets progress', () => {
+  it('heals HP (Phase 10.2: +10 per interval, clamped to maxHp) after REGEN_TURNS_PER_HP consumed actions while damaged, and resets progress', () => {
     const state = freshState();
     state.enemies.forEach((e) => (e.pos = { x: 0, y: 0 }));
     state.player.maxHp = 5;
@@ -213,7 +213,7 @@ describe('natural HP regeneration', () => {
     expect(state.player.hp).toBe(2);
     result = processTurn(state, { type: 'wait' });
     expect(result!.playerRegenerated).toBe(true);
-    expect(state.player.hp).toBe(3);
+    expect(state.player.hp).toBe(5); // +10 clamped to this fixture's maxHp (5)
     expect(state.regenProgress).toBe(0);
   });
 

@@ -88,23 +88,23 @@ describe('bok regression (unchanged 8-direction behavior)', () => {
     expect(state.player.hp).toBe(hpBefore - bok.attack);
   });
 
-  it('bok spawns with the common-table hp (3) and attack (1) values', () => {
+  it('bok spawns with the common-table hp (30) and attack (10) values (Phase 10.2, scaled 10x from hp3/attack1)', () => {
     // enemy-def.ts defines bok's stats directly; verify the definition
     // itself (imported, not re-derived) and that a freshly created bok
     // enemy actually carries those values.
     const bokDef = ENEMY_DEFINITIONS.bok;
-    expect(bokDef.hp).toBe(3);
-    expect(bokDef.attack).toBe(1);
+    expect(bokDef.hp).toBe(30);
+    expect(bokDef.attack).toBe(10);
     const bok = createInitialEnemy('bok', { x: 0, y: 0 }, bokDef.hp, bokDef.attack);
-    expect(bok.hp).toBe(3);
-    expect(bok.maxHp).toBe(3);
-    expect(bok.attack).toBe(1);
+    expect(bok.hp).toBe(30);
+    expect(bok.maxHp).toBe(30);
+    expect(bok.attack).toBe(10);
   });
 
-  it('bok is defeated by a total of 3 damage (matching its hp)', () => {
+  it('bok is defeated by a total of 30 damage (matching its hp) (Phase 10.2, scaled 10x from 3)', () => {
     const bokDef = ENEMY_DEFINITIONS.bok;
     const bok = createInitialEnemy('bok', { x: 0, y: 0 }, bokDef.hp, bokDef.attack);
-    bok.hp = Math.max(0, bok.hp - 3);
+    bok.hp = Math.max(0, bok.hp - 30);
     expect(bok.hp).toBe(0);
   });
 });
@@ -138,12 +138,13 @@ function freshSpiderState(): GameState {
       hp: 3,
       maxHp: 3,
       attack: 1,
+      defense: 0,
       facing: 'S',
       alive: true,
     },
     enemies: [
-      { pos: { x: 1, y: 1 }, hp: 2, maxHp: 2, attack: 1, facing: 'S', alive: true, type: 'bok' },
-      { pos: { x: 1, y: 6 }, hp: 2, maxHp: 2, attack: 1, facing: 'S', alive: true, type: 'spider' },
+      { pos: { x: 1, y: 1 }, hp: 2, maxHp: 2, attack: 1, defense: 0, facing: 'S', alive: true, type: 'bok' },
+      { pos: { x: 1, y: 6 }, hp: 2, maxHp: 2, attack: 1, defense: 0, facing: 'S', alive: true, type: 'spider' },
     ],
     turn: 0,
     phase: 'playing',
