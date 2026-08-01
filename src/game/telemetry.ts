@@ -53,6 +53,7 @@
 import { GameEvent } from './events';
 import { EnemyType, GameState, PlayerAction, WeaponId, ArmorId, ItemId } from './types';
 import type { TurnResult } from './turn';
+import { ITEM_DEFINITIONS } from './item-def';
 
 // ---------------------------------------------------------------------
 // Event schema (event_model / event_types / event_requirements)
@@ -83,9 +84,20 @@ export type RunEventPayload =
       outcome: 'miss' | 'hit' | 'defeated';
       hitChance: number | null;
       roll: number | null;
+      // Phase 10.3.3 damage-and-recovery telemetry fix: physicalDamage/
+      // additionalDamage/calculatedDamage are the raw, pre-clamp combat
+      // calculation (turn.ts's `damage` variable, which can exceed the
+      // target's remaining HP on a killing blow — "overkill"). actualDamage
+      // is the real HP loss (targetHpBefore - targetHpAfter, never
+      // negative, never exceeding targetHpBefore) and is the sole figure
+      // used for damageDealt aggregation everywhere in RunSummary — see
+      // computeRunSummary. Before this fix, summary aggregation used the
+      // raw figure directly, silently inflating damageDealt by the
+      // overkill amount on every killing blow.
       physicalDamage: number;
       additionalDamage: number;
-      totalDamage: number;
+      calculatedDamage: number;
+      actualDamage: number;
       targetHpBefore: number;
       targetHpAfter: number;
       defeated: boolean;
@@ -119,7 +131,12 @@ export type RunEventPayload =
   | { type: 'item_discarded'; itemId: ItemId }
   | { type: 'sol_changed'; before: number; after: number; amount: number; reason: 'solar_gun' | 'melee_enchantment' | 'solar_charge' | 'item' | 'other' }
   | { type: 'solar_charge'; recovered: number }
-  | { type: 'healed'; source: string; requestedAmount: number; actualAmount: number; hpBefore: number; hpAfter: number }
+  // Phase 10.3.3: renamed from 'healed' to 'player_healed', and `source`
+  // is now one of a small fixed set (allowed_sources) rather than a raw
+  // itemId, so healingBySource groups consistently by mechanism
+  // ('natural_regeneration', 'item', ...) — itemId (when applicable) is
+  // kept as a separate, optional detail field instead.
+  | { type: 'player_healed'; source: 'natural_regeneration' | 'item'; itemId?: ItemId; requestedAmount: number; actualAmount: number; hpBefore: number; hpAfter: number }
   | { type: 'exit_reached'; floor: number };
 
 export type RunEvent = RunEventCommon & RunEventPayload;
@@ -129,7 +146,7 @@ export type RunEvent = RunEventCommon & RunEventPayload;
 // ---------------------------------------------------------------------
 
 export interface RunTelemetry {
-  schemaVersion: 2;
+  schemaVersion: 3;
   seed: number;
   result: 'in_progress' | 'clear' | 'death';
   endCause: string | null;
@@ -145,7 +162,7 @@ export interface RunTelemetry {
  */
 export function createRunTelemetry(state: GameState): RunTelemetry {
   const telemetry: RunTelemetry = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     seed: state.runSeed,
     result: 'in_progress',
     endCause: null,
@@ -226,6 +243,27 @@ export function recordTurn(
     translateGameEvent(telemetry, event, before, after, consumed);
   }
 
+  // Natural HP regeneration (Phase 10.2's REGEN_TURNS_PER_HP mechanic):
+  // turn.ts exposes this only as TurnResult.playerRegenerated (a plain
+  // boolean), never as a GameEvent — see the history doc's investigation
+  // (Phase 10.3.3) — so it must be checked here directly rather than in
+  // translateGameEvent's event-type switch. actualAmount is the real
+  // hp delta (before.playerHp -> after.player.hp), already correctly
+  // clamped to maxHp by turn.ts's own Math.min.
+  if (result.playerRegenerated) {
+    const actualAmount = after.player.hp - before.playerHp;
+    if (actualAmount > 0) {
+      pushEvent(telemetry, after, consumed, {
+        type: 'player_healed',
+        source: 'natural_regeneration',
+        requestedAmount: 10, // REGEN_TURNS_PER_HP's fixed per-tick amount (turn.ts)
+        actualAmount,
+        hpBefore: before.playerHp,
+        hpAfter: after.player.hp,
+      });
+    }
+  }
+
   // Floor progression: reachedExit is implied by the phase transitioning
   // to floor_cleared/victory this turn (see turn.ts's processTurn tail).
   // The new floor's own floor_started is pushed separately by main.ts
@@ -289,6 +327,10 @@ function translateGameEvent(
     case 'player_attack': {
       const weapon = weaponOrUnarmed(event.weaponId ?? null);
       const target = findEnemyById(after, event.targetId);
+      // Phase 10.3.3: actualDamage is the real HP loss, never the raw
+      // pre-clamp attack power — see the RunEventPayload doc comment on
+      // 'player_attack' for why this matters (overkill on a killing blow).
+      const actualDamage = Math.max(0, event.targetHpBefore - event.targetHpAfter);
       pushEvent(telemetry, after, consumed, {
         type: 'player_attack',
         weapon,
@@ -301,7 +343,8 @@ function translateGameEvent(
         roll: null,
         physicalDamage: event.damage,
         additionalDamage: 0,
-        totalDamage: event.damage,
+        calculatedDamage: event.damage,
+        actualDamage,
         targetHpBefore: event.targetHpBefore,
         targetHpAfter: event.targetHpAfter,
         defeated: event.targetHpAfter === 0,
@@ -324,7 +367,8 @@ function translateGameEvent(
         roll: event.roll,
         physicalDamage: 0,
         additionalDamage: 0,
-        totalDamage: 0,
+        calculatedDamage: 0,
+        actualDamage: 0,
         targetHpBefore: target ? target.hp : 0,
         targetHpAfter: target ? target.hp : 0,
         defeated: false,
@@ -338,8 +382,15 @@ function translateGameEvent(
       // turn, same target id) rather than pushing a separate event.
       const last = telemetry.events[telemetry.events.length - 1];
       if (last && last.type === 'player_attack') {
+        // physicalDamage/additionalDamage split into base vs sol bonus
+        // (both raw, pre-clamp figures from turn.ts's own baseDamage/
+        // bonusDamage). actualDamage is deliberately left untouched here:
+        // it was already computed from targetHpBefore/targetHpAfter,
+        // which turn.ts sets *after* adding the sol bonus to `damage` —
+        // so it already reflects the full bonused hit, sol or not.
+        last.physicalDamage = event.baseDamage;
         last.additionalDamage = event.bonusDamage;
-        last.totalDamage = last.physicalDamage + event.bonusDamage;
+        last.calculatedDamage = event.baseDamage + event.bonusDamage;
         last.solConsumed = event.solBefore - event.solAfter;
       }
       pushEvent(telemetry, after, consumed, {
@@ -460,10 +511,17 @@ function translateGameEvent(
     case 'item_used': {
       pushEvent(telemetry, after, consumed, { type: 'item_used', itemId: event.itemId, effect: 'heal', amount: event.healed });
       if (event.healed > 0) {
+        // event.healed is already the actual, maxHp-clamped delta (see
+        // turn.ts's applyItemUse: `healed = player.hp - before`, computed
+        // *after* the Math.min clamp) — it is the correct actualAmount
+        // as-is. requestedAmount is the item's raw, unclamped healAmount
+        // (ITEM_DEFINITIONS), purely for visibility into how much was
+        // "lost" to the clamp; it is never used for summary aggregation.
         pushEvent(telemetry, after, consumed, {
-          type: 'healed',
-          source: event.itemId,
-          requestedAmount: event.healed,
+          type: 'player_healed',
+          source: 'item',
+          itemId: event.itemId,
+          requestedAmount: ITEM_DEFINITIONS[event.itemId].healAmount ?? event.healed,
           actualAmount: event.healed,
           hpBefore: before.playerHp,
           hpAfter: after.player.hp,
@@ -776,9 +834,9 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
           stats.misses++;
         } else {
           stats.hits++;
-          stats.damageDealt += event.totalDamage;
-          getFloorStats(event.floor).damageDealt += event.totalDamage;
-          if (event.totalDamage === 0) stats.zeroDamageHits++;
+          stats.damageDealt += event.actualDamage;
+          getFloorStats(event.floor).damageDealt += event.actualDamage;
+          if (event.actualDamage === 0) stats.zeroDamageHits++;
         }
         break;
       }
@@ -829,7 +887,7 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
       case 'solar_charge':
         solarChargeActions++;
         break;
-      case 'healed':
+      case 'player_healed':
         healingBySource[event.source] = (healingBySource[event.source] ?? 0) + event.actualAmount;
         getFloorStats(event.floor).healing += event.actualAmount;
         break;
@@ -912,11 +970,11 @@ function sanitizeForFilename(value: string): string {
 export function buildExportFilename(telemetry: RunTelemetry): string {
   const seedPart = sanitizeForFilename(String(telemetry.seed));
   const resultPart = telemetry.result === 'clear' ? 'clear' : 'death';
-  return `rogue-of-sun-run-v2-${seedPart}-${resultPart}.json`;
+  return `rogue-of-sun-run-v3-${seedPart}-${resultPart}.json`;
 }
 
 export interface TelemetryDocument {
-  schemaVersion: 2;
+  schemaVersion: 3;
   gameVersion: string;
   run: {
     seed: number;
@@ -942,8 +1000,8 @@ export interface TelemetryDocument {
 export function buildTelemetryDocument(telemetry: RunTelemetry, finalState: GameState): TelemetryDocument {
   const summary = computeRunSummary(telemetry, finalState);
   return {
-    schemaVersion: 2,
-    gameVersion: 'phase-10.3.2',
+    schemaVersion: 3,
+    gameVersion: 'phase-10.3.3',
     run: {
       seed: telemetry.seed,
       result: telemetry.result,

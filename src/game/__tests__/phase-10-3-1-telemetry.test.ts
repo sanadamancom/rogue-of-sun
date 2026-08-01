@@ -202,7 +202,7 @@ describe('combat trace (Phase 10.3.1)', () => {
     processTurn(state, { type: 'face', direction: 'E' });
     step(state, { type: 'action' }, telemetry);
     const attackEvent = telemetry.events.find((e) => e.type === 'player_attack');
-    expect(attackEvent).toMatchObject({ weapon: 'sword', outcome: 'hit', physicalDamage: 20, totalDamage: 20 });
+    expect(attackEvent).toMatchObject({ weapon: 'sword', outcome: 'hit', physicalDamage: 20, actualDamage: 20 });
   });
 
   it('records a player miss with hitChance/roll and zero damage', () => {
@@ -215,7 +215,7 @@ describe('combat trace (Phase 10.3.1)', () => {
     processTurn(state, { type: 'face', direction: 'E' });
     step(state, { type: 'action' }, telemetry);
     const attackEvent = telemetry.events.find((e) => e.type === 'player_attack');
-    expect(attackEvent).toMatchObject({ outcome: 'miss', physicalDamage: 0, totalDamage: 0 });
+    expect(attackEvent).toMatchObject({ outcome: 'miss', physicalDamage: 0, actualDamage: 0 });
     expect((attackEvent as { hitChance: number }).hitChance).toBe(95);
   });
 
@@ -397,8 +397,8 @@ describe('resource trace (Phase 10.3.1)', () => {
     state.player.hp = 5;
     const telemetry = createRunTelemetry(state);
     step(state, { type: 'use_item', itemId: 'apple' }, telemetry);
-    const healed = telemetry.events.find((e) => e.type === 'healed');
-    expect(healed).toMatchObject({ source: 'apple' });
+    const healed = telemetry.events.find((e) => e.type === 'player_healed');
+    expect(healed).toMatchObject({ source: 'item', itemId: 'apple' });
   });
 
   it('healing never exceeds max HP in the recorded amount', () => {
@@ -406,7 +406,7 @@ describe('resource trace (Phase 10.3.1)', () => {
     state.player.hp = 25; // maxHp 30, apple heals 20 -> actual 5
     const telemetry = createRunTelemetry(state);
     step(state, { type: 'use_item', itemId: 'apple' }, telemetry);
-    const healed = telemetry.events.find((e) => e.type === 'healed');
+    const healed = telemetry.events.find((e) => e.type === 'player_healed');
     expect((healed as { actualAmount: number }).actualAmount).toBe(5);
   });
 });
@@ -458,7 +458,7 @@ describe('JSON export (Phase 10.3.1)', () => {
     const state = freshState({ enemies: [] });
     const telemetry = createRunTelemetry(state);
     const doc = buildTelemetryDocument(telemetry, state);
-    expect(doc.schemaVersion).toBe(2);
+    expect(doc.schemaVersion).toBe(3);
   });
 
   it('the exported document round-trips through JSON.stringify/parse', () => {
@@ -468,7 +468,7 @@ describe('JSON export (Phase 10.3.1)', () => {
     const doc = buildTelemetryDocument(telemetry, state);
     const json = JSON.stringify(doc);
     const parsed = JSON.parse(json);
-    expect(parsed.schemaVersion).toBe(2);
+    expect(parsed.schemaVersion).toBe(3);
     expect(parsed.events.length).toBe(doc.events.length);
   });
 
@@ -481,7 +481,7 @@ describe('JSON export (Phase 10.3.1)', () => {
     });
     const telemetry = createRunTelemetry(state);
     step(state, { type: 'wait' }, telemetry);
-    expect(buildExportFilename(telemetry)).toBe('rogue-of-sun-run-v2-12345-death.json');
+    expect(buildExportFilename(telemetry)).toBe('rogue-of-sun-run-v3-12345-death.json');
   });
 
   it('building the document twice from the same finalized telemetry gives identical JSON', () => {

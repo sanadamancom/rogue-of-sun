@@ -214,13 +214,14 @@ describe('HP and damage accuracy (Phase 10.3.2, known_failure incorrect_hp_snaps
     const telemetry = createRunTelemetry(state);
     processTurn(state, { type: 'face', direction: 'E' });
     step(state, { type: 'action' }, telemetry);
-    const attack = telemetry.events.find((e) => e.type === 'player_attack') as { totalDamage: number; targetHpBefore: number; targetHpAfter: number };
-    // The real damage event.damage (20) is recorded as-is (matching
-    // turn.ts's own semantics: damage is the attack's raw power; HP
-    // itself is clamped to 0 via Math.max(0, hp-damage), not the damage
-    // figure). targetHpAfter is correctly 0, not negative.
+    const attack = telemetry.events.find((e) => e.type === 'player_attack') as { actualDamage: number; calculatedDamage: number; targetHpBefore: number; targetHpAfter: number };
+    // As of Phase 10.3.3, actualDamage reflects only the real HP loss (5),
+    // not the raw pre-clamp attack power (20, still visible via
+    // calculatedDamage) — targetHpAfter is correctly 0, not negative.
     expect(attack.targetHpAfter).toBe(0);
     expect(attack.targetHpBefore).toBe(5);
+    expect(attack.actualDamage).toBe(5);
+    expect(attack.calculatedDamage).toBe(20);
   });
 });
 
@@ -414,7 +415,7 @@ describe('JSON schema v2 (Phase 10.3.2)', () => {
     const state = freshState({ enemies: [] });
     const telemetry = createRunTelemetry(state);
     const doc = buildTelemetryDocument(telemetry, state);
-    expect(doc.schemaVersion).toBe(2);
+    expect(doc.schemaVersion).toBe(3);
   });
 
   it('filename uses the v2 prefix', () => {
@@ -426,7 +427,7 @@ describe('JSON schema v2 (Phase 10.3.2)', () => {
     });
     const telemetry = createRunTelemetry(state);
     step(state, { type: 'wait' }, telemetry);
-    expect(buildExportFilename(telemetry)).toBe('rogue-of-sun-run-v2-555-death.json');
+    expect(buildExportFilename(telemetry)).toBe('rogue-of-sun-run-v3-555-death.json');
   });
 
   it('no NaN or Infinity anywhere in the exported document', () => {
