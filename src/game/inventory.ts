@@ -8,6 +8,34 @@ export interface InventoryEntry {
 }
 
 /**
+ * Phase 11.1 inventory capacity: the maximum total count across every
+ * regular inventory item combined (GameState.inventory's values summed),
+ * not a per-slot or per-species limit. `sol_enchantment` never goes
+ * through GameState.inventory (see item-def.ts's doc comment) and is
+ * therefore never part of this total.
+ */
+export const INVENTORY_CAPACITY = 20;
+
+/**
+ * Sums every item count currently held in GameState.inventory. Pure/
+ * side-effect-free so it can be reused by both the capacity check in
+ * turn.ts and by tests/UI without duplicating the summation logic.
+ */
+export function totalInventoryCount(state: GameState): number {
+  return Object.values(state.inventory).reduce((sum, count) => sum + count, 0);
+}
+
+/**
+ * Whether picking up one more regular inventory item would still fit
+ * within INVENTORY_CAPACITY. Pure/side-effect-free; does not mutate state
+ * or itself decide what happens on failure (that remains turn.ts's
+ * responsibility, so ground-item removal/event pushing stays there).
+ */
+export function hasInventoryCapacity(state: GameState): boolean {
+  return totalInventoryCount(state) < INVENTORY_CAPACITY;
+}
+
+/**
  * The inventory's current display list: only items with a positive count,
  * in ITEM_IDS_IN_ORDER order (Phase 08.2 requirement: "個数0の項目をUIへ
  * 表示しない"). Pure/side-effect-free so it can be used identically by the

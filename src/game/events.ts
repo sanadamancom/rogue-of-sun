@@ -66,6 +66,11 @@ export type GameEvent =
   | { type: 'floor_advanced' }
   | { type: 'player_defeated' }
   | { type: 'item_picked_up'; itemId: ItemId }
+  // Phase 11.1 inventory capacity: pushed instead of 'item_picked_up' when
+  // GameState.inventory is already at INVENTORY_CAPACITY, so the ground
+  // item is left in place (see turn.ts's move handling). Follows the same
+  // reason-tagged shape as 'item_use_failed' below.
+  | { type: 'item_pickup_failed'; itemId: ItemId; reason: 'inventory_full' }
   | { type: 'item_used'; itemId: ItemId; healed: number }
   | { type: 'item_use_failed'; itemId: ItemId; reason: 'full_hp' }
   | { type: 'sun_fruit_used'; itemId: ItemId; recovered: number }

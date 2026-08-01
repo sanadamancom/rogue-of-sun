@@ -97,6 +97,10 @@ export function formatEvent(event: GameEvent): string {
       const name = ITEM_DEFINITIONS[event.itemId].displayName;
       return `${name}をひろった。`;
     }
+    case 'item_pickup_failed': {
+      const name = ITEM_DEFINITIONS[event.itemId].displayName;
+      return `荷物がいっぱいで、${name}をひろえない。`;
+    }
     case 'item_used': {
       const name = ITEM_DEFINITIONS[event.itemId].displayName;
       return `${name}を食べた。HPが${event.healed}回復した。`;

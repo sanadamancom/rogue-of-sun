@@ -2,6 +2,7 @@ import { directionBetweenAdjacent, isAdjacent, isOrthogonallyAdjacent } from './
 import { canMove, destinationOf, isInBounds, isWalkable } from './map';
 import { ENEMY_DEFINITIONS } from './enemy-def';
 import { ITEM_DEFINITIONS } from './item-def';
+import { hasInventoryCapacity } from './inventory';
 import { WEAPON_DEFINITIONS } from './weapon-def';
 import { ARMOR_DEFINITIONS } from './armor-def';
 import { computeAttackDamage, computeIncomingDamage, computeHitChance, resolvesAsHit } from './combat';
@@ -416,9 +417,17 @@ function applyPlayerAction(
           state.solUnlocked = true;
           events.push({ type: 'sol_enchantment_acquired' });
         }
-      } else {
+      } else if (hasInventoryCapacity(state)) {
         state.inventory[item.itemId] = (state.inventory[item.itemId] ?? 0) + 1;
         events.push({ type: 'item_picked_up', itemId: item.itemId });
+      } else {
+        // Phase 11.1: inventory is at INVENTORY_CAPACITY. Put the ground
+        // item back exactly as it was (id/type/position/state untouched)
+        // instead of removing it, and notify via item_pickup_failed
+        // instead of item_picked_up. No extra turn is consumed beyond the
+        // normal move that already happened above, and no RNG is used.
+        state.groundItems.splice(itemIndex, 0, item);
+        events.push({ type: 'item_pickup_failed', itemId: item.itemId, reason: 'inventory_full' });
       }
     }
     return { consumed: true, attacked: false, defeated: false };
