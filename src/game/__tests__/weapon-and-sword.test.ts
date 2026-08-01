@@ -49,6 +49,8 @@ function freshState(overrides?: Partial<GameState>): GameState {
     equippedWeaponId: null,
     equippedArmorId: null,
     hammerRecovery: false,
+    solarEnergy: 5,
+    maxSolarEnergy: 5,
     ...overrides,
   };
 }
@@ -166,7 +168,7 @@ describe('sword pickup', () => {
 
 describe('equipping the sword', () => {
   it('can equip an owned sword from the inventory, setting equippedWeaponId', () => {
-    const state = freshState({ inventory: { apple: 0, sword: 1, armor: 0, spear: 0, hammer: 0 } });
+    const state = freshState({ inventory: { apple: 0, sword: 1, armor: 0, spear: 0, hammer: 0, sun_fruit: 0 } });
     toggleInventory(state);
     // Selection order follows ITEM_IDS_IN_ORDER filtered to owned items;
     // with only sword owned, it is entry 0.
@@ -176,21 +178,21 @@ describe('equipping the sword', () => {
   });
 
   it('cannot equip an unowned sword', () => {
-    const state = freshState({ inventory: { apple: 0, sword: 0, armor: 0, spear: 0, hammer: 0 } });
+    const state = freshState({ inventory: { apple: 0, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0 } });
     const result = processTurn(state, { type: 'equip_weapon', weaponId: 'sword' });
     expect(result.consumed).toBe(false);
     expect(state.equippedWeaponId).toBeNull();
   });
 
   it('equip success consumes exactly 1 turn', () => {
-    const state = freshState({ inventory: { apple: 0, sword: 1, armor: 0, spear: 0, hammer: 0 } });
+    const state = freshState({ inventory: { apple: 0, sword: 1, armor: 0, spear: 0, hammer: 0, sun_fruit: 0 } });
     const turnBefore = state.turn;
     processTurn(state, { type: 'equip_weapon', weaponId: 'sword' });
     expect(state.turn).toBe(turnBefore + 1);
   });
 
   it('equip success runs enemy actions afterward (existing turn pipeline, no separate AI)', () => {
-    const state = freshState({ inventory: { apple: 0, sword: 1, armor: 0, spear: 0, hammer: 0 } });
+    const state = freshState({ inventory: { apple: 0, sword: 1, armor: 0, spear: 0, hammer: 0, sun_fruit: 0 } });
     state.enemies = [createInitialEnemy('bok', { x: 3, y: 1 }, 2, 1)];
     const hpBefore = state.player.hp;
     const result = processTurn(state, { type: 'equip_weapon', weaponId: 'sword' });
@@ -200,20 +202,20 @@ describe('equipping the sword', () => {
   });
 
   it('equip success closes the inventory overlay', () => {
-    const state = freshState({ inventory: { apple: 0, sword: 1, armor: 0, spear: 0, hammer: 0 } });
+    const state = freshState({ inventory: { apple: 0, sword: 1, armor: 0, spear: 0, hammer: 0, sun_fruit: 0 } });
     toggleInventory(state);
     useSelectedInventoryItem(state);
     expect(state.inventoryOpen).toBe(false);
   });
 
   it('equipping does not remove the sword from inventory', () => {
-    const state = freshState({ inventory: { apple: 0, sword: 1, armor: 0, spear: 0, hammer: 0 } });
+    const state = freshState({ inventory: { apple: 0, sword: 1, armor: 0, spear: 0, hammer: 0, sun_fruit: 0 } });
     processTurn(state, { type: 'equip_weapon', weaponId: 'sword' });
     expect(state.inventory.sword).toBe(1);
   });
 
   it('re-equipping the already-equipped sword is a no-op: no turn, inventory stays open', () => {
-    const state = freshState({ inventory: { apple: 0, sword: 1, armor: 0, spear: 0, hammer: 0 }, equippedWeaponId: 'sword' });
+    const state = freshState({ inventory: { apple: 0, sword: 1, armor: 0, spear: 0, hammer: 0, sun_fruit: 0 }, equippedWeaponId: 'sword' });
     toggleInventory(state);
     const turnBefore = state.turn;
     const result = useSelectedInventoryItem(state);
@@ -223,13 +225,13 @@ describe('equipping the sword', () => {
   });
 
   it('re-equipping the already-equipped sword emits weapon_already_equipped', () => {
-    const state = freshState({ inventory: { apple: 0, sword: 1, armor: 0, spear: 0, hammer: 0 }, equippedWeaponId: 'sword' });
+    const state = freshState({ inventory: { apple: 0, sword: 1, armor: 0, spear: 0, hammer: 0, sun_fruit: 0 }, equippedWeaponId: 'sword' });
     const result = processTurn(state, { type: 'equip_weapon', weaponId: 'sword' });
     expect(result.events).toContainEqual({ type: 'weapon_already_equipped', weaponId: 'sword' });
   });
 
   it('equipping does not change apple use behavior', () => {
-    const state = freshState({ inventory: { apple: 1, sword: 1, armor: 0, spear: 0, hammer: 0 } });
+    const state = freshState({ inventory: { apple: 1, sword: 1, armor: 0, spear: 0, hammer: 0, sun_fruit: 0 } });
     state.player.hp = 1;
     processTurn(state, { type: 'equip_weapon', weaponId: 'sword' });
     const result = processTurn(state, { type: 'use_item', itemId: 'apple' });
@@ -251,7 +253,7 @@ describe('weapon-aware combat', () => {
   });
 
   it('an adjacent attack while unarmed deals 1 damage (unchanged)', () => {
-    const state = freshState({ inventory: { apple: 0, sword: 0, armor: 0, spear: 0, hammer: 0 } });
+    const state = freshState({ inventory: { apple: 0, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0 } });
     state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 5, 1);
     state.enemies = [enemy];
@@ -329,7 +331,7 @@ describe('weapon-aware combat', () => {
   });
 
   it('equipping the sword does not consume it (no durability/consumption on use)', () => {
-    const state = freshState({ equippedWeaponId: 'sword', inventory: { apple: 0, sword: 1, armor: 0, spear: 0, hammer: 0 } });
+    const state = freshState({ equippedWeaponId: 'sword', inventory: { apple: 0, sword: 1, armor: 0, spear: 0, hammer: 0, sun_fruit: 0 } });
     state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 5, 1);
     state.enemies = [enemy];
@@ -352,7 +354,7 @@ describe('weapon-aware combat', () => {
 
 describe('persistence and reset (Phase 08.3)', () => {
   it('sword possession and equip state carry over across a floor transition', () => {
-    let state = freshState({ inventory: { apple: 0, sword: 1, armor: 0, spear: 0, hammer: 0 }, equippedWeaponId: 'sword' });
+    let state = freshState({ inventory: { apple: 0, sword: 1, armor: 0, spear: 0, hammer: 0, sun_fruit: 0 }, equippedWeaponId: 'sword' });
     state.enemies.forEach((e) => (e.alive = false));
     state.player.pos = { ...state.exit };
     processTurn(state, { type: 'wait' });
@@ -376,7 +378,7 @@ describe('persistence and reset (Phase 08.3)', () => {
 
 describe('inventory controls with both apple and sword (Phase 08.3)', () => {
   it('inventoryEntries lists both when both are owned, in ITEM_IDS_IN_ORDER order', () => {
-    const state = freshState({ inventory: { apple: 1, sword: 1, armor: 0, spear: 0, hammer: 0 } });
+    const state = freshState({ inventory: { apple: 1, sword: 1, armor: 0, spear: 0, hammer: 0, sun_fruit: 0 } });
     expect(inventoryEntries(state)).toEqual([
       { itemId: 'apple', count: 1 },
       { itemId: 'sword', count: 1 },
@@ -384,7 +386,7 @@ describe('inventory controls with both apple and sword (Phase 08.3)', () => {
   });
 
   it('opening/closing the inventory still consumes no turn with both items owned', () => {
-    const state = freshState({ inventory: { apple: 1, sword: 1, armor: 0, spear: 0, hammer: 0 } });
+    const state = freshState({ inventory: { apple: 1, sword: 1, armor: 0, spear: 0, hammer: 0, sun_fruit: 0 } });
     const turnBefore = state.turn;
     toggleInventory(state);
     closeInventory(state);
@@ -399,7 +401,7 @@ describe('inventory controls with both apple and sword (Phase 08.3)', () => {
 
 describe('regression: Phase 08.2 apple behavior unaffected', () => {
   it('apple still heals 2 HP and consumes 1 apple on success', () => {
-    const state = freshState({ inventory: { apple: 1, sword: 0, armor: 0, spear: 0, hammer: 0 } });
+    const state = freshState({ inventory: { apple: 1, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0 } });
     state.player.hp = 1;
     const result = processTurn(state, { type: 'use_item', itemId: 'apple' });
     expect(result.consumed).toBe(true);
@@ -408,7 +410,7 @@ describe('regression: Phase 08.2 apple behavior unaffected', () => {
   });
 
   it('apple still fails at full HP without consuming a turn', () => {
-    const state = freshState({ inventory: { apple: 1, sword: 0, armor: 0, spear: 0, hammer: 0 } });
+    const state = freshState({ inventory: { apple: 1, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0 } });
     state.player.hp = state.player.maxHp;
     const turnBefore = state.turn;
     const result = processTurn(state, { type: 'use_item', itemId: 'apple' });

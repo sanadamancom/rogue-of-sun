@@ -93,6 +93,10 @@ export function formatEvent(event: GameEvent): string {
       const name = ITEM_DEFINITIONS[event.itemId].displayName;
       return `HPは満タンで、${name}は使えない。`;
     }
+    case 'sun_fruit_used':
+      return '太陽の実を使い、太陽エネルギーが回復した。';
+    case 'sun_fruit_use_failed':
+      return '太陽エネルギーは満タンだ。';
     case 'weapon_equipped': {
       const name = ITEM_DEFINITIONS[event.weaponId].displayName;
       return `${name}を装備した。`;

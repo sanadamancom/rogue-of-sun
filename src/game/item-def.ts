@@ -22,6 +22,8 @@ export interface ItemDefinition {
   stackable: boolean;
   /** HP restored by one use, before clamping to the player's maxHp. Only meaningful for consumable healing items. */
   healAmount?: number;
+  /** Solar energy restored by one use, before clamping to maxSolarEnergy. Only meaningful for sun_fruit (Phase 09.1). */
+  solarAmount?: number;
 }
 
 // Single source of truth for every registered item's name, glyph, and
@@ -72,10 +74,21 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     consumable: false,
     stackable: false,
   },
+  sun_fruit: {
+    id: 'sun_fruit',
+    displayName: '太陽の実',
+    // Phase 09.1: no processed sprite asset yet; 🍋 substituted per
+    // user instruction, distinct from apple's 🍎.
+    glyph: '🍋',
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+    solarAmount: 2,
+  },
 };
 
-/** Fixed display/iteration order for items (Phase 08.2: apple; Phase 08.3 adds sword; Phase 08.4 adds armor; Phase 08.5 adds spear; Phase 08.7 adds hammer). */
-export const ITEM_IDS_IN_ORDER: ItemId[] = ['apple', 'sword', 'armor', 'spear', 'hammer'];
+/** Fixed display/iteration order for items (Phase 08.2: apple; Phase 08.3 adds sword; Phase 08.4 adds armor; Phase 08.5 adds spear; Phase 08.7 adds hammer; Phase 09.1 adds sun_fruit). */
+export const ITEM_IDS_IN_ORDER: ItemId[] = ['apple', 'sword', 'armor', 'spear', 'hammer', 'sun_fruit'];
 
 /** An inventory with every registered item at count 0 (used for new-run initialization). */
 export function createEmptyInventory(): Inventory {

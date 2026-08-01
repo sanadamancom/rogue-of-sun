@@ -397,6 +397,25 @@ function applyItemUse(
     return { consumed: true, attacked: false, defeated: false };
   }
 
+  // Sun fruit (Phase 09.1): restores solar energy, never HP. Rejected
+  // (no consumption, no turn) when solar energy is already at maximum —
+  // mirrors apple's full_hp rejection above but on the separate solar
+  // energy stat.
+  const solarAmount = def.solarAmount ?? 0;
+  if (solarAmount > 0) {
+    if (state.solarEnergy >= state.maxSolarEnergy) {
+      events.push({ type: 'sun_fruit_use_failed', itemId, reason: 'sol_full' });
+      return { consumed: false, attacked: false, defeated: false };
+    }
+    const before = state.solarEnergy;
+    state.solarEnergy = Math.min(state.maxSolarEnergy, state.solarEnergy + solarAmount);
+    const recovered = state.solarEnergy - before;
+    state.inventory[itemId] = owned - 1;
+    events.push({ type: 'sun_fruit_used', itemId, recovered });
+    state.inventoryOpen = false;
+    return { consumed: true, attacked: false, defeated: false };
+  }
+
   // No other item effect is registered yet.
   return { consumed: false, attacked: false, defeated: false };
 }

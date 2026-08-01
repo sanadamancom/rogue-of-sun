@@ -880,7 +880,7 @@ class MainScene extends Phaser.Scene {
     this.updateFacingMarker();
 
     this.hudText.setText(
-      `FLOOR ${this.state.floor}/${this.state.totalFloors}   HP: ${player.hp}/${player.maxHp}   Turn: ${this.state.turn}\n` +
+      `FLOOR ${this.state.floor}/${this.state.totalFloors}   HP: ${player.hp}/${player.maxHp}   SOL ${this.state.solarEnergy} / ${this.state.maxSolarEnergy}   Turn: ${this.state.turn}\n` +
         `Run Seed: ${this.state.runSeed}   Floor Seed: ${this.state.seed}\n` +
         `移動:方向キー  Shift+方向:向き変更  X:攻撃  Space:待機  Tab:インベントリ`,
     );

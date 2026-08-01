@@ -306,6 +306,20 @@ export interface GameState {
    * is).
    */
   hammerRecovery: boolean;
+  /**
+   * Current solar energy (Phase 09.1 foundation). Always clamped to
+   * [0, maxSolarEnergy]. Persists across floor transitions like
+   * inventory/equippedWeaponId; resets to 5 on a brand new run. Not yet
+   * consumed by anything (no sun gun in this phase) — only sun fruit
+   * (below) changes it in normal play.
+   */
+  solarEnergy: number;
+  /**
+   * Maximum solar energy (Phase 09.1 foundation). Fixed at 5 for this
+   * phase; never changed by equipment or floor. Persists across floor
+   * transitions; resets to 5 on a brand new run.
+   */
+  maxSolarEnergy: number;
 }
 
 /**
@@ -317,7 +331,7 @@ export interface GameState {
  * item's shared display data, src/game/weapon-def.ts for weapon combat
  * data, and src/game/armor-def.ts for armor combat data).
  */
-export type ItemId = 'apple' | 'sword' | 'armor' | 'spear' | 'hammer';
+export type ItemId = 'apple' | 'sword' | 'armor' | 'spear' | 'hammer' | 'sun_fruit';
 
 /**
  * Weapon species — Phase 08.3 registered only 'sword'; Phase 08.5 added

@@ -48,6 +48,8 @@ function freshState(overrides?: Partial<GameState>): GameState {
     equippedWeaponId: null,
     equippedArmorId: null,
     hammerRecovery: false,
+    solarEnergy: 5,
+    maxSolarEnergy: 5,
     ...overrides,
   };
 }

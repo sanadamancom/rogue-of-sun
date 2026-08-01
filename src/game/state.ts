@@ -19,7 +19,13 @@ interface CarryOverStats {
   equippedWeaponId: WeaponId | null;
   equippedArmorId: ArmorId | null;
   facing: Direction8;
+  solarEnergy: number;
+  maxSolarEnergy: number;
 }
+
+/** Fixed initial/maximum solar energy for a brand new run (Phase 09.1; provisional value, see history doc). */
+const INITIAL_SOLAR_ENERGY = 5;
+const INITIAL_MAX_SOLAR_ENERGY = 5;
 
 /**
  * Picks `count` species independently (with replacement) from `pool` using
@@ -194,6 +200,24 @@ function buildFloorState(
     groundItems.push({ id: groundItems.length, itemId: 'hammer', pos: hammerPos });
   }
 
+  // Sun fruit placement (Phase 09.1 solar energy foundation): floor 1 and
+  // floor 2, one each, using its own distinct independent RNG stream (an
+  // eighth XOR constant) placed after every other existing ground item on
+  // that floor, so it never perturbs any prior RNG sequence/consumption
+  // order and excludes every tile already used by another ground item in
+  // addition to start/exit/every enemy position.
+  if (floor === 1 || floor === 2) {
+    const priorExclusions = [
+      placement.start,
+      placement.exit,
+      ...placement.enemies,
+      ...groundItems.map((item) => item.pos),
+    ];
+    const sunFruitRng = createRng(floorSeed ^ 0xd472e6a9);
+    const sunFruitPos = chooseGroundItemPosition(map, placement.start, priorExclusions, sunFruitRng);
+    groundItems.push({ id: groundItems.length, itemId: 'sun_fruit', pos: sunFruitPos });
+  }
+
   return {
     map,
     player,
@@ -224,6 +248,11 @@ function buildFloorState(
     // though equippedWeaponId is (Phase 08.7: "フロア遷移時は反動を解除
     // する" / "新しいゲーム開始時も反動なしで初期化する").
     hammerRecovery: false,
+    // Solar energy foundation (Phase 09.1): carried over across floor
+    // transitions like inventory/equippedWeaponId; a brand new run always
+    // starts at 5/5.
+    solarEnergy: carry ? carry.solarEnergy : INITIAL_SOLAR_ENERGY,
+    maxSolarEnergy: carry ? carry.maxSolarEnergy : INITIAL_MAX_SOLAR_ENERGY,
   };
 }
 
@@ -247,6 +276,8 @@ export function advanceToNextFloor(state: GameState): GameState {
     equippedWeaponId: state.equippedWeaponId,
     equippedArmorId: state.equippedArmorId,
     facing: state.player.facing,
+    solarEnergy: state.solarEnergy,
+    maxSolarEnergy: state.maxSolarEnergy,
   };
   return buildFloorState(state.runSeed, state.floor + 1, state.turn, carry);
 }
