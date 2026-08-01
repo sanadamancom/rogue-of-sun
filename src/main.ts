@@ -14,6 +14,17 @@ import {
 } from './game/inventory';
 import { formatEvent, formatEvents, MessageLog } from './game/message-log';
 import { advanceToNextFloor, createInitialState, randomSeed } from './game/state';
+import {
+  buildExportFilename,
+  buildTelemetryDocument,
+  computeRunSummary,
+  createRunTelemetry,
+  finalizeRun,
+  recordFloorStarted,
+  recordTurn,
+  snapshotForTurn,
+  RunTelemetry,
+} from './game/telemetry';
 import { getCockatriceTelegraph, getKrakenTelegraph } from './game/telegraph';
 import { processTurn, TurnResult } from './game/turn';
 import { DIRECTION_VECTORS, EnemyType, GameState } from './game/types';
@@ -97,6 +108,20 @@ function allEnemySpriteKeys(): string[] {
 
 class MainScene extends Phaser.Scene {
   private state!: GameState;
+  // Run telemetry (Phase 10.3.1): owned entirely by MainScene, never
+  // stored on GameState (see telemetry.ts's module doc comment). Reset
+  // wholesale on every new run in create()/restart(); never mutated by
+  // anything except recordTurn/finalizeRun, both of which are pure with
+  // respect to `this.state`.
+  private telemetry!: RunTelemetry;
+  // End-screen DOM overlay (Phase 10.3.1): a plain HTML element layered
+  // over the Phaser canvas rather than rendered via Phaser Text/Graphics,
+  // since the required report (weapon table, per-floor table, scrolling,
+  // a keyboard-focusable save button) is far more naturally expressed as
+  // ordinary HTML than as canvas drawing. Created once in create();
+  // never destroyed, only shown/hidden.
+  private endScreenOverlay!: HTMLDivElement;
+  private endScreenShownForTelemetry: RunTelemetry | null = null;
   private terrainGraphics!: Phaser.GameObjects.Graphics;
   private exitGraphics!: Phaser.GameObjects.Graphics;
   private webGraphics!: Phaser.GameObjects.Graphics;
@@ -151,6 +176,7 @@ class MainScene extends Phaser.Scene {
 
   create(): void {
     this.state = createInitialState(randomSeed());
+    this.telemetry = createRunTelemetry(this.state);
 
     this.terrainGraphics = this.add.graphics();
     this.exitGraphics = this.add.graphics();
@@ -203,6 +229,7 @@ class MainScene extends Phaser.Scene {
 
     this.createLogPanel();
     this.createInventoryOverlay();
+    this.createEndScreenOverlay();
 
     this.input.keyboard!.on('keydown', (event: KeyboardEvent) => {
       // Tab must never move browser focus off the canvas, and OS key-repeat
@@ -594,6 +621,153 @@ class MainScene extends Phaser.Scene {
   private readonly INVENTORY_OVERLAY_WIDTH = 300;
   private readonly INVENTORY_OVERLAY_PADDING = 14;
 
+  // -----------------------------------------------------------------
+  // End-screen report and JSON export (Phase 10.3.1)
+  // -----------------------------------------------------------------
+
+  /** Builds the (initially hidden) DOM overlay once; content is filled in by showEndScreen. */
+  private createEndScreenOverlay(): void {
+    const overlay = document.createElement('div');
+    overlay.style.position = 'fixed';
+    overlay.style.inset = '0';
+    overlay.style.background = 'rgba(0,0,0,0.88)';
+    overlay.style.color = '#ffffff';
+    overlay.style.fontFamily = 'monospace';
+    overlay.style.fontSize = '14px';
+    overlay.style.display = 'none';
+    overlay.style.zIndex = '1000';
+    overlay.style.overflowY = 'auto';
+    overlay.style.padding = '24px';
+    overlay.style.boxSizing = 'border-box';
+    document.body.appendChild(overlay);
+    this.endScreenOverlay = overlay;
+  }
+
+  private hideEndScreen(): void {
+    if (this.endScreenOverlay) this.endScreenOverlay.style.display = 'none';
+  }
+
+  /**
+   * Renders and shows the end-screen report (end_screen) exactly once
+   * per finalized run — guarded by endScreenShownForTelemetry so
+   * repeated refreshStaticView calls while the phase stays
+   * gameover/victory (e.g. from further harmless key input) don't
+   * rebuild the DOM or reset scroll position every time. Reads only
+   * `this.telemetry` (already finalized by finalizeRun before this is
+   * ever reached) and `this.state` (for finalState) — never mutates
+   * either.
+   */
+  private showEndScreen(): void {
+    if (this.endScreenShownForTelemetry === this.telemetry) return;
+    this.endScreenShownForTelemetry = this.telemetry;
+
+    const summary = computeRunSummary(this.telemetry, this.state);
+    const isClear = this.telemetry.result === 'clear';
+    const pct = (n: number | null): string => (n === null ? '—' : `${Math.round(n * 100)}%`);
+    const num = (n: number | null): string => (n === null ? '—' : String(Math.round(n * 10) / 10));
+
+    const weaponRows = Object.entries(summary.combatByWeapon)
+      .map(([weapon, s]) => {
+        const attacks = s.hits + s.misses;
+        return `<tr><td>${weapon}</td><td>${attacks}</td><td>${s.hits}</td><td>${s.misses}</td><td>${pct(s.hitRate)}</td><td>${s.damageDealt}</td><td>${num(s.averageDamagePerHit)}</td><td>${s.kills}</td></tr>`;
+      })
+      .join('');
+
+    const enemyRows = Object.entries(summary.damageTakenByEnemy)
+      .map(([enemyType, s]) => `<tr><td>${enemyType}</td><td>${s.attackAttempts}</td><td>${s.hits}</td><td>${s.damage}</td></tr>`)
+      .join('');
+
+    const floorRows = summary.perFloor
+      .map((f) => `<tr><td>${f.floor}</td><td>${f.turns}</td><td>${f.damageDealt}</td><td>${f.damageTaken}</td></tr>`)
+      .join('');
+
+    const inventoryText =
+      Object.entries(summary.finalState.inventory)
+        .filter(([, count]) => count > 0)
+        .map(([itemId, count]) => `${itemId}×${count}`)
+        .join(', ') || 'なし';
+
+    this.endScreenOverlay.innerHTML = `
+      <div style="max-width: 720px; margin: 0 auto;">
+        <h1 style="border: 2px solid #fff; display:inline-block; padding: 4px 16px;">${isClear ? 'CLEAR' : 'GAME OVER'}</h1>
+        <p>Seed: ${this.telemetry.seed} ／ 到達フロア: ${summary.finalState.floor} ／ 総ターン: ${this.telemetry.events.reduce((m, e) => Math.max(m, e.turn), 0)}</p>
+        <h2>概要</h2>
+        <p>
+          敵撃破数: ${summary.progression.enemiesDefeated} ／
+          与ダメージ合計: ${summary.combatOverall.damageDealt} ／
+          被ダメージ合計: ${Object.values(summary.damageTakenByEnemy).reduce((s, e) => s + e.damage, 0)} ／
+          SOL獲得: ${summary.resources.solGained} ／
+          SOL消費: ${summary.resources.solConsumed} ／
+          回復量: ${Object.values(summary.resources.healingBySource).reduce((s, v) => s + v, 0)}
+        </p>
+        <h2>武器別</h2>
+        <table border="1" cellpadding="4" style="border-collapse: collapse; width: 100%;">
+          <thead><tr><th>武器</th><th>攻撃</th><th>命中</th><th>ミス</th><th>命中率</th><th>与ダメージ</th><th>平均命中ダメージ</th><th>撃破</th></tr></thead>
+          <tbody>${weaponRows || '<tr><td colspan="8">記録なし</td></tr>'}</tbody>
+        </table>
+        <h2>被害元別</h2>
+        <table border="1" cellpadding="4" style="border-collapse: collapse; width: 100%;">
+          <thead><tr><th>敵種</th><th>攻撃</th><th>命中</th><th>被ダメージ</th></tr></thead>
+          <tbody>${enemyRows || '<tr><td colspan="4">記録なし</td></tr>'}</tbody>
+        </table>
+        <h2>フロア別</h2>
+        <table border="1" cellpadding="4" style="border-collapse: collapse; width: 100%;">
+          <thead><tr><th>フロア</th><th>ターン数</th><th>与ダメージ</th><th>被ダメージ</th></tr></thead>
+          <tbody>${floorRows || '<tr><td colspan="4">記録なし</td></tr>'}</tbody>
+        </table>
+        <h2>終了時</h2>
+        <p>
+          終了原因: ${this.telemetry.endCause ?? '—'} ／
+          LIFE: ${summary.finalState.life}/${summary.finalState.maxLife} ／
+          SOL: ${summary.finalState.sol} ／
+          装備: ${summary.finalState.equipment.weapon ?? '素手'} / ${summary.finalState.equipment.armor ?? 'なし'} ／
+          所持品: ${inventoryText}
+        </p>
+        <p id="end-screen-export-status" style="min-height: 1.4em; color: #ff8080;"></p>
+        <button id="end-screen-export-button" style="font-family: monospace; font-size: 16px; padding: 8px 16px; cursor: pointer;">JSONを保存</button>
+        <p>Enter: 同じシードで再開　N: 新しいシードで開始</p>
+      </div>
+    `;
+    this.endScreenOverlay.style.display = 'block';
+
+    const button = this.endScreenOverlay.querySelector<HTMLButtonElement>('#end-screen-export-button')!;
+    button.addEventListener('click', () => this.exportTelemetryJson());
+  }
+
+  /**
+   * JSON export (json_export): builds the document, serializes it, and
+   * triggers a download via a Blob + temporary object URL, revoked
+   * immediately after the click. Never touches `this.state` or
+   * `this.telemetry` beyond reading them — calling this any number of
+   * times produces byte-identical output (json_export's "同じ結果を複数
+   * 回保存しても内容を変えない"). Any failure is caught and shown as a
+   * short message in the overlay instead of throwing, per
+   * failure_handling.
+   */
+  private exportTelemetryJson(): void {
+    const statusEl = this.endScreenOverlay.querySelector<HTMLParagraphElement>('#end-screen-export-status');
+    try {
+      const doc = buildTelemetryDocument(this.telemetry, this.state);
+      const json = JSON.stringify(doc, null, 2);
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = buildExportFilename(this.telemetry);
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      if (statusEl) statusEl.textContent = '';
+    } catch (err) {
+      if (statusEl) statusEl.textContent = 'JSONの保存に失敗しました。';
+      // Deliberately not re-thrown/logged as an uncaught exception —
+      // failure_handling's "コンソールへ未捕捉例外を出さない" — but a
+      // console.warn (not an error/throw) is fine for local debugging.
+      console.warn('Telemetry export failed:', err);
+    }
+  }
+
   /**
    * Redraws the inventory overlay from the current state: hidden entirely
    * when closed; when open, shows the glyph/name/count of every item with
@@ -714,7 +888,13 @@ class MainScene extends Phaser.Scene {
 
     const playerBefore = { ...this.state.player.pos };
     const enemiesBefore = this.state.enemies.map((enemy) => ({ ...enemy.pos }));
+    // Telemetry (Phase 10.3.1): snapshot must be taken before processTurn
+    // mutates state.player/state.enemies in place — see telemetry.ts's
+    // TurnSnapshot doc comment.
+    const turnSnapshot = snapshotForTurn(this.state);
     const result = processTurn(this.state, action);
+    recordTurn(this.telemetry, action, result.events, turnSnapshot, this.state);
+    finalizeRun(this.telemetry, this.state);
     this.applyTurnResult(result, playerBefore, enemiesBefore);
   }
 
@@ -777,6 +957,11 @@ class MainScene extends Phaser.Scene {
       // previous floor's combat messages are not carried over — the log is
       // cleared and replaced with the floor-advance message.
       this.state = advanceToNextFloor(this.state);
+      // Telemetry (Phase 10.3.1): floor_completed for the departed floor
+      // was already pushed by recordTurn (detected from the pre-advance
+      // phase transition); this only needs the new floor's own
+      // floor_started, using the just-advanced state's turn/floor.
+      recordFloorStarted(this.telemetry, this.state);
       this.messageLog.clear();
       this.messageLog.push(formatEvent({ type: 'floor_advanced' }));
       this.resetSceneToCurrentState();
@@ -846,6 +1031,9 @@ class MainScene extends Phaser.Scene {
   /** Starts a brand-new run (floor 1) for `runSeed`; same runSeed always yields the same 3 floors. */
   private restart(runSeed: number): void {
     this.state = createInitialState(runSeed);
+    this.telemetry = createRunTelemetry(this.state);
+    this.endScreenShownForTelemetry = null;
+    this.hideEndScreen();
     this.messageLog.clear();
     this.resetSceneToCurrentState();
   }
@@ -1030,11 +1218,14 @@ class MainScene extends Phaser.Scene {
     if (this.state.phase === 'gameover') {
       this.messageText.setText('GAME OVER\nEnter: same run   N: new run');
       this.messageText.setVisible(true);
+      this.showEndScreen();
     } else if (this.state.phase === 'victory') {
       this.messageText.setText('VICTORY\nEnter: same run   N: new run');
       this.messageText.setVisible(true);
+      this.showEndScreen();
     } else {
       this.messageText.setVisible(false);
+      this.hideEndScreen();
     }
   }
 }
