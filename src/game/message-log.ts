@@ -109,6 +109,25 @@ export function formatEvent(event: GameEvent): string {
       const name = ITEM_DEFINITIONS[event.itemId].displayName;
       return `HPは満タンで、${name}は使えない。`;
     }
+    case 'item_placed': {
+      const name = ITEM_DEFINITIONS[event.itemId].displayName;
+      return `${name}を足元に置いた。`;
+    }
+    case 'item_place_failed': {
+      const name = ITEM_DEFINITIONS[event.itemId].displayName;
+      if (event.reason === 'ground_occupied') return `足元には既に何かあり、${name}を置けない。`;
+      if (event.reason === 'equipped') return `装備中の${name}は置けない。`;
+      return `${name}を置けない。`;
+    }
+    case 'item_discarded': {
+      const name = ITEM_DEFINITIONS[event.itemId].displayName;
+      return `${name}を捨てた。`;
+    }
+    case 'item_discard_failed': {
+      const name = ITEM_DEFINITIONS[event.itemId].displayName;
+      if (event.reason === 'equipped') return `装備中の${name}は捨てられない。`;
+      return `${name}を捨てられない。`;
+    }
     case 'sun_fruit_used':
       return '太陽の実を使い、太陽エネルギーが回復した。';
     case 'sun_fruit_use_failed':

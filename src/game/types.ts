@@ -302,6 +302,18 @@ export interface GameState {
   /** Index into the current non-zero inventory entries (display order = ITEM_IDS_IN_ORDER), used by ArrowUp/ArrowDown navigation. Resets to 0 whenever the inventory opens. */
   selectedItemIndex: number;
   /**
+   * Phase 11.2: the itemId a discard confirmation prompt is currently
+   * pending for, or null/undefined when no confirmation is showing. Set
+   * when the discard key is pressed on the selected item, cleared on
+   * cancel or on a successful discard. Optional (rather than a required
+   * boolean+id pair) so existing GameState object literals across the
+   * test suite remain valid without every one of them being updated to
+   * include it; treated as "no confirmation pending" whenever absent.
+   * Never persisted across floor transitions or restarts (always cleared,
+   * like inventoryOpen).
+   */
+  discardConfirmItemId?: ItemId | null;
+  /**
    * The currently equipped weapon, or null for unarmed (Phase 08.3).
    * Equipping never removes the weapon from `inventory` (not consumable,
    * not stackable) and never changes player.attack (the permanent unarmed
@@ -451,4 +463,6 @@ export type PlayerAction =
   | { type: 'use_item'; itemId: ItemId }
   | { type: 'equip_weapon'; weaponId: WeaponId }
   | { type: 'equip_armor'; armorId: ArmorId }
-  | { type: 'toggle_enchantment' };
+  | { type: 'toggle_enchantment' }
+  | { type: 'place_item'; itemId: ItemId }
+  | { type: 'discard_item'; itemId: ItemId };

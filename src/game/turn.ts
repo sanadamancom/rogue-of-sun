@@ -2,7 +2,7 @@ import { directionBetweenAdjacent, isAdjacent, isOrthogonallyAdjacent } from './
 import { canMove, destinationOf, isInBounds, isWalkable } from './map';
 import { ENEMY_DEFINITIONS } from './enemy-def';
 import { ITEM_DEFINITIONS } from './item-def';
-import { hasInventoryCapacity } from './inventory';
+import { hasInventoryCapacity, inventoryEntries } from './inventory';
 import { WEAPON_DEFINITIONS } from './weapon-def';
 import { ARMOR_DEFINITIONS } from './armor-def';
 import { computeAttackDamage, computeIncomingDamage, computeHitChance, resolvesAsHit } from './combat';
@@ -273,6 +273,19 @@ function applyPlayerAction(
 
   if (action.type === 'equip_armor') {
     return applyArmorEquip(state, action.armorId, events);
+  }
+
+  // Phase 11.2: place selected item at the player's feet / discard it
+  // entirely. Both are resolved the same way use_item/equip_* are —
+  // before the move/wait guard below, exempted from the inventoryOpen
+  // rejection in processTurn — so a success runs the normal post-action
+  // pipeline (enemy actions, regen, floor check, turn increment).
+  if (action.type === 'place_item') {
+    return applyPlaceItem(state, action.itemId, events);
+  }
+
+  if (action.type === 'discard_item') {
+    return applyDiscardItem(state, action.itemId, events);
   }
 
   // Enchantment toggle (Phase 10.1, 'f' key): cycles none<->sol while
@@ -752,6 +765,110 @@ function applyArmorEquip(
   state.equippedArmorId = armorId;
   events.push({ type: 'armor_equipped', armorId });
   state.inventoryOpen = false;
+  return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
+ * Whether `itemId` is the player's last copy of a currently-equipped
+ * weapon/armor (Phase 11.2 equipped_item_rule): owning exactly 1 and it
+ * being the equipped weapon or armor blocks place/discard, but owning 2+
+ * of an equipped weapon/armor (not reachable today since weapons/armor
+ * are non-stackable, but kept generic per the confirmed rule) does not.
+ */
+function isLastEquippedCopy(state: GameState, itemId: import('./types').ItemId): boolean {
+  const owned = state.inventory[itemId] ?? 0;
+  if (owned !== 1) return false;
+  return state.equippedWeaponId === itemId || state.equippedArmorId === itemId;
+}
+
+/**
+ * Clamps state.selectedItemIndex into the valid range of the current
+ * inventory entry list after a place/discard changes which items have a
+ * positive count (Phase 11.2 menu_behavior: "最後の1個がなくなった場合
+ * は、有効な近接項目へ選択を補正する"). A no-op when the current index is
+ * already valid (e.g. the acted-on item still has count > 0, or an entry
+ * further down the list took its place).
+ */
+function clampSelectedItemIndex(state: GameState): void {
+  const entries = inventoryEntries(state);
+  if (entries.length === 0) {
+    state.selectedItemIndex = 0;
+    return;
+  }
+  state.selectedItemIndex = Math.min(state.selectedItemIndex, entries.length - 1);
+}
+
+/**
+ * Resolves a 'place_item' action (Phase 11.2): moves one copy of itemId
+ * from the inventory onto the ground at the player's current position.
+ * Blocked (no state change, no turn) when the item isn't owned, is the
+ * last copy of a currently-equipped weapon/armor, or the player's current
+ * tile already holds a ground item (GroundItem's one-per-tile
+ * construction invariant — see types.ts's GameState.groundItems doc
+ * comment). Never uses RNG; the new GroundItem's id comes from the
+ * existing monotonically-increasing nextGroundItemId counter (same
+ * pattern as web.ts's placeWeb).
+ */
+function applyPlaceItem(
+  state: GameState,
+  itemId: import('./types').ItemId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const owned = state.inventory[itemId] ?? 0;
+  if (owned <= 0) {
+    events.push({ type: 'item_place_failed', itemId, reason: 'item_unavailable' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  if (isLastEquippedCopy(state, itemId)) {
+    events.push({ type: 'item_place_failed', itemId, reason: 'equipped' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  const occupied = state.groundItems.some(
+    (item) => item.pos.x === state.player.pos.x && item.pos.y === state.player.pos.y,
+  );
+  if (occupied) {
+    events.push({ type: 'item_place_failed', itemId, reason: 'ground_occupied' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  state.inventory[itemId] = owned - 1;
+  state.groundItems.push({ id: state.nextGroundItemId, itemId, pos: { ...state.player.pos } });
+  state.nextGroundItemId += 1;
+  events.push({ type: 'item_placed', itemId });
+  clampSelectedItemIndex(state);
+  return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
+ * Resolves a 'discard_item' action (Phase 11.2): removes one copy of
+ * itemId from the inventory entirely (no GroundItem is created). The
+ * confirmation step itself lives in the UI layer (src/main.ts) — by the
+ * time this action reaches processTurn, the player has already confirmed,
+ * so this only re-validates the same ownership/equipped guards
+ * place_item uses (defense in depth against a stale selection). Never
+ * uses RNG.
+ */
+function applyDiscardItem(
+  state: GameState,
+  itemId: import('./types').ItemId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const owned = state.inventory[itemId] ?? 0;
+  if (owned <= 0) {
+    events.push({ type: 'item_discard_failed', itemId, reason: 'item_unavailable' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  if (isLastEquippedCopy(state, itemId)) {
+    events.push({ type: 'item_discard_failed', itemId, reason: 'equipped' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  state.inventory[itemId] = owned - 1;
+  events.push({ type: 'item_discarded', itemId });
+  clampSelectedItemIndex(state);
   return { consumed: true, attacked: false, defeated: false };
 }
 
@@ -1602,7 +1719,9 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
     state.inventoryOpen &&
     action.type !== 'use_item' &&
     action.type !== 'equip_weapon' &&
-    action.type !== 'equip_armor'
+    action.type !== 'equip_armor' &&
+    action.type !== 'place_item' &&
+    action.type !== 'discard_item'
   ) {
     return {
       consumed: false,

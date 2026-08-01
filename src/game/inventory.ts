@@ -61,11 +61,17 @@ export function toggleInventory(state: GameState): void {
   if (state.inventoryOpen) {
     state.selectedItemIndex = 0;
   }
+  // Phase 11.2: a pending discard confirmation never survives the
+  // overlay being toggled (open or closed) — see discard_action.
+  // confirmation's "所持品画面を閉じた場合は削除しない", which also means
+  // no stale confirmation should reappear on the next open.
+  state.discardConfirmItemId = null;
 }
 
 /** Closes the inventory overlay (Escape). Safe to call whether or not it is open. Consumes no turn. */
 export function closeInventory(state: GameState): void {
   state.inventoryOpen = false;
+  state.discardConfirmItemId = null;
 }
 
 /**
@@ -132,6 +138,20 @@ export function selectedInventoryAction(state: GameState): import('./types').Pla
     return { type: 'equip_armor', armorId: itemId as import('./types').ArmorId };
   }
   return { type: 'use_item', itemId };
+}
+
+/**
+ * Returns the itemId of the currently-selected inventory entry, or null
+ * if the inventory is empty. Unlike selectedInventoryAction, this does
+ * not decide a category-based PlayerAction — used by place/discard
+ * (Phase 11.2) which apply to the selected item regardless of its
+ * category.
+ */
+export function selectedItemId(state: GameState): ItemId | null {
+  const entries = inventoryEntries(state);
+  if (entries.length === 0) return null;
+  const clampedIndex = Math.min(state.selectedItemIndex, entries.length - 1);
+  return entries[clampedIndex].itemId;
 }
 
 export function useSelectedInventoryItem(state: GameState): TurnResult {

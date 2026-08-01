@@ -8,9 +8,12 @@ import { WEAPON_DEFINITIONS } from './game/weapon-def';
 import {
   closeInventory,
   inventoryEntries,
+  INVENTORY_CAPACITY,
   moveInventorySelection,
   toggleInventory,
   selectedInventoryAction,
+  selectedItemId,
+  totalInventoryCount,
   useSelectedInventoryItem,
 } from './game/inventory';
 import { formatEvent, formatEvents, MessageLog } from './game/message-log';
@@ -784,7 +787,8 @@ class MainScene extends Phaser.Scene {
     if (!open) return;
 
     const entries = inventoryEntries(this.state);
-    const lines: string[] = ['インベントリ', ''];
+    const current = totalInventoryCount(this.state);
+    const lines: string[] = ['インベントリ', `${current} / ${INVENTORY_CAPACITY}`, ''];
     if (entries.length === 0) {
       lines.push('アイテムを持っていない');
     } else {
@@ -815,7 +819,19 @@ class MainScene extends Phaser.Scene {
       });
     }
     lines.push('');
-    lines.push('Tab/Esc:閉じる  ↑↓:選択  Enter:使用/装備');
+
+    // Phase 11.2:捨てる confirmation replaces the normal control legend
+    // while pending, and blocks the normal navigate/use/place/discard
+    // keys (see handleInventoryKey) so no other menu action can fire
+    // mid-confirmation.
+    const confirmId = this.state.discardConfirmItemId;
+    if (confirmId) {
+      const name = ITEM_DEFINITIONS[confirmId].displayName;
+      lines.push(`${name}を1個捨てますか？`);
+      lines.push('Y:はい  N/Esc:いいえ');
+    } else {
+      lines.push('Tab/Esc:閉じる  ↑↓:選択  Enter:使用/装備  P:置く  X:捨てる');
+    }
 
     const width = this.INVENTORY_OVERLAY_WIDTH;
     const lineHeight = 22;
@@ -909,6 +925,38 @@ class MainScene extends Phaser.Scene {
    * second line of defense). None of open/close/select consume a turn.
    */
   private handleInventoryKey(key: string): void {
+    // Phase 11.2 discard confirmation: while pending, only Y (confirm) and
+    // N/Escape (cancel) are handled — every other overlay key (navigate,
+    // use, place, re-trigger discard) is swallowed so nothing else can
+    // fire mid-confirmation (menu_behavior: "確認中は通常移動・攻撃など
+    // を実行しない").
+    if (this.state.discardConfirmItemId) {
+      const itemId = this.state.discardConfirmItemId;
+      if (key === 'y' || key === 'Y') {
+        this.state.discardConfirmItemId = null;
+        const playerBefore = { ...this.state.player.pos };
+        const enemiesBefore = this.state.enemies.map((enemy) => ({ ...enemy.pos }));
+        const action = { type: 'discard_item' as const, itemId };
+        const turnSnapshot = snapshotForTurn(this.state);
+        const result = processTurn(this.state, action);
+        recordTurn(this.telemetry, action, result, turnSnapshot, this.state);
+        finalizeRun(this.telemetry, this.state);
+        this.applyTurnResult(result, playerBefore, enemiesBefore);
+        this.refreshInventoryOverlay();
+        return;
+      }
+      if (key === 'n' || key === 'N' || key === 'Escape') {
+        // Cancel only clears the pending confirmation (per
+        // discard_action.confirmation: "キャンセルおよび所持品画面を閉じ
+        // た場合は削除しない") — it does not also close the overlay, so
+        // Escape here is a single step back rather than a double-close.
+        this.state.discardConfirmItemId = null;
+        this.refreshInventoryOverlay();
+        return;
+      }
+      return;
+    }
+
     if (key === 'Escape') {
       closeInventory(this.state);
       this.refreshInventoryOverlay();
@@ -943,6 +991,34 @@ class MainScene extends Phaser.Scene {
         finalizeRun(this.telemetry, this.state);
       }
       this.applyTurnResult(result, playerBefore, enemiesBefore);
+      this.refreshInventoryOverlay();
+      return;
+    }
+    // Phase 11.2: P places the selected item at the player's feet
+    // immediately (no confirmation — matches place_action having no
+    // confirmation_required flag, unlike discard). A no-op (no action
+    // submitted at all) when nothing is selected.
+    if (key === 'p' || key === 'P') {
+      const itemId = selectedItemId(this.state);
+      if (!itemId) return;
+      const playerBefore = { ...this.state.player.pos };
+      const enemiesBefore = this.state.enemies.map((enemy) => ({ ...enemy.pos }));
+      const action = { type: 'place_item' as const, itemId };
+      const turnSnapshot = snapshotForTurn(this.state);
+      const result = processTurn(this.state, action);
+      recordTurn(this.telemetry, action, result, turnSnapshot, this.state);
+      finalizeRun(this.telemetry, this.state);
+      this.applyTurnResult(result, playerBefore, enemiesBefore);
+      this.refreshInventoryOverlay();
+      return;
+    }
+    // Phase 11.2: X opens the discard confirmation for the selected item
+    // (discard_action.confirmation_required) rather than discarding
+    // immediately. A no-op when nothing is selected.
+    if (key === 'x' || key === 'X') {
+      const itemId = selectedItemId(this.state);
+      if (!itemId) return;
+      this.state.discardConfirmItemId = itemId;
       this.refreshInventoryOverlay();
       return;
     }

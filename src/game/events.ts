@@ -73,6 +73,13 @@ export type GameEvent =
   | { type: 'item_pickup_failed'; itemId: ItemId; reason: 'inventory_full' }
   | { type: 'item_used'; itemId: ItemId; healed: number }
   | { type: 'item_use_failed'; itemId: ItemId; reason: 'full_hp' }
+  // Phase 11.2 place/discard: reasons mirror the shared blocked-condition
+  // set (ground_occupied only applies to place; equipped/item_unavailable
+  // apply to both).
+  | { type: 'item_placed'; itemId: ItemId }
+  | { type: 'item_place_failed'; itemId: ItemId; reason: 'ground_occupied' | 'equipped' | 'item_unavailable' }
+  | { type: 'item_discarded'; itemId: ItemId }
+  | { type: 'item_discard_failed'; itemId: ItemId; reason: 'equipped' | 'item_unavailable' }
   | { type: 'sun_fruit_used'; itemId: ItemId; recovered: number }
   | { type: 'sun_fruit_use_failed'; itemId: ItemId; reason: 'sol_full' }
   | { type: 'solar_gun_insufficient_solar' }
