@@ -814,6 +814,22 @@ class MainScene extends Phaser.Scene {
       this.playSolEnchantFlash();
     }
 
+    // MISS feedback (Phase 10.3 accuracy/evasion foundation): a brief
+    // text popup at the affected tile for every miss this turn — a
+    // player attack missing an enemy shows at that enemy's current
+    // (post-turn) position; an enemy attack missing the player shows at
+    // the player's current position. Purely cosmetic (never re-runs the
+    // hit roll or any damage/HP logic, which has already been resolved
+    // synchronously above) and never blocks input — see playMissText.
+    for (const event of result.events) {
+      if (event.type === 'player_attack_missed') {
+        const target = this.state.enemies.find((e) => e.type === event.enemyType);
+        if (target) this.playMissText(target.pos);
+      } else if (event.type === 'enemy_attack_missed') {
+        this.playMissText(this.state.player.pos);
+      }
+    }
+
     this.state.enemies.forEach((enemy, i) => {
       const before = enemiesBefore[i];
       const sprite = this.enemySprites[i];
@@ -871,6 +887,37 @@ class MainScene extends Phaser.Scene {
     this.playerSprite.setTint(this.SOL_ENCHANT_FLASH_COLOR);
     this.time.delayedCall(this.SOL_ENCHANT_FLASH_DURATION, () => {
       this.updatePlayerSlowedTint();
+    });
+  }
+
+  /**
+   * Brief "MISS" text popup at a tile (Phase 10.3 accuracy/evasion
+   * foundation): a plain Phaser Text object (no new image asset),
+   * created above every other layer, that fades out and destroys itself
+   * — never left lingering, never blocking further turns (it isn't
+   * tracked in activeAnimations since nothing needs to wait on it).
+   */
+  private readonly MISS_TEXT_DURATION = 500;
+
+  private playMissText(tile: { x: number; y: number }): void {
+    const cx = tile.x * TILE_SIZE + TILE_SIZE / 2;
+    const cy = tile.y * TILE_SIZE + TILE_SIZE * 0.2;
+    const text = this.add
+      .text(cx, cy, 'MISS', {
+        fontFamily: 'monospace',
+        fontSize: '20px',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5, 0.5)
+      .setDepth(1000);
+    this.tweens.add({
+      targets: text,
+      y: cy - TILE_SIZE * 0.3,
+      alpha: 0,
+      duration: this.MISS_TEXT_DURATION,
+      onComplete: () => text.destroy(),
     });
   }
 

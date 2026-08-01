@@ -68,6 +68,7 @@ function singleEnemyState(
     maxSolarEnergy: 5,
     solUnlocked: false,
     selectedEnchantment: 'none',
+    combatRngState: 304,
     sunlight: [],
   };
 }

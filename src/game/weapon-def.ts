@@ -50,12 +50,20 @@ export interface WeaponDefinition {
    * count.
    */
   solarCost?: number;
+  /**
+   * Integer-percent bonus/penalty to the wielder's hit chance (Phase
+   * 10.3 accuracy/evasion foundation) — see combat.ts's computeHitChance.
+   * 0 for bare hands. Never applied to enemy attacks (enemies have no
+   * weapon concept).
+   */
+  hitModifier: number;
 }
 
 // Single source of truth for every registered weapon's combat stats.
 // Phase 08.3 registered only 'sword'; Phase 08.5 added 'spear'; Phase
 // 08.7 adds 'hammer'. Phase 10.2 redefines attackPower as a bonus over
 // bare hands rather than a replacement value — see the doc comment above.
+// Phase 10.3 adds hitModifier.
 export const WEAPON_DEFINITIONS: Record<WeaponId, WeaponDefinition> = {
   sword: {
     id: 'sword',
@@ -63,6 +71,7 @@ export const WEAPON_DEFINITIONS: Record<WeaponId, WeaponDefinition> = {
     reach: 1,
     knockbackDistance: 0,
     hasRecoil: false,
+    hitModifier: 5,
   },
   spear: {
     id: 'spear',
@@ -70,6 +79,7 @@ export const WEAPON_DEFINITIONS: Record<WeaponId, WeaponDefinition> = {
     reach: 2,
     knockbackDistance: 0,
     hasRecoil: false,
+    hitModifier: 5,
   },
   hammer: {
     id: 'hammer',
@@ -77,6 +87,7 @@ export const WEAPON_DEFINITIONS: Record<WeaponId, WeaponDefinition> = {
     reach: 1,
     knockbackDistance: 1,
     hasRecoil: true,
+    hitModifier: -5,
   },
   solar_gun: {
     id: 'solar_gun',
@@ -87,6 +98,7 @@ export const WEAPON_DEFINITIONS: Record<WeaponId, WeaponDefinition> = {
     knockbackDistance: 0,
     hasRecoil: false,
     solarCost: 1,
+    hitModifier: 5,
   },
 };
 

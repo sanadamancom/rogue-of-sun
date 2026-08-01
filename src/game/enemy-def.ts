@@ -101,6 +101,21 @@ export interface EnemyDefinition {
    * parity for these two species only).
    */
   defense: number;
+  /**
+   * Integer-percent chance this species' own attacks land (Phase 10.3
+   * accuracy/evasion foundation) — see combat.ts's computeHitChance.
+   * 90 for every current species (initial_values baseline); a future
+   * species could differ.
+   */
+  accuracy: number;
+  /**
+   * Integer-percent reduction to an attacker's hit chance against this
+   * species (Phase 10.3) — see combat.ts's computeHitChance. 0 for every
+   * species except bat (10): bat is the roster's only "hard to hit"
+   * species this phase (golem's comparatively low evasion is expressed
+   * as 0, per confirmed_design's initial_values).
+   */
+  evasion: number;
   behaviorType: BehaviorType;
   movementType: MovementType;
   stationary: boolean;
@@ -119,6 +134,8 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     hp: 30,
     attack: 10,
     defense: 0,
+    accuracy: 90,
+    evasion: 0,
     behaviorType: 'generic_melee',
     movementType: 'ground',
     stationary: false,
@@ -130,6 +147,8 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     hp: 30,
     attack: 10,
     defense: 0,
+    accuracy: 90,
+    evasion: 0,
     behaviorType: 'cockatrice_gaze',
     movementType: 'ground',
     stationary: false,
@@ -141,6 +160,8 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     hp: 20,
     attack: 10,
     defense: 0,
+    accuracy: 90,
+    evasion: 0,
     behaviorType: 'spider_cardinal',
     movementType: 'ground',
     stationary: false,
@@ -152,6 +173,8 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     hp: 20,
     attack: 10,
     defense: 0,
+    accuracy: 90,
+    evasion: 10,
     behaviorType: 'bat_retreat',
     movementType: 'flying',
     stationary: false,
@@ -163,6 +186,8 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     hp: 50,
     attack: 20,
     defense: 0,
+    accuracy: 90,
+    evasion: 0,
     behaviorType: 'mummy_shamble',
     movementType: 'ground',
     stationary: false,
@@ -174,6 +199,8 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     hp: 40,
     attack: 30,
     defense: 1,
+    accuracy: 90,
+    evasion: 0,
     behaviorType: 'slow_melee',
     movementType: 'ground',
     stationary: false,
@@ -185,6 +212,8 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     hp: 40,
     attack: 20,
     defense: 0,
+    accuracy: 90,
+    evasion: 0,
     behaviorType: 'fast_melee',
     movementType: 'ground',
     stationary: false,
@@ -196,6 +225,8 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     hp: 60,
     attack: 20,
     defense: 0,
+    accuracy: 90,
+    evasion: 0,
     behaviorType: 'recovery_melee',
     movementType: 'ground',
     stationary: false,
@@ -207,6 +238,8 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     hp: 60,
     attack: 20,
     defense: 1,
+    accuracy: 90,
+    evasion: 0,
     behaviorType: 'kraken_tentacle',
     movementType: 'none',
     stationary: true,

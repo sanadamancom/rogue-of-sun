@@ -139,12 +139,14 @@ function freshSpiderState(): GameState {
       maxHp: 3,
       attack: 1,
       defense: 0,
+      accuracy: 90,
+      evasion: 0,
       facing: 'S',
       alive: true,
     },
     enemies: [
-      { pos: { x: 1, y: 1 }, hp: 2, maxHp: 2, attack: 1, defense: 0, facing: 'S', alive: true, type: 'bok' },
-      { pos: { x: 1, y: 6 }, hp: 2, maxHp: 2, attack: 1, defense: 0, facing: 'S', alive: true, type: 'spider' },
+      { pos: { x: 1, y: 1 }, hp: 2, maxHp: 2, attack: 1, defense: 0, accuracy: 90, evasion: 0, facing: 'S', alive: true, type: 'bok' },
+      { pos: { x: 1, y: 6 }, hp: 2, maxHp: 2, attack: 1, defense: 0, accuracy: 90, evasion: 0, facing: 'S', alive: true, type: 'spider' },
     ],
     turn: 0,
     phase: 'playing',
@@ -168,6 +170,7 @@ function freshSpiderState(): GameState {
     maxSolarEnergy: 5,
     solUnlocked: false,
     selectedEnchantment: 'none',
+    combatRngState: 304,
     sunlight: [],
   };
 }

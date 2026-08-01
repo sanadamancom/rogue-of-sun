@@ -79,6 +79,7 @@ function singleEnemyState(
     maxSolarEnergy: 5,
     solUnlocked: false,
     selectedEnchantment: 'none',
+    combatRngState: 304,
     sunlight: [],
   };
 }
@@ -348,6 +349,11 @@ describe('golem HP boundary at real definition values (phase-07-5-golem-hp-tune,
     // course of 39 player actions can never end the run early.
     state.player.hp = 100000;
     state.player.maxHp = 100000;
+    // Phase 10.3 accuracy/evasion foundation: hitChance here is 90 (player
+    // accuracy 90 + unarmed mod 0 - golem evasion 0); force a combat RNG
+    // seed verified safe for 45+ consecutive sub-90 rolls so this loop's
+    // exact hit-count assertions stay deterministic.
+    state.combatRngState = 22;
     expect(state.player.attack).toBe(1); // confirms the player's normal-attack baseline used below
     state.player.facing = 'W';
     // Attacking every turn via the X action: golem only occupies the
@@ -375,6 +381,7 @@ describe('golem HP boundary at real definition values (phase-07-5-golem-hp-tune,
     // headroom, since this test's real focus is the golem's HP boundary.
     state.player.hp = 100000;
     state.player.maxHp = 100000;
+    state.combatRngState = 22; // see the identical note in the previous test
     state.player.facing = 'W';
     for (let i = 0; i < 39; i++) {
       processTurn(state, { type: 'action' });

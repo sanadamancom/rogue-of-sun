@@ -16,6 +16,8 @@ interface CarryOverStats {
   maxHp: number;
   attack: number;
   defense: number;
+  accuracy: number;
+  evasion: number;
   regenProgress: number;
   inventory: Inventory;
   equippedWeaponId: WeaponId | null;
@@ -25,6 +27,7 @@ interface CarryOverStats {
   maxSolarEnergy: number;
   solUnlocked: boolean;
   selectedEnchantment: EnchantmentId;
+  combatRngState: number;
 }
 
 /** Fixed initial/maximum solar energy for a brand new run (Phase 09.1; provisional value, see history doc). */
@@ -54,7 +57,7 @@ function buildEnemies(positions: Vec2[], types: EnemyType[], spawnTurn: number):
   return positions.map((pos, i) => {
     const type = types[i];
     const def = ENEMY_DEFINITIONS[type];
-    return createInitialEnemy(type, pos, def.hp, def.attack, spawnTurn, i, def.defense);
+    return createInitialEnemy(type, pos, def.hp, def.attack, spawnTurn, i, def.defense, def.accuracy, def.evasion);
   });
 }
 
@@ -92,11 +95,13 @@ function buildFloorState(
   const placement = choosePlacement(map, placementRng, enemyCount);
 
   const player: Actor = carry
-    ? createInitialActor(placement.start, carry.maxHp, carry.attack, carry.defense)
+    ? createInitialActor(placement.start, carry.maxHp, carry.attack, carry.defense, carry.accuracy, carry.evasion)
     : // Phase 10.2 combat stat/scale redesign: hp 3->30, attack 1->10
       // (10x scale, see docs/history for the full table); defense 0 (no
       // permanent player defense source yet besides equipped armor).
-      createInitialActor(placement.start, 30, 10, 0);
+      // Phase 10.3 accuracy/evasion foundation: accuracy 90, evasion 0
+      // (confirmed_design's initial_values.actors.player).
+      createInitialActor(placement.start, 30, 10, 0, 90, 0);
   if (carry) {
     // maxHp/attack already set via createInitialActor above; only current
     // HP and facing need to be overridden to the carried-over values
@@ -298,6 +303,15 @@ function buildFloorState(
     // locked and unselected.
     solUnlocked: carry ? carry.solUnlocked : false,
     selectedEnchantment: carry ? carry.selectedEnchantment : 'none',
+    // Combat RNG (Phase 10.3 accuracy/evasion foundation): seeded from
+    // runSeed via its own distinct XOR constant on a brand new run,
+    // carried over (already-advanced) across floor transitions like
+    // solarEnergy — never re-seeded mid-run, so the combat roll sequence
+    // continues uninterrupted across floors. Independent of every
+    // map-generation RNG stream (placementRng/speciesRng/itemRng/etc.),
+    // so combat rolls never perturb map/placement/species/item/sunlight
+    // determinism, and vice versa.
+    combatRngState: carry ? carry.combatRngState : runSeed ^ 0x4e6d3a17,
     // Sunlight layer (Phase 09.3): always regenerated fresh per floor from
     // the finished map/start, using its own independent RNG stream (see
     // sunlight.ts) — never carried over across floor transitions, like
@@ -322,6 +336,8 @@ export function advanceToNextFloor(state: GameState): GameState {
     maxHp: state.player.maxHp,
     attack: state.player.attack,
     defense: state.player.defense,
+    accuracy: state.player.accuracy,
+    evasion: state.player.evasion,
     regenProgress: state.regenProgress,
     inventory: state.inventory,
     equippedWeaponId: state.equippedWeaponId,
@@ -331,6 +347,7 @@ export function advanceToNextFloor(state: GameState): GameState {
     maxSolarEnergy: state.maxSolarEnergy,
     solUnlocked: state.solUnlocked,
     selectedEnchantment: state.selectedEnchantment,
+    combatRngState: state.combatRngState,
   };
   return buildFloorState(state.runSeed, state.floor + 1, state.turn, carry);
 }

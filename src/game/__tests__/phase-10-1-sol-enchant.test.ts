@@ -57,6 +57,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     maxSolarEnergy: 5,
     solUnlocked: false,
     selectedEnchantment: 'none',
+    combatRngState: 304,
     sunlight: [],
     ...overrides,
   };
@@ -231,6 +232,7 @@ describe('sol enchantment activation (Phase 10.1)', () => {
       inventory: { ...createEmptyInventory(), sword: 1 },
       solUnlocked: true,
       selectedEnchantment: 'none',
+      combatRngState: 304,
       solarEnergy: 5,
     });
     faceEastAtEnemy(state);
@@ -334,6 +336,7 @@ describe('existing weapon behavior preserved under sol enchantment (Phase 10.1)'
       inventory: { ...createEmptyInventory(), solar_gun: 1 },
       solUnlocked: false,
       selectedEnchantment: 'none',
+      combatRngState: 304,
       solarEnergy: 5,
     });
     faceEastAtEnemy(state);

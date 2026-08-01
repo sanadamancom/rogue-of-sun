@@ -77,6 +77,7 @@ function mummyState(
     maxSolarEnergy: 5,
     solUnlocked: false,
     selectedEnchantment: 'none',
+    combatRngState: 304,
     sunlight: [],
   };
 }

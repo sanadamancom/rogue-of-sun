@@ -74,6 +74,22 @@ export interface Actor {
    * from EnemyDefinition.defense at spawn time, same as attack/hp.
    */
   defense: number;
+  /**
+   * Integer-percent chance this actor's own attacks land, before the
+   * defender's evasion and the weapon's hit modifier are applied (Phase
+   * 10.3 accuracy/evasion foundation) — see combat.ts's computeHitChance
+   * for the exact formula. Same base/full-value split as `defense`: base
+   * only for the player (no permanent bonus source yet), full value for
+   * enemies (copied from EnemyDefinition.accuracy at spawn).
+   */
+  accuracy: number;
+  /**
+   * Integer-percent reduction to an attacker's hit chance when this
+   * actor is the defender (Phase 10.3) — see combat.ts's
+   * computeHitChance. 0 for almost every actor; only bat carries a
+   * nonzero value among the current roster (see enemy-def.ts).
+   */
+  evasion: number;
   facing: Direction8;
   alive: boolean;
   /**
@@ -357,6 +373,21 @@ export interface GameState {
    * Persists across floor transitions; resets to 'none' on a brand new run.
    */
   selectedEnchantment: EnchantmentId;
+  /**
+   * Combat RNG stream state (Phase 10.3 accuracy/evasion foundation) —
+   * see rng.ts's mulberry32Step/rollPercent. A plain number (not a
+   * closure) so GameState stays ordinary data; advanced by exactly one
+   * step per resolved (non-whiff, non-out-of-range, non-resource-
+   * blocked) attack, player or enemy. Seeded from runSeed at run start
+   * (see state.ts's createInitialState) via its own XOR constant,
+   * independent of every map-generation RNG stream — never perturbs
+   * map/placement/species/item/sunlight determinism. Persists across
+   * floor transitions like inventory/solarEnergy; a brand new run (or
+   * restarting the same run seed via Enter) always re-seeds it
+   * identically, so the combat roll sequence is exactly as reproducible
+   * as everything else derived from runSeed.
+   */
+  combatRngState: number;
 }
 
 /**

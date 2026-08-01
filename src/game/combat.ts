@@ -47,3 +47,37 @@ export function computeAttackDamage(baseAttack: number, weaponBonus: number, def
 export function computeIncomingDamage(attackerAttack: number, defenderDefense: number): number {
   return Math.max(0, attackerAttack - defenderDefense);
 }
+
+/**
+ * Hit chance floor/ceiling (Phase 10.3 accuracy/evasion foundation), in
+ * integer percent. No matchup can ever fall outside this range — see
+ * computeHitChance.
+ */
+export const MIN_HIT_CHANCE = 5;
+export const MAX_HIT_CHANCE = 95;
+
+/**
+ * Integer-percent hit chance for one attack (Phase 10.3): attacker
+ * accuracy plus the weapon's hit modifier (0 for an unarmed attacker),
+ * minus the defender's evasion, clamped to [MIN_HIT_CHANCE,
+ * MAX_HIT_CHANCE]. Pure — never rolls, never touches state. See
+ * turn.ts's resolveAttackHit for how the roll itself (rng.ts's
+ * rollPercent) is combined with this.
+ */
+export function computeHitChance(attackerAccuracy: number, weaponHitModifier: number, defenderEvasion: number): number {
+  const raw = attackerAccuracy + weaponHitModifier - defenderEvasion;
+  return Math.min(MAX_HIT_CHANCE, Math.max(MIN_HIT_CHANCE, raw));
+}
+
+/**
+ * Whether a drawn `roll` (integer [0, 99], from rng.ts's rollPercent)
+ * counts as a hit against `hitChance` (integer percent, from
+ * computeHitChance): `roll < hitChance`. This means a hitChance of 95
+ * hits on exactly 95 of the 100 possible roll values (0-94), and a
+ * hitChance of 5 hits on exactly 5 of them (0-4) — matching Phase 10.3's
+ * confirmed_design boundary requirements precisely, with no off-by-one
+ * ambiguity at either end.
+ */
+export function resolvesAsHit(roll: number, hitChance: number): boolean {
+  return roll < hitChance;
+}

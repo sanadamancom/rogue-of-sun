@@ -4,7 +4,8 @@ import { ENEMY_DEFINITIONS } from './enemy-def';
 import { ITEM_DEFINITIONS } from './item-def';
 import { WEAPON_DEFINITIONS } from './weapon-def';
 import { ARMOR_DEFINITIONS } from './armor-def';
-import { computeAttackDamage, computeIncomingDamage } from './combat';
+import { computeAttackDamage, computeIncomingDamage, computeHitChance, resolvesAsHit } from './combat';
+import { rollPercent } from './rng';
 import { canPlaceWebNow, expireWebs, placeWeb } from './web';
 import { isSunlitAt } from './sunlight';
 import { GameEvent } from './events';
@@ -56,6 +57,17 @@ export const REGEN_TURNS_PER_HP = 5;
 function getPlayerWeaponBonus(state: GameState): number {
   if (state.equippedWeaponId) {
     return WEAPON_DEFINITIONS[state.equippedWeaponId].attackPower;
+  }
+  return 0;
+}
+
+/**
+ * The equipped weapon's hit-chance modifier (Phase 10.3 accuracy/evasion
+ * foundation): 0 if unarmed. See combat.ts's computeHitChance.
+ */
+function getPlayerWeaponHitModifier(state: GameState): number {
+  if (state.equippedWeaponId) {
+    return WEAPON_DEFINITIONS[state.equippedWeaponId].hitModifier;
   }
   return 0;
 }
@@ -118,7 +130,33 @@ export function getIncomingDamage(state: GameState, attackPower: number): number
  * handling — and any future on-hit logic — is never duplicated per
  * weapon. Never itself resolves enemy actions.
  */
-function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: GameEvent[]): boolean {
+/**
+ * Resolves one confirmed attack attempt against `target` (a target tile
+ * has already been found — never called on a whiff/out-of-range/
+ * resource-blocked attempt, so this is always where the Phase 10.3 hit
+ * roll belongs). Draws exactly one roll from state.combatRngState. On a
+ * miss: pushes `player_attack_missed`, never touches target.hp/SOL/
+ * defeat, and returns `{ hit: false, defeated: false }` — the caller
+ * (resolveFacingAttack/resolveSolarGunAttack) must skip knockback for a
+ * miss but still report the action as consumed/attacked (a miss is still
+ * an attack attempt, not a whiff). On a hit, behaves exactly as
+ * pre-10.3's damage/sol-enchantment/defeat resolution.
+ */
+function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: GameEvent[]): { hit: boolean; defeated: boolean } {
+  const weaponId = state.equippedWeaponId;
+  const hitChance = computeHitChance(state.player.accuracy, getPlayerWeaponHitModifier(state), target.evasion);
+  const { roll, nextState } = rollPercent(state.combatRngState);
+  state.combatRngState = nextState;
+
+  if (!resolvesAsHit(roll, hitChance)) {
+    events.push(
+      weaponId
+        ? { type: 'player_attack_missed', enemyType: target.type, weaponId, hitChance, roll }
+        : { type: 'player_attack_missed', enemyType: target.type, hitChance, roll },
+    );
+    return { hit: false, defeated: false };
+  }
+
   const baseDamage = computeAttackDamage(state.player.attack, getPlayerWeaponBonus(state), target.defense);
   let damage = baseDamage;
 
@@ -127,11 +165,11 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
   // solar gun), only while 'sol' is selected and unlocked, and only when
   // there is at least SOL_ENCHANT_COST SOL available. A confirmed hit
   // (this function is only ever called once an enemy target has already
-  // been found — never on a whiff) is required, so a miss never consumes
+  // been found, and only reaches this point once the Phase 10.3 hit roll
+  // above has also succeeded) is required, so a miss never consumes
   // SOL. When SOL is insufficient, the selection is left exactly as-is
   // and the attack simply deals its normal (unbonused) damage — no event,
   // no log line, no animation trigger.
-  const weaponId = state.equippedWeaponId;
   const solEligible = weaponId !== null && SOL_ENCHANT_ELIGIBLE_WEAPONS.includes(weaponId);
   const solActivates =
     solEligible &&
@@ -167,7 +205,7 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
     target.alive = false;
     events.push({ type: 'enemy_defeated', enemyType: target.type });
   }
-  return defeated;
+  return { hit: true, defeated };
 }
 
 export interface TurnResult {
@@ -420,11 +458,11 @@ function resolveFacingAttack(
     (enemy) => enemy.alive && enemy.pos.x === destination.x && enemy.pos.y === destination.y,
   );
   if (target) {
-    const defeated = applyPlayerAttackToEnemy(state, target, events);
-    if (!defeated) {
+    const result = applyPlayerAttackToEnemy(state, target, events);
+    if (result.hit && !result.defeated) {
       tryKnockback(state, target, direction, events);
     }
-    return { consumed: true, attacked: true, defeated };
+    return { consumed: true, attacked: true, defeated: result.defeated };
   }
 
   // Reach-2 attack (Phase 08.5 spear, carried over unchanged into the X
@@ -445,11 +483,11 @@ function resolveFacingAttack(
           (enemy) => enemy.alive && enemy.pos.x === farTile.x && enemy.pos.y === farTile.y,
         );
         if (farTarget) {
-          const defeated = applyPlayerAttackToEnemy(state, farTarget, events);
-          if (!defeated) {
+          const result = applyPlayerAttackToEnemy(state, farTarget, events);
+          if (result.hit && !result.defeated) {
             tryKnockback(state, farTarget, direction, events);
           }
-          return { consumed: true, attacked: true, defeated };
+          return { consumed: true, attacked: true, defeated: result.defeated };
         }
       }
     }
@@ -546,8 +584,8 @@ function resolveSolarGunAttack(
   }
 
   if (target) {
-    const defeated = applyPlayerAttackToEnemy(state, target, events);
-    return { consumed: true, attacked: true, defeated };
+    const result = applyPlayerAttackToEnemy(state, target, events);
+    return { consumed: true, attacked: true, defeated: result.defeated };
   }
 
   events.push({ type: 'player_whiff', weaponId });
@@ -707,16 +745,46 @@ function applyArmorEquip(
 
 /**
  * Resolves an attack against the player if `enemy` is adjacent to them
- * (8-direction adjacency), updating facing and player HP/alive. Returns
- * whether an attack happened. Shared by every 8-direction melee
- * behaviorType (generic_melee, slow_melee, fast_melee, recovery_melee) so
- * the attack resolution itself lives in one place.
+ * (8-direction adjacency), updating facing and (on a hit) player
+ * HP/alive. Returns whether an attack was attempted at all (true
+ * whenever adjacent, hit or miss) — this only ever signals "this
+ * enemy's turn is spent attacking", not hit success; see
+ * resolveEnemyAttackHit for the Phase 10.3 hit roll itself. Shared by
+ * every 8-direction melee behaviorType (generic_melee, slow_melee,
+ * fast_melee, recovery_melee) so the attack resolution itself lives in
+ * one place.
  */
 function tryMeleeAttack(state: GameState, enemy: EnemyActor, events: GameEvent[]): boolean {
   const { player } = state;
   if (!isAdjacent(enemy.pos, player.pos)) return false;
   const dir = directionBetweenAdjacent(enemy.pos, player.pos);
   if (dir) enemy.facing = dir;
+  resolveEnemyAttackHit(state, enemy, events);
+  return true;
+}
+
+/**
+ * Resolves one confirmed enemy attack attempt against the player (Phase
+ * 10.3 accuracy/evasion foundation): draws exactly one roll from
+ * state.combatRngState. On a miss, pushes `enemy_attack_missed` and
+ * never touches player.hp/alive. On a hit, applies the existing
+ * defense-reduced damage (see getIncomingDamage) exactly as before
+ * Phase 10.3. Shared by every enemy damage-dealing path (tryMeleeAttack,
+ * resolveSpiderEnemy's own melee branch, resolveKrakenEnemy's tentacle
+ * strike) so the roll/damage-application logic lives in one place, the
+ * same way applyPlayerAttackToEnemy centralizes the player side.
+ */
+function resolveEnemyAttackHit(state: GameState, enemy: EnemyActor, events: GameEvent[]): boolean {
+  const { player } = state;
+  const hitChance = computeHitChance(enemy.accuracy, 0, player.evasion);
+  const { roll, nextState } = rollPercent(state.combatRngState);
+  state.combatRngState = nextState;
+
+  if (!resolvesAsHit(roll, hitChance)) {
+    events.push({ type: 'enemy_attack_missed', enemyType: enemy.type, hitChance, roll });
+    return false;
+  }
+
   const damage = getIncomingDamage(state, enemy.attack);
   player.hp = Math.max(0, player.hp - damage);
   events.push({ type: 'enemy_attack', enemyType: enemy.type, damage });
@@ -1009,10 +1077,7 @@ function resolveSpiderEnemy(
   if (isOrthogonallyAdjacent(enemy.pos, state.player.pos)) {
     const dir = directionBetweenAdjacent(enemy.pos, state.player.pos);
     if (dir) enemy.facing = dir;
-    const damage = getIncomingDamage(state, enemy.attack);
-    state.player.hp = Math.max(0, state.player.hp - damage);
-    events.push({ type: 'enemy_attack', enemyType: enemy.type, damage });
-    if (state.player.hp === 0) state.player.alive = false;
+    resolveEnemyAttackHit(state, enemy, events);
     decrementWebCooldown(enemy);
     return { acted: true, attacked: true };
   }
@@ -1616,8 +1681,15 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
   };
 }
 
-export function createInitialActor(pos: Vec2, hp: number, attack: number, defense: number = 0): Actor {
-  return { pos, hp, maxHp: hp, attack, defense, facing: 'S', alive: true };
+export function createInitialActor(
+  pos: Vec2,
+  hp: number,
+  attack: number,
+  defense: number = 0,
+  accuracy: number = 90,
+  evasion: number = 0,
+): Actor {
+  return { pos, hp, maxHp: hp, attack, defense, accuracy, evasion, facing: 'S', alive: true };
 }
 
 export function createInitialEnemy(
@@ -1628,9 +1700,11 @@ export function createInitialEnemy(
   spawnTurn: number = 0,
   id: number = 0,
   defense: number = 0,
+  accuracy: number = 90,
+  evasion: number = 0,
 ): EnemyActor {
   return {
-    ...createInitialActor(pos, hp, attack, defense),
+    ...createInitialActor(pos, hp, attack, defense, accuracy, evasion),
     type,
     spawnTurn,
     recovering: false,

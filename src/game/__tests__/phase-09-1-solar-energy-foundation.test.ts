@@ -56,6 +56,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     maxSolarEnergy: 5,
     solUnlocked: false,
     selectedEnchantment: 'none',
+    combatRngState: 304,
     sunlight: [],
     ...overrides,
   };

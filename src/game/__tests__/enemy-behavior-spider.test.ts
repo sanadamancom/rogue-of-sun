@@ -87,6 +87,7 @@ function spiderState(
     maxSolarEnergy: 5,
     solUnlocked: false,
     selectedEnchantment: 'none',
+    combatRngState: 304,
     sunlight: [],
   };
 }
@@ -549,6 +550,7 @@ describe('spider regression: no diagonal movement or corner-crossing for other s
     maxSolarEnergy: 5,
     solUnlocked: false,
     selectedEnchantment: 'none',
+    combatRngState: 304,
     sunlight: [],
     };
     // bok already moves diagonally when unobstructed (8-direction chase),

@@ -127,6 +127,11 @@ describe('multi-floor progression', () => {
     state.enemies[0].hp = 99;
     state.enemies[0].attack = 999;
     state.enemies[1].pos = { x: 0, y: 0 };
+    // Phase 10.3 accuracy/evasion foundation: force a low, verified-safe
+    // combat roll so this enemy's attack is guaranteed to land — this
+    // test is about gameover-on-any-floor, not about the hit/miss system
+    // itself.
+    state.combatRngState = 0;
     processTurn(state, { type: 'wait' });
     expect(state.phase).toBe('gameover');
   });

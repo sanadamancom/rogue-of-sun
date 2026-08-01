@@ -16,6 +16,14 @@ import { Direction8, EnchantmentId, EnemyType, ItemId, WeaponId, ArmorId, Vec2 }
 export type GameEvent =
   | { type: 'player_attack'; enemyType: EnemyType; damage: number; weaponId?: WeaponId }
   | { type: 'enemy_attack'; enemyType: EnemyType; damage: number }
+  // Phase 10.3 accuracy/evasion foundation: pushed instead of
+  // 'player_attack'/'enemy_attack' when a confirmed attack attempt (a
+  // target tile was already found — never a whiff) fails its hit roll.
+  // hitChance/roll are the exact inputs to combat.ts's resolvesAsHit, so
+  // any observer (tests, a future debug overlay) can reconstruct the
+  // outcome without re-deriving it.
+  | { type: 'player_attack_missed'; enemyType: EnemyType; weaponId?: WeaponId; hitChance: number; roll: number }
+  | { type: 'enemy_attack_missed'; enemyType: EnemyType; hitChance: number; roll: number }
   | { type: 'enemy_defeated'; enemyType: EnemyType }
   | { type: 'enemy_recovering'; enemyType: EnemyType }
   | { type: 'sword_dash'; enemyType: EnemyType }

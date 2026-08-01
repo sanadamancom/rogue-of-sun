@@ -25,6 +25,18 @@ export function formatEvent(event: GameEvent): string {
       }
       return `${name}の攻撃！ ${event.damage}ダメージを受けた。`;
     }
+    case 'player_attack_missed': {
+      const name = ENEMY_DEFINITIONS[event.enemyType].displayName;
+      if (event.weaponId) {
+        const weaponName = ITEM_DEFINITIONS[event.weaponId].displayName;
+        return `${weaponName}で${name}を攻撃したが、外れた。`;
+      }
+      return `${name}を攻撃したが、外れた。`;
+    }
+    case 'enemy_attack_missed': {
+      const name = ENEMY_DEFINITIONS[event.enemyType].displayName;
+      return `${name}の攻撃！ 外れた。`;
+    }
     case 'enemy_defeated': {
       const name = ENEMY_DEFINITIONS[event.enemyType].displayName;
       return `${name}をたおした。`;
