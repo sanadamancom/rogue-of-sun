@@ -82,19 +82,32 @@ function noopResult(): TurnResult {
  * (Phase 08.2 requirement: "空の状態でEnterを押しても何も消費せず、ター
  * ンも進めない").
  */
-export function useSelectedInventoryItem(state: GameState): TurnResult {
+/**
+ * Determines which PlayerAction Enter would submit for the currently
+ * selected inventory entry, without actually submitting it (Phase
+ * 10.3.2 telemetry-correctness fix): the same category dispatch
+ * useSelectedInventoryItem already does, factored out so main.ts can
+ * know the action for telemetry purposes without duplicating this
+ * routing logic or calling processTurn twice. Returns null for an empty
+ * inventory (mirrors useSelectedInventoryItem's noopResult case).
+ */
+export function selectedInventoryAction(state: GameState): import('./types').PlayerAction | null {
   const entries = inventoryEntries(state);
-  if (entries.length === 0) {
-    return noopResult();
-  }
+  if (entries.length === 0) return null;
   const clampedIndex = Math.min(state.selectedItemIndex, entries.length - 1);
   const itemId = entries[clampedIndex].itemId;
   const def = ITEM_DEFINITIONS[itemId];
   if (def.category === 'weapon') {
-    return processTurn(state, { type: 'equip_weapon', weaponId: itemId as import('./types').WeaponId });
+    return { type: 'equip_weapon', weaponId: itemId as import('./types').WeaponId };
   }
   if (def.category === 'armor') {
-    return processTurn(state, { type: 'equip_armor', armorId: itemId as import('./types').ArmorId });
+    return { type: 'equip_armor', armorId: itemId as import('./types').ArmorId };
   }
-  return processTurn(state, { type: 'use_item', itemId });
+  return { type: 'use_item', itemId };
+}
+
+export function useSelectedInventoryItem(state: GameState): TurnResult {
+  const action = selectedInventoryAction(state);
+  if (!action) return noopResult();
+  return processTurn(state, action);
 }

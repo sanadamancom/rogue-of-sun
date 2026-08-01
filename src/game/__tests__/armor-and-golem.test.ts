@@ -317,7 +317,7 @@ describe('armor damage reduction', () => {
     const bok = createInitialEnemy('bok', { x: 3, y: 1 }, 2, 1);
     state.enemies = [bok];
     const result = processTurn(state, { type: 'wait' });
-    expect(result.events).toContainEqual({ type: 'enemy_attack', enemyType: 'bok', damage: 0 });
+    expect(result.events).toContainEqual({ type: 'enemy_attack', enemyType: 'bok', attackerId: 0, damage: 0 });
   });
 
   it('armor is not consumed/removed by absorbing hits', () => {

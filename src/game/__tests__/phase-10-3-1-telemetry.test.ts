@@ -73,7 +73,7 @@ const GUARANTEED_MISS_SEED = 43; // first roll: 99
 function step(state: GameState, action: PlayerAction, telemetry: ReturnType<typeof createRunTelemetry>) {
   const before = snapshotForTurn(state);
   const result = processTurn(state, action);
-  recordTurn(telemetry, action, result.events, before, state);
+  recordTurn(telemetry, action, result, before, state);
   finalizeRun(telemetry, state);
   return result;
 }
@@ -458,7 +458,7 @@ describe('JSON export (Phase 10.3.1)', () => {
     const state = freshState({ enemies: [] });
     const telemetry = createRunTelemetry(state);
     const doc = buildTelemetryDocument(telemetry, state);
-    expect(doc.schemaVersion).toBe(1);
+    expect(doc.schemaVersion).toBe(2);
   });
 
   it('the exported document round-trips through JSON.stringify/parse', () => {
@@ -468,7 +468,7 @@ describe('JSON export (Phase 10.3.1)', () => {
     const doc = buildTelemetryDocument(telemetry, state);
     const json = JSON.stringify(doc);
     const parsed = JSON.parse(json);
-    expect(parsed.schemaVersion).toBe(1);
+    expect(parsed.schemaVersion).toBe(2);
     expect(parsed.events.length).toBe(doc.events.length);
   });
 
@@ -481,7 +481,7 @@ describe('JSON export (Phase 10.3.1)', () => {
     });
     const telemetry = createRunTelemetry(state);
     step(state, { type: 'wait' }, telemetry);
-    expect(buildExportFilename(telemetry)).toBe('rogue-of-sun-run-v1-12345-death.json');
+    expect(buildExportFilename(telemetry)).toBe('rogue-of-sun-run-v2-12345-death.json');
   });
 
   it('building the document twice from the same finalized telemetry gives identical JSON', () => {
@@ -503,7 +503,7 @@ describe('determinism and non-interference (Phase 10.3.1)', () => {
     const rngBeforeRecord = state.combatRngState;
     const result = processTurn(state, { type: 'action' });
     const rngAfterProcessTurn = state.combatRngState;
-    recordTurn(telemetry, { type: 'action' }, result.events, before, state);
+    recordTurn(telemetry, { type: 'action' }, result, before, state);
     expect(state.combatRngState).toBe(rngAfterProcessTurn);
     expect(rngAfterProcessTurn).not.toBe(rngBeforeRecord); // sanity: processTurn itself did roll
   });

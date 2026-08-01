@@ -14,17 +14,28 @@ import { Direction8, EnchantmentId, EnemyType, ItemId, WeaponId, ArmorId, Vec2 }
  * render TurnResult.events as-is without re-sorting.
  */
 export type GameEvent =
-  | { type: 'player_attack'; enemyType: EnemyType; damage: number; weaponId?: WeaponId }
-  | { type: 'enemy_attack'; enemyType: EnemyType; damage: number }
+  // Phase 10.3.2 telemetry-correctness fix: targetId/targetHpBefore/
+  // targetHpAfter/attackerId are pure observability additions (see
+  // telemetry.ts's history doc for why) — they change no calculation,
+  // no RNG call, no AI, no turn consumption. Before this fix,
+  // telemetry.ts had to re-look-up "an enemy of this type" by scanning
+  // state.enemies after the turn resolved, which silently misattributed
+  // hits/kills whenever two same-species enemies existed on one floor
+  // (a supported, pre-existing spawn possibility) or once the real
+  // target had already died and stayed in the array (alive:false, never
+  // removed). Carrying the actual EnemyActor.id and the exact HP values
+  // already computed here removes any need for that re-lookup.
+  | { type: 'player_attack'; enemyType: EnemyType; targetId: number; damage: number; targetHpBefore: number; targetHpAfter: number; weaponId?: WeaponId }
+  | { type: 'enemy_attack'; enemyType: EnemyType; attackerId: number; damage: number }
   // Phase 10.3 accuracy/evasion foundation: pushed instead of
   // 'player_attack'/'enemy_attack' when a confirmed attack attempt (a
   // target tile was already found — never a whiff) fails its hit roll.
   // hitChance/roll are the exact inputs to combat.ts's resolvesAsHit, so
   // any observer (tests, a future debug overlay) can reconstruct the
   // outcome without re-deriving it.
-  | { type: 'player_attack_missed'; enemyType: EnemyType; weaponId?: WeaponId; hitChance: number; roll: number }
-  | { type: 'enemy_attack_missed'; enemyType: EnemyType; hitChance: number; roll: number }
-  | { type: 'enemy_defeated'; enemyType: EnemyType }
+  | { type: 'player_attack_missed'; enemyType: EnemyType; targetId: number; weaponId?: WeaponId; hitChance: number; roll: number }
+  | { type: 'enemy_attack_missed'; enemyType: EnemyType; attackerId: number; hitChance: number; roll: number }
+  | { type: 'enemy_defeated'; enemyType: EnemyType; targetId: number }
   | { type: 'enemy_recovering'; enemyType: EnemyType }
   | { type: 'sword_dash'; enemyType: EnemyType }
   | { type: 'web_placed'; enemyType: EnemyType }

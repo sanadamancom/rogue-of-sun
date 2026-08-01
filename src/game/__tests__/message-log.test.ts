@@ -75,26 +75,26 @@ function singleEnemyState(
 
 describe('formatEvent / formatEvents', () => {
   it('renders damage and enemy display name for player_attack', () => {
-    const line = formatEvent({ type: 'player_attack', enemyType: 'bok', damage: 2 });
+    const line = formatEvent({ type: 'player_attack', enemyType: 'bok', targetId: 0, damage: 2, targetHpBefore: 2, targetHpAfter: 0 });
     expect(line).toContain(ENEMY_DEFINITIONS.bok.displayName);
     expect(line).toContain('2');
   });
 
   it('renders damage and enemy display name for enemy_attack', () => {
-    const line = formatEvent({ type: 'enemy_attack', enemyType: 'golem', damage: 3 });
+    const line = formatEvent({ type: 'enemy_attack', enemyType: 'golem', attackerId: 0, damage: 3 });
     expect(line).toContain(ENEMY_DEFINITIONS.golem.displayName);
     expect(line).toContain('3');
   });
 
   it('renders enemy_defeated with the correct enemy name', () => {
-    const line = formatEvent({ type: 'enemy_defeated', enemyType: 'spider' });
+    const line = formatEvent({ type: 'enemy_defeated', enemyType: 'spider', targetId: 0 });
     expect(line).toContain(ENEMY_DEFINITIONS.spider.displayName);
   });
 
   it('formats a sequence of events in order', () => {
     const lines = formatEvents([
-      { type: 'player_attack', enemyType: 'bok', damage: 1 },
-      { type: 'enemy_defeated', enemyType: 'bok' },
+      { type: 'player_attack', enemyType: 'bok', targetId: 0, damage: 1, targetHpBefore: 1, targetHpAfter: 0 },
+      { type: 'enemy_defeated', enemyType: 'bok', targetId: 0 },
     ]);
     expect(lines).toHaveLength(2);
     expect(lines[0]).toContain(ENEMY_DEFINITIONS.bok.displayName);
@@ -134,7 +134,7 @@ describe('processTurn events', () => {
     const state = singleEnemyState('bok', { x: 9, y: 4 }, { hp: 100, attack: 1 });
     state.player.facing = 'W';
     const result = processTurn(state, { type: 'action' });
-    expect(result.events[0]).toEqual({ type: 'player_attack', enemyType: 'bok', damage: 1 });
+    expect(result.events[0]).toEqual({ type: 'player_attack', enemyType: 'bok', targetId: 0, damage: 1, targetHpBefore: 100, targetHpAfter: 99 });
     expect(result.events.find((e) => e.type === 'enemy_defeated')).toBeUndefined();
   });
 
@@ -143,15 +143,15 @@ describe('processTurn events', () => {
     state.player.facing = 'W';
     const result = processTurn(state, { type: 'action' });
     expect(result.events).toEqual([
-      { type: 'player_attack', enemyType: 'bok', damage: 1 },
-      { type: 'enemy_defeated', enemyType: 'bok' },
+      { type: 'player_attack', enemyType: 'bok', targetId: 0, damage: 1, targetHpBefore: 1, targetHpAfter: 0 },
+      { type: 'enemy_defeated', enemyType: 'bok', targetId: 0 },
     ]);
   });
 
   it('produces enemy_attack when an enemy hits the player', () => {
     const state = singleEnemyState('bok', { x: 9, y: 4 }, { attack: 2 });
     const result = processTurn(state, { type: 'wait' });
-    expect(result.events).toEqual([{ type: 'enemy_attack', enemyType: 'bok', damage: 2 }]);
+    expect(result.events).toEqual([{ type: 'enemy_attack', enemyType: 'bok', attackerId: 0, damage: 2 }]);
   });
 
   it('produces player_defeated when the player dies this turn', () => {
@@ -170,7 +170,7 @@ describe('processTurn events', () => {
   it('produces enemy_recovering for axe on its forced-wait turn after attacking', () => {
     const state = singleEnemyState('axe', { x: 9, y: 4 }, { attack: 1 });
     const first = processTurn(state, { type: 'wait' });
-    expect(first.events).toEqual([{ type: 'enemy_attack', enemyType: 'axe', damage: 1 }]);
+    expect(first.events).toEqual([{ type: 'enemy_attack', enemyType: 'axe', attackerId: 0, damage: 1 }]);
     const second = processTurn(state, { type: 'wait' });
     expect(second.events).toEqual([{ type: 'enemy_recovering', enemyType: 'axe' }]);
   });

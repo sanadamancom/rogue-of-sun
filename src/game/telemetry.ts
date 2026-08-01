@@ -1,27 +1,58 @@
 /**
- * Run telemetry (Phase 10.3.1): a purely additive, read-only observer of
- * game state. Every function here is a pure transformation — none of
- * them mutate GameState, consume any RNG stream (combatRngState or any
- * map-generation stream), or re-run any game logic. They only ever read
- * already-resolved data: the GameEvent[] turn.ts already produced, the
- * PlayerAction that was submitted, and before/after GameState snapshots
- * the caller (main.ts) already has on hand for its own rendering. This
- * satisfies core_principles' "計測はゲーム結果へ影響しない" /
- * "計測処理から乱数を一切使用しない" / "既存ゲームロジックを重複実装しない"
- * by construction: there is no path from this module back into GameState
- * or turn.ts.
+ * Run telemetry (Phase 10.3.1, corrected in Phase 10.3.2 — see
+ * docs/history/phase-10-3-2-telemetry-correctness-fix.md). A purely
+ * additive, read-only observer of game state. Every function here is a
+ * pure transformation — none of them mutate GameState, consume any RNG
+ * stream (combatRngState or any map-generation stream), or re-run any
+ * game logic. They only ever read already-resolved data: the
+ * GameEvent[] turn.ts already produced (now carrying stable
+ * targetId/attackerId and exact before/after HP — a Phase 10.3.2
+ * observability addition to events.ts, not a calculation change), the
+ * PlayerAction that was submitted, the TurnResult it produced, and
+ * before/after GameState snapshots the caller (main.ts) already has on
+ * hand for its own rendering. This satisfies core_principles' "計測は
+ * ゲーム結果へ影響しない" / "計測処理から乱数を一切使用しない" /
+ * "既存ゲームロジックを重複実装しない" by construction: there is no path
+ * from this module back into GameState or turn.ts.
  *
  * Ownership: main.ts's MainScene holds exactly one RunTelemetry field,
  * replaced wholesale on every new run (Enter or N — see
  * createRunTelemetry), and updated in place (recordTurn/finalizeRun)
- * after each processTurn call. Never stored on GameState itself, so it
- * can never be part of any GameState equality check, never affects
+ * after each processTurn-equivalent call (including the inventory
+ * overlay's equip/use-item path — see main.ts's handleInventoryKey,
+ * fixed in Phase 10.3.2 to actually call recordTurn, which it
+ * previously did not). Never stored on GameState itself, so it can
+ * never be part of any GameState equality check, never affects
  * save/carry-over logic, and a test can construct/inspect it with zero
  * Phaser dependency.
+ *
+ * Phase 10.3.2 correctness fixes, in one place for reference:
+ * - targetId/attackerId (from events.ts) replace the old
+ *   "find an enemy of this type" re-lookup, which silently
+ *   misattributed hits/kills/HP whenever two same-species enemies
+ *   existed on one floor, or once the real target had already died and
+ *   stayed in state.enemies (alive:false, never removed).
+ * - key_enemy_defeated/key_acquired are gone entirely: this game has no
+ *   key mechanic (see history doc's investigation).
+ * - turnConsumed on every event derived within one recordTurn call now
+ *   comes from that call's single TurnResult.consumed, instead of a
+ *   mix of hardcoded true/false guesses.
+ * - equipment_changed is now actually reachable from the inventory
+ *   overlay's Enter-to-equip path (main.ts integration fix).
+ * - per-floor turn counts are now floor_started/floor_completed/
+ *   run_completed turn-boundary differences, not a count of distinct
+ *   turn numbers seen in that floor's events (which could under/over
+ *   count relative to totalTurns).
+ * - kills are now counted once from a single canonical
+ *   (floor, targetId) set, shared by combatOverall, combatByWeapon,
+ *   progression, and perFloor.
+ * - a 0-damage "hit" (fully absorbed by armor) now counts toward hits
+ *   and a new zeroDamageHits field, never toward damage.
  */
 
 import { GameEvent } from './events';
-import { EnemyActor, GameState, PlayerAction, WeaponId, ArmorId, ItemId, EnemyType } from './types';
+import { EnemyType, GameState, PlayerAction, WeaponId, ArmorId, ItemId } from './types';
+import type { TurnResult } from './turn';
 
 // ---------------------------------------------------------------------
 // Event schema (event_model / event_types / event_requirements)
@@ -45,7 +76,7 @@ export type RunEventPayload =
   | {
       type: 'player_attack';
       weapon: WeaponId | 'unarmed';
-      targetId: number | null;
+      targetId: number;
       targetType: EnemyType;
       attackerPosition: { x: number; y: number };
       targetPosition: { x: number; y: number };
@@ -63,7 +94,7 @@ export type RunEventPayload =
     }
   | {
       type: 'enemy_attack';
-      attackerId: number | null;
+      attackerId: number;
       attackerType: EnemyType;
       attackType: 'melee' | 'kraken_tentacle';
       attackerPosition: { x: number; y: number };
@@ -76,7 +107,7 @@ export type RunEventPayload =
       playerHpAfter: number;
     }
   | { type: 'attack_invalid'; actor: 'player'; weaponOrAttackType: WeaponId | 'unarmed'; reason: string }
-  | { type: 'enemy_defeated'; targetType: EnemyType; targetId: number | null }
+  | { type: 'enemy_defeated'; targetType: EnemyType; targetId: number }
   | { type: 'player_damaged'; amount: number; source: EnemyType }
   | { type: 'player_defeated'; cause: string }
   | { type: 'equipment_acquired'; slot: 'weapon' | 'armor'; id: WeaponId | ArmorId }
@@ -89,8 +120,6 @@ export type RunEventPayload =
   | { type: 'sol_changed'; before: number; after: number; amount: number; reason: 'solar_gun' | 'melee_enchantment' | 'solar_charge' | 'item' | 'other' }
   | { type: 'solar_charge'; recovered: number }
   | { type: 'healed'; source: string; requestedAmount: number; actualAmount: number; hpBefore: number; hpAfter: number }
-  | { type: 'key_enemy_defeated'; floor: number }
-  | { type: 'key_acquired'; floor: number }
   | { type: 'exit_reached'; floor: number };
 
 export type RunEvent = RunEventCommon & RunEventPayload;
@@ -100,7 +129,7 @@ export type RunEvent = RunEventCommon & RunEventPayload;
 // ---------------------------------------------------------------------
 
 export interface RunTelemetry {
-  schemaVersion: 1;
+  schemaVersion: 2;
   seed: number;
   result: 'in_progress' | 'clear' | 'death';
   endCause: string | null;
@@ -112,14 +141,11 @@ export interface RunTelemetry {
  * Starts a brand-new RunTelemetry for `state` (a freshly created floor-1
  * GameState — see state.ts's createInitialState). Called once per run:
  * on the very first load and on every Enter/N restart (main.ts's
- * restart()), never mid-run. Pushes the run's opening `run_started` and
- * `floor_started` events immediately so a JSON export always has a
- * non-empty, self-describing event list even for a run that ends on
- * its very first turn.
+ * restart()), never mid-run.
  */
 export function createRunTelemetry(state: GameState): RunTelemetry {
   const telemetry: RunTelemetry = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     seed: state.runSeed,
     result: 'in_progress',
     endCause: null,
@@ -150,36 +176,33 @@ function weaponOrUnarmed(id: WeaponId | null): WeaponId | 'unarmed' {
 }
 
 /**
- * Records one resolved player turn (Phase 10.3.1): translates the
- * action just submitted plus the GameEvent[] turn.ts already produced
- * (result.events) plus the before/after GameState snapshots the caller
- * already has, into zero or more RunEvents pushed onto `telemetry`. Pure
- * with respect to `state` (never mutates it) and never calls into any
- * RNG — every field it records already exists on `stateBefore`,
- * `stateAfter`, or one of the `result.events`.
- *
- * `stateBefore` is a shallow-ish snapshot (positions/hp/inventory counts
- * captured by the caller before processTurn) since GameState itself is
- * mutated in place by processTurn — see main.ts's call site for exactly
- * what is captured.
+ * Records one resolved player turn (Phase 10.3.1, corrected 10.3.2):
+ * translates the action just submitted plus the full TurnResult
+ * turn.ts already produced (result.events and result.consumed) plus
+ * before/after GameState snapshots, into zero or more RunEvents pushed
+ * onto `telemetry`. Every RunEvent derived within this single call
+ * shares `result.consumed` as its turnConsumed value (Phase 10.3.2:
+ * previously several derived events hardcoded false regardless of the
+ * real outcome).
  */
 export function recordTurn(
   telemetry: RunTelemetry,
   action: PlayerAction,
-  events: GameEvent[],
+  result: TurnResult,
   before: TurnSnapshot,
   after: GameState,
 ): void {
   if (telemetry.finalized) return;
+  const consumed = result.consumed;
 
-  // Movement (move.ts's move/move_blocked/wait): turn.ts pushes no
-  // GameEvent at all for these — see turn.ts's applyPlayerAction move
-  // branch, which returns consumed:false silently on a blocked step —
-  // so these are derived from the action + position diff instead.
+  // Movement (move/move_blocked/wait): turn.ts pushes no GameEvent at
+  // all for these — see turn.ts's applyPlayerAction move branch, which
+  // returns consumed:false silently on a blocked step — so these are
+  // derived from the action + position diff instead.
   if (action.type === 'move') {
     const moved = after.player.pos.x !== before.playerPos.x || after.player.pos.y !== before.playerPos.y;
     if (moved) {
-      pushEvent(telemetry, after, true, {
+      pushEvent(telemetry, after, consumed, {
         type: 'move',
         actor: 'player',
         from: before.playerPos,
@@ -187,7 +210,7 @@ export function recordTurn(
         direction: action.direction,
       });
     } else {
-      pushEvent(telemetry, after, false, {
+      pushEvent(telemetry, after, consumed, {
         type: 'move_blocked',
         from: before.playerPos,
         attempted: destinationOf(before.playerPos, action.direction),
@@ -196,23 +219,20 @@ export function recordTurn(
       });
     }
   } else if (action.type === 'wait') {
-    pushEvent(telemetry, after, true, { type: 'wait', position: { ...after.player.pos } });
+    pushEvent(telemetry, after, consumed, { type: 'wait', position: { ...after.player.pos } });
   }
 
-  for (const event of events) {
-    translateGameEvent(telemetry, event, before, after);
+  for (const event of result.events) {
+    translateGameEvent(telemetry, event, before, after, consumed);
   }
 
   // Floor progression: reachedExit is implied by the phase transitioning
-  // to floor_cleared/victory this turn (see turn.ts's processTurn tail),
-  // and equally by an explicit advanceToNextFloor call from main.ts,
-  // which starts the new floor's floor_started itself (see
-  // recordFloorAdvanced below) — so this only needs to detect the
-  // moment of reaching the (already-unlocked) exit tile, not re-derive
-  // the unlock condition itself.
+  // to floor_cleared/victory this turn (see turn.ts's processTurn tail).
+  // The new floor's own floor_started is pushed separately by main.ts
+  // right after advanceToNextFloor — see recordFloorStarted.
   if ((after.phase === 'floor_cleared' || after.phase === 'victory') && before.phase === 'playing') {
-    pushEvent(telemetry, after, true, { type: 'exit_reached', floor: after.floor });
-    pushEvent(telemetry, after, true, { type: 'floor_completed', floor: after.floor });
+    pushEvent(telemetry, after, consumed, { type: 'exit_reached', floor: after.floor });
+    pushEvent(telemetry, after, consumed, { type: 'floor_completed', floor: after.floor });
   }
 }
 
@@ -254,55 +274,59 @@ function destinationOf(pos: { x: number; y: number }, direction: string): { x: n
   return { x: pos.x + v.x, y: pos.y + v.y };
 }
 
-function findEnemyByType(state: GameState, type: EnemyType): EnemyActor | undefined {
-  return state.enemies.find((e) => e.type === type);
+function findEnemyById(state: GameState, id: number): { pos: { x: number; y: number }; hp: number } | undefined {
+  return state.enemies.find((e) => (e.id ?? 0) === id);
 }
 
-function translateGameEvent(telemetry: RunTelemetry, event: GameEvent, before: TurnSnapshot, after: GameState): void {
+function translateGameEvent(
+  telemetry: RunTelemetry,
+  event: GameEvent,
+  before: TurnSnapshot,
+  after: GameState,
+  consumed: boolean,
+): void {
   switch (event.type) {
     case 'player_attack': {
-      const target = findEnemyByType(after, event.enemyType);
       const weapon = weaponOrUnarmed(event.weaponId ?? null);
-      pushEvent(telemetry, after, true, {
+      const target = findEnemyById(after, event.targetId);
+      pushEvent(telemetry, after, consumed, {
         type: 'player_attack',
         weapon,
-        targetId: target?.id ?? null,
+        targetId: event.targetId,
         targetType: event.enemyType,
         attackerPosition: { ...after.player.pos },
         targetPosition: target ? { ...target.pos } : { x: -1, y: -1 },
-        outcome: target && !target.alive ? 'defeated' : 'hit',
+        outcome: event.targetHpAfter === 0 ? 'defeated' : 'hit',
         hitChance: null,
         roll: null,
         physicalDamage: event.damage,
         additionalDamage: 0,
         totalDamage: event.damage,
-        targetHpBefore: target ? target.hp + event.damage : event.damage,
-        targetHpAfter: target ? target.hp : 0,
-        defeated: target ? !target.alive : false,
+        targetHpBefore: event.targetHpBefore,
+        targetHpAfter: event.targetHpAfter,
+        defeated: event.targetHpAfter === 0,
         solConsumed: 0,
         knockbackApplied: false,
       });
       break;
     }
     case 'player_attack_missed': {
-      pushEvent(telemetry, after, true, {
+      const target = findEnemyById(after, event.targetId);
+      pushEvent(telemetry, after, consumed, {
         type: 'player_attack',
         weapon: weaponOrUnarmed(event.weaponId ?? null),
-        targetId: findEnemyByType(after, event.enemyType)?.id ?? null,
+        targetId: event.targetId,
         targetType: event.enemyType,
         attackerPosition: { ...after.player.pos },
-        targetPosition: (() => {
-          const t = findEnemyByType(after, event.enemyType);
-          return t ? { ...t.pos } : { x: -1, y: -1 };
-        })(),
+        targetPosition: target ? { ...target.pos } : { x: -1, y: -1 },
         outcome: 'miss',
         hitChance: event.hitChance,
         roll: event.roll,
         physicalDamage: 0,
         additionalDamage: 0,
         totalDamage: 0,
-        targetHpBefore: findEnemyByType(after, event.enemyType)?.hp ?? 0,
-        targetHpAfter: findEnemyByType(after, event.enemyType)?.hp ?? 0,
+        targetHpBefore: target ? target.hp : 0,
+        targetHpAfter: target ? target.hp : 0,
         defeated: false,
         solConsumed: 0,
         knockbackApplied: false,
@@ -311,17 +335,14 @@ function translateGameEvent(telemetry: RunTelemetry, event: GameEvent, before: T
     }
     case 'sol_enchantment_used': {
       // Enriches the immediately-preceding player_attack RunEvent (same
-      // turn, same target) rather than pushing a separate event — this
-      // matches player_attack's own additionalDamage/solConsumed fields
-      // in the schema, so the sol bonus lives on the attack it belongs
-      // to instead of a disconnected second record.
+      // turn, same target id) rather than pushing a separate event.
       const last = telemetry.events[telemetry.events.length - 1];
-      if (last && last.type === 'player_attack' && last.targetType === event.enemyType) {
+      if (last && last.type === 'player_attack') {
         last.additionalDamage = event.bonusDamage;
         last.totalDamage = last.physicalDamage + event.bonusDamage;
         last.solConsumed = event.solBefore - event.solAfter;
       }
-      pushEvent(telemetry, after, false, {
+      pushEvent(telemetry, after, consumed, {
         type: 'sol_changed',
         before: event.solBefore,
         after: event.solAfter,
@@ -338,15 +359,13 @@ function translateGameEvent(telemetry: RunTelemetry, event: GameEvent, before: T
       break;
     }
     case 'enemy_attack': {
-      pushEvent(telemetry, after, true, {
+      const attacker = findEnemyById(after, event.attackerId);
+      pushEvent(telemetry, after, consumed, {
         type: 'enemy_attack',
-        attackerId: findEnemyByType(after, event.enemyType)?.id ?? null,
+        attackerId: event.attackerId,
         attackerType: event.enemyType,
         attackType: 'melee',
-        attackerPosition: (() => {
-          const a = findEnemyByType(after, event.enemyType);
-          return a ? { ...a.pos } : { x: -1, y: -1 };
-        })(),
+        attackerPosition: attacker ? { ...attacker.pos } : { x: -1, y: -1 },
         playerPosition: { ...after.player.pos },
         outcome: 'hit',
         hitChance: null,
@@ -356,20 +375,18 @@ function translateGameEvent(telemetry: RunTelemetry, event: GameEvent, before: T
         playerHpAfter: after.player.hp,
       });
       if (event.damage > 0) {
-        pushEvent(telemetry, after, false, { type: 'player_damaged', amount: event.damage, source: event.enemyType });
+        pushEvent(telemetry, after, consumed, { type: 'player_damaged', amount: event.damage, source: event.enemyType });
       }
       break;
     }
     case 'enemy_attack_missed': {
-      pushEvent(telemetry, after, true, {
+      const attacker = findEnemyById(after, event.attackerId);
+      pushEvent(telemetry, after, consumed, {
         type: 'enemy_attack',
-        attackerId: findEnemyByType(after, event.enemyType)?.id ?? null,
+        attackerId: event.attackerId,
         attackerType: event.enemyType,
         attackType: 'melee',
-        attackerPosition: (() => {
-          const a = findEnemyByType(after, event.enemyType);
-          return a ? { ...a.pos } : { x: -1, y: -1 };
-        })(),
+        attackerPosition: attacker ? { ...attacker.pos } : { x: -1, y: -1 },
         playerPosition: { ...after.player.pos },
         outcome: 'miss',
         hitChance: event.hitChance,
@@ -384,17 +401,14 @@ function translateGameEvent(telemetry: RunTelemetry, event: GameEvent, before: T
       // Kraken's own aim/strike mechanic (Phase 06) is a positional AoE
       // check, not an accuracy/evasion roll — see Phase 10.3's history
       // doc for why it was deliberately excluded from that system.
-      // hitChance/roll are therefore recorded as null, per
-      // event_requirements.enemy_attack.notes.
-      pushEvent(telemetry, after, true, {
+      // hitChance/roll are therefore recorded as null.
+      const attacker = after.enemies.find((e) => e.id === event.enemyId);
+      pushEvent(telemetry, after, consumed, {
         type: 'enemy_attack',
         attackerId: event.enemyId,
         attackerType: event.enemyType,
         attackType: 'kraken_tentacle',
-        attackerPosition: (() => {
-          const a = after.enemies.find((e) => e.id === event.enemyId);
-          return a ? { ...a.pos } : { ...event.target };
-        })(),
+        attackerPosition: attacker ? { ...attacker.pos } : { ...event.target },
         playerPosition: { ...after.player.pos },
         outcome: event.hit ? 'hit' : 'miss',
         hitChance: null,
@@ -404,12 +418,12 @@ function translateGameEvent(telemetry: RunTelemetry, event: GameEvent, before: T
         playerHpAfter: after.player.hp,
       });
       if (event.hit && event.damage > 0) {
-        pushEvent(telemetry, after, false, { type: 'player_damaged', amount: event.damage, source: event.enemyType });
+        pushEvent(telemetry, after, consumed, { type: 'player_damaged', amount: event.damage, source: event.enemyType });
       }
       break;
     }
     case 'player_whiff': {
-      pushEvent(telemetry, after, true, {
+      pushEvent(telemetry, after, consumed, {
         type: 'attack_invalid',
         actor: 'player',
         weaponOrAttackType: weaponOrUnarmed(event.weaponId ?? null),
@@ -418,7 +432,7 @@ function translateGameEvent(telemetry: RunTelemetry, event: GameEvent, before: T
       break;
     }
     case 'solar_gun_insufficient_solar': {
-      pushEvent(telemetry, after, false, {
+      pushEvent(telemetry, after, consumed, {
         type: 'attack_invalid',
         actor: 'player',
         weaponOrAttackType: 'solar_gun',
@@ -427,28 +441,26 @@ function translateGameEvent(telemetry: RunTelemetry, event: GameEvent, before: T
       break;
     }
     case 'enemy_defeated': {
-      const target = findEnemyByType(after, event.enemyType);
-      pushEvent(telemetry, after, false, { type: 'enemy_defeated', targetType: event.enemyType, targetId: target?.id ?? null });
-      pushEvent(telemetry, after, false, { type: 'key_enemy_defeated', floor: after.floor });
+      pushEvent(telemetry, after, consumed, { type: 'enemy_defeated', targetType: event.enemyType, targetId: event.targetId });
       break;
     }
     case 'player_defeated': {
-      pushEvent(telemetry, after, false, { type: 'player_defeated', cause: 'unknown' });
+      pushEvent(telemetry, after, consumed, { type: 'player_defeated', cause: deriveDeathCauseFromTail(telemetry) });
       break;
     }
     case 'item_picked_up': {
-      pushEvent(telemetry, after, false, { type: 'item_acquired', itemId: event.itemId });
+      pushEvent(telemetry, after, consumed, { type: 'item_acquired', itemId: event.itemId });
       if (WEAPON_IDS.includes(event.itemId as WeaponId)) {
-        pushEvent(telemetry, after, false, { type: 'equipment_acquired', slot: 'weapon', id: event.itemId as WeaponId });
+        pushEvent(telemetry, after, consumed, { type: 'equipment_acquired', slot: 'weapon', id: event.itemId as WeaponId });
       } else if (ARMOR_IDS.includes(event.itemId as ArmorId)) {
-        pushEvent(telemetry, after, false, { type: 'equipment_acquired', slot: 'armor', id: event.itemId as ArmorId });
+        pushEvent(telemetry, after, consumed, { type: 'equipment_acquired', slot: 'armor', id: event.itemId as ArmorId });
       }
       break;
     }
     case 'item_used': {
-      pushEvent(telemetry, after, true, { type: 'item_used', itemId: event.itemId, effect: 'heal', amount: event.healed });
+      pushEvent(telemetry, after, consumed, { type: 'item_used', itemId: event.itemId, effect: 'heal', amount: event.healed });
       if (event.healed > 0) {
-        pushEvent(telemetry, after, false, {
+        pushEvent(telemetry, after, consumed, {
           type: 'healed',
           source: event.itemId,
           requestedAmount: event.healed,
@@ -460,8 +472,8 @@ function translateGameEvent(telemetry: RunTelemetry, event: GameEvent, before: T
       break;
     }
     case 'sun_fruit_used': {
-      pushEvent(telemetry, after, true, { type: 'item_used', itemId: event.itemId, effect: 'sol', amount: event.recovered });
-      pushEvent(telemetry, after, false, {
+      pushEvent(telemetry, after, consumed, { type: 'item_used', itemId: event.itemId, effect: 'sol', amount: event.recovered });
+      pushEvent(telemetry, after, consumed, {
         type: 'sol_changed',
         before: before.playerSol,
         after: after.solarEnergy,
@@ -471,8 +483,8 @@ function translateGameEvent(telemetry: RunTelemetry, event: GameEvent, before: T
       break;
     }
     case 'solar_charge_used': {
-      pushEvent(telemetry, after, true, { type: 'solar_charge', recovered: event.recovered });
-      pushEvent(telemetry, after, false, {
+      pushEvent(telemetry, after, consumed, { type: 'solar_charge', recovered: event.recovered });
+      pushEvent(telemetry, after, consumed, {
         type: 'sol_changed',
         before: before.playerSol,
         after: after.solarEnergy,
@@ -482,7 +494,7 @@ function translateGameEvent(telemetry: RunTelemetry, event: GameEvent, before: T
       break;
     }
     case 'weapon_equipped': {
-      pushEvent(telemetry, after, true, {
+      pushEvent(telemetry, after, consumed, {
         type: 'equipment_changed',
         slot: 'weapon',
         from: before.equippedWeaponId,
@@ -492,7 +504,7 @@ function translateGameEvent(telemetry: RunTelemetry, event: GameEvent, before: T
       break;
     }
     case 'armor_equipped': {
-      pushEvent(telemetry, after, true, {
+      pushEvent(telemetry, after, consumed, {
         type: 'equipment_changed',
         slot: 'armor',
         from: before.equippedArmorId,
@@ -520,8 +532,7 @@ function translateGameEvent(telemetry: RunTelemetry, event: GameEvent, before: T
   // GameEvent (it happens inline in resolveSolarGunAttack before the
   // shared player_attack/player_attack_missed push), so it is derived
   // here from the before/after solarEnergy diff whenever the equipped
-  // weapon has a solarCost and the turn actually consumed SOL — this
-  // avoids re-implementing resolveSolarGunAttack's own resource check.
+  // weapon has a solarCost and the turn actually consumed SOL.
   if (
     (event.type === 'player_attack' || event.type === 'player_attack_missed') &&
     before.equippedWeaponId === 'solar_gun'
@@ -532,7 +543,7 @@ function translateGameEvent(telemetry: RunTelemetry, event: GameEvent, before: T
       if (last && last.type === 'player_attack') {
         last.solConsumed = -solDelta;
       }
-      pushEvent(telemetry, after, false, {
+      pushEvent(telemetry, after, consumed, {
         type: 'sol_changed',
         before: before.playerSol,
         after: after.solarEnergy,
@@ -541,6 +552,15 @@ function translateGameEvent(telemetry: RunTelemetry, event: GameEvent, before: T
       });
     }
   }
+}
+
+/** The most recent damage source recorded so far this call, per tests.combat's "死亡原因が最後の有効ダメージ源と一致する". */
+function deriveDeathCauseFromTail(telemetry: RunTelemetry): string {
+  for (let i = telemetry.events.length - 1; i >= 0; i--) {
+    const e = telemetry.events[i];
+    if (e.type === 'player_damaged') return e.source;
+  }
+  return 'unknown';
 }
 
 /**
@@ -558,20 +578,14 @@ export function recordFloorStarted(telemetry: RunTelemetry, state: GameState): v
 /**
  * Finalizes a run (Phase 10.3.1 terminal.rules): called once, the first
  * time `state.phase` becomes 'gameover' or 'victory' after a processed
- * turn. A no-op if already finalized (never re-confirms, never appends
- * further events) — see terminal.rules' "終了イベントは1ランにつき一度
- * だけ記録する" / "確定後に同じランへイベントを追加しない". Snapshots
- * the terminal state's floor/position/hp/sol into the run_completed
- * event itself so a later state mutation (e.g. Enter reusing the same
- * MainScene instance before the caller replaces `telemetry`) can never
- * retroactively change it.
+ * turn. A no-op if already finalized.
  */
 export function finalizeRun(telemetry: RunTelemetry, state: GameState): void {
   if (telemetry.finalized) return;
   if (state.phase !== 'gameover' && state.phase !== 'victory') return;
 
   const result: 'clear' | 'death' = state.phase === 'victory' ? 'clear' : 'death';
-  const cause = result === 'death' ? deriveDeathCause(telemetry) : 'floor_cleared';
+  const cause = result === 'death' ? deriveDeathCauseFromTail(telemetry) : 'floor_cleared';
 
   telemetry.result = result;
   telemetry.endCause = cause;
@@ -591,15 +605,6 @@ export function finalizeRun(telemetry: RunTelemetry, state: GameState): void {
   telemetry.finalized = true;
 }
 
-/** The most recent damage source recorded before death, per tests.combat's "死亡原因が最後の有効ダメージ源と一致する". */
-function deriveDeathCause(telemetry: RunTelemetry): string {
-  for (let i = telemetry.events.length - 1; i >= 0; i--) {
-    const e = telemetry.events[i];
-    if (e.type === 'player_damaged') return e.source;
-  }
-  return 'unknown';
-}
-
 // ---------------------------------------------------------------------
 // Summary calculation (summary_calculation) — all pure functions over
 // telemetry.events; never re-parse formatted log strings, never touch
@@ -611,6 +616,7 @@ export interface WeaponCombatStats {
   invalidAttempts: number;
   hits: number;
   misses: number;
+  zeroDamageHits: number;
   hitRate: number | null;
   damageDealt: number;
   averageDamagePerHit: number | null;
@@ -621,6 +627,7 @@ export interface EnemyDamageStats {
   attackAttempts: number;
   hits: number;
   misses: number;
+  zeroDamageHits: number;
   damage: number;
 }
 
@@ -644,7 +651,7 @@ export interface RunSummary {
   damageTakenByEnemy: Record<string, EnemyDamageStats>;
   equipment: { acquiredCount: number; changeCount: number; endingEquipment: { weapon: WeaponId | null; armor: ArmorId | null } };
   resources: { solGained: number; solConsumed: number; solarChargeActions: number; healingBySource: Record<string, number>; itemsUsedByType: Record<string, number> };
-  progression: { enemiesDefeated: number; keysAcquired: number; exitsReached: number };
+  progression: { enemiesDefeated: number; exitsReached: number };
   perFloor: PerFloorStats[];
   finalState: {
     floor: number;
@@ -658,11 +665,11 @@ export interface RunSummary {
 }
 
 function emptyWeaponStats(): WeaponCombatStats {
-  return { validAttacks: 0, invalidAttempts: 0, hits: 0, misses: 0, hitRate: null, damageDealt: 0, averageDamagePerHit: null, kills: 0 };
+  return { validAttacks: 0, invalidAttempts: 0, hits: 0, misses: 0, zeroDamageHits: 0, hitRate: null, damageDealt: 0, averageDamagePerHit: null, kills: 0 };
 }
 
 function emptyEnemyStats(): EnemyDamageStats {
-  return { attackAttempts: 0, hits: 0, misses: 0, damage: 0 };
+  return { attackAttempts: 0, hits: 0, misses: 0, zeroDamageHits: 0, damage: 0 };
 }
 
 function emptyFloorStats(floor: number): PerFloorStats {
@@ -670,12 +677,13 @@ function emptyFloorStats(floor: number): PerFloorStats {
 }
 
 /**
- * Computes a RunSummary from `telemetry.events` alone (summary_calculation):
- * every field is derived by walking the event list once; nothing here
- * reads GameState or re-parses any display string. Safe to call at any
- * point (mid-run or after finalizeRun) — calculation_rules' "0回攻撃時の
- * hitRateはnullとし、NaNやInfinityを出さない" is enforced throughout via
- * explicit zero-guards rather than relying on JS's NaN propagation.
+ * Computes a RunSummary from `telemetry.events` alone. Kill counting
+ * (Phase 10.3.2): a single canonical Set of "floor:targetId" strings —
+ * built once from enemy_defeated events — is the sole source for
+ * combatOverall.kills, each weapon's kills, progression.enemiesDefeated,
+ * and each floor's kills, so these four numbers can never disagree
+ * (previously each was accumulated independently from different, and
+ * sometimes duplicated, signals).
  */
 export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState): RunSummary {
   const movement = { successfulMoves: 0, blockedMoves: 0, waits: 0 };
@@ -687,12 +695,9 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
   let solarChargeActions = 0;
   const healingBySource: Record<string, number> = {};
   const itemsUsedByType: Record<string, number> = {};
-  let enemiesDefeated = 0;
-  let keysAcquired = 0;
   let exitsReached = 0;
   let acquiredCount = 0;
   let changeCount = 0;
-  const turnsPerFloor = new Map<number, Set<number>>();
 
   const getFloorStats = (floor: number): PerFloorStats => {
     let s = perFloorMap.get(floor);
@@ -719,10 +724,38 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
     return s;
   };
 
+  // Canonical kill set: (floor, targetId) -> the weapon that landed the
+  // killing blow. Built in a first pass so every later consumer reads
+  // from the same ground truth.
+  const killWeaponByKey = new Map<string, string>();
   for (const event of telemetry.events) {
-    if (!turnsPerFloor.has(event.floor)) turnsPerFloor.set(event.floor, new Set());
-    turnsPerFloor.get(event.floor)!.add(event.turn);
+    if (event.type === 'player_attack' && event.defeated) {
+      killWeaponByKey.set(`${event.floor}:${event.targetId}`, event.weapon);
+    }
+  }
+  const killedKeys = new Set(killWeaponByKey.keys());
 
+  // Floor turn boundaries (Phase 10.3.2): floor_started/floor_completed/
+  // run_completed mark the turn each floor began and ended on a shared
+  // global turn counter (state.turn is never reset across floors — see
+  // state.ts). turns-on-floor = end_turn - start_turn, so the sum over
+  // every floor telescopes to exactly the final turn (== totalTurns),
+  // instead of a per-floor "distinct turn numbers seen in events" count
+  // that could drift from totalTurns depending on which turns happened
+  // to produce zero events on a given floor.
+  const floorStartTurn = new Map<number, number>();
+  const floorEndTurn = new Map<number, number>();
+  for (const event of telemetry.events) {
+    if (event.type === 'floor_started') {
+      floorStartTurn.set(event.floor, event.turn);
+    } else if (event.type === 'floor_completed') {
+      floorEndTurn.set(event.floor, event.turn);
+    } else if (event.type === 'run_completed') {
+      floorEndTurn.set(event.floor, event.turn);
+    }
+  }
+
+  for (const event of telemetry.events) {
     switch (event.type) {
       case 'move':
         movement.successfulMoves++;
@@ -745,7 +778,7 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
           stats.hits++;
           stats.damageDealt += event.totalDamage;
           getFloorStats(event.floor).damageDealt += event.totalDamage;
-          if (event.defeated) stats.kills++;
+          if (event.totalDamage === 0) stats.zeroDamageHits++;
         }
         break;
       }
@@ -754,12 +787,17 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
         stats.invalidAttempts++;
         break;
       }
-      case 'enemy_defeated':
-        enemiesDefeated++;
+      case 'enemy_defeated': {
+        const key = `${event.floor}:${event.targetId}`;
+        const weapon = killWeaponByKey.get(key);
+        if (weapon) {
+          getWeaponStats(weapon).kills++;
+          getFloorStats(event.floor).kills++;
+        }
         break;
+      }
       case 'player_damaged': {
         const stats = getEnemyStats(event.source);
-        stats.hits++;
         stats.damage += event.amount;
         getFloorStats(event.floor).damageTaken += event.amount;
         break;
@@ -767,7 +805,12 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
       case 'enemy_attack': {
         const stats = getEnemyStats(event.attackerType);
         stats.attackAttempts++;
-        if (event.outcome === 'miss') stats.misses++;
+        if (event.outcome === 'miss') {
+          stats.misses++;
+        } else {
+          stats.hits++;
+          if (event.damage === 0) stats.zeroDamageHits++;
+        }
         break;
       }
       case 'equipment_acquired':
@@ -793,9 +836,6 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
       case 'item_used':
         itemsUsedByType[event.itemId] = (itemsUsedByType[event.itemId] ?? 0) + 1;
         break;
-      case 'key_acquired':
-        keysAcquired++;
-        break;
       case 'exit_reached':
         exitsReached++;
         break;
@@ -804,15 +844,20 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
     }
   }
 
-  for (const [floor, turnSet] of turnsPerFloor) {
-    getFloorStats(floor).turns = turnSet.size;
+  for (const [floor, startTurn] of floorStartTurn) {
+    // A floor that never got its own floor_completed/run_completed (the
+    // run is still mid-floor, e.g. computeRunSummary called before the
+    // run ended) falls back to the current/final GameState turn instead
+    // of startTurn itself — falling back to startTurn would silently
+    // report 0 turns spent on an in-progress floor.
+    const endTurn = floorEndTurn.get(floor) ?? finalState.turn;
+    getFloorStats(floor).turns = Math.max(0, endTurn - startTurn);
   }
 
   let overallValid = 0;
   let overallHits = 0;
   let overallMisses = 0;
   let overallDamage = 0;
-  let overallKills = 0;
   for (const stats of Object.values(combatByWeapon)) {
     stats.hitRate = stats.validAttacks > 0 ? stats.hits / stats.validAttacks : null;
     stats.averageDamagePerHit = stats.hits > 0 ? stats.damageDealt / stats.hits : null;
@@ -820,7 +865,6 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
     overallHits += stats.hits;
     overallMisses += stats.misses;
     overallDamage += stats.damageDealt;
-    overallKills += stats.kills;
   }
 
   return {
@@ -831,7 +875,7 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
       misses: overallMisses,
       hitRate: overallValid > 0 ? overallHits / overallValid : null,
       damageDealt: overallDamage,
-      kills: overallKills,
+      kills: killedKeys.size,
     },
     combatByWeapon,
     damageTakenByEnemy,
@@ -841,7 +885,7 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
       endingEquipment: { weapon: finalState.equippedWeaponId, armor: finalState.equippedArmorId },
     },
     resources: { solGained, solConsumed, solarChargeActions, healingBySource, itemsUsedByType },
-    progression: { enemiesDefeated, keysAcquired, exitsReached },
+    progression: { enemiesDefeated: killedKeys.size, exitsReached },
     perFloor: Array.from(perFloorMap.values()).sort((a, b) => a.floor - b.floor),
     finalState: {
       floor: finalState.floor,
@@ -864,14 +908,15 @@ function sanitizeForFilename(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, '');
 }
 
+/** Phase 10.3.2: schemaVersion 2 -> "v2" filenames, so old (buggy) v1 exports are never confused with corrected v2 ones. */
 export function buildExportFilename(telemetry: RunTelemetry): string {
   const seedPart = sanitizeForFilename(String(telemetry.seed));
   const resultPart = telemetry.result === 'clear' ? 'clear' : 'death';
-  return `rogue-of-sun-run-v1-${seedPart}-${resultPart}.json`;
+  return `rogue-of-sun-run-v2-${seedPart}-${resultPart}.json`;
 }
 
 export interface TelemetryDocument {
-  schemaVersion: 1;
+  schemaVersion: 2;
   gameVersion: string;
   run: {
     seed: number;
@@ -886,25 +931,25 @@ export interface TelemetryDocument {
 }
 
 /**
- * Builds the full exportable document (telemetry_document): JSON.stringify
- * of the return value is exactly what json_export writes to a Blob. Never
- * includes local file paths, credentials, usernames, real-time
- * timestamps, or browser identification, per telemetry_document.restrictions
- * — every field here is either an already-recorded RunEvent field or a
- * RunSummary value.
+ * Builds the full exportable document: JSON.stringify of the return
+ * value is exactly what json_export writes to a Blob. Never includes
+ * local file paths, credentials, usernames, real-time timestamps, or
+ * browser identification. `run.totalTurns` is authoritatively
+ * `finalState.turn` (the single GameState turn counter) rather than a
+ * max-over-events derivation, so it can never disagree with the value
+ * actually reachable from GameState.
  */
 export function buildTelemetryDocument(telemetry: RunTelemetry, finalState: GameState): TelemetryDocument {
   const summary = computeRunSummary(telemetry, finalState);
-  const totalTurns = telemetry.events.reduce((max, e) => Math.max(max, e.turn), 0);
   return {
-    schemaVersion: 1,
-    gameVersion: 'phase-10.3.1',
+    schemaVersion: 2,
+    gameVersion: 'phase-10.3.2',
     run: {
       seed: telemetry.seed,
       result: telemetry.result,
       endCause: telemetry.endCause,
       floorsReached: finalState.floor,
-      totalTurns,
+      totalTurns: finalState.turn,
       totalEvents: telemetry.events.length,
     },
     summary,

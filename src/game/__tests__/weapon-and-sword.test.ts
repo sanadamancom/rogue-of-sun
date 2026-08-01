@@ -292,7 +292,10 @@ describe('weapon-aware combat', () => {
     expect(armedResult.events).toContainEqual({
       type: 'player_attack',
       enemyType: 'bok',
+      targetId: 0,
       damage: 11,
+      targetHpBefore: 20,
+      targetHpAfter: 9,
       weaponId: 'sword',
     });
 
@@ -301,7 +304,14 @@ describe('weapon-aware combat', () => {
     const unarmedEnemy = createInitialEnemy('bok', { x: 3, y: 1 }, 5, 1);
     unarmed.enemies = [unarmedEnemy];
     const unarmedResult = processTurn(unarmed, { type: 'action' });
-    expect(unarmedResult.events).toContainEqual({ type: 'player_attack', enemyType: 'bok', damage: 1 });
+    expect(unarmedResult.events).toContainEqual({
+      type: 'player_attack',
+      enemyType: 'bok',
+      targetId: 0,
+      damage: 1,
+      targetHpBefore: 5,
+      targetHpAfter: 4,
+    });
   });
 
   it('sword attack still triggers normal enemy actions and special cycles afterward (golem slow_melee)', () => {
@@ -352,7 +362,7 @@ describe('weapon-aware combat', () => {
     state.enemies = [enemy];
     const result = processTurn(state, { type: 'action' });
     expect(result.enemyDefeated).toBe(true);
-    expect(result.events).toContainEqual({ type: 'enemy_defeated', enemyType: 'bok' });
+    expect(result.events).toContainEqual({ type: 'enemy_defeated', enemyType: 'bok', targetId: 0 });
   });
 });
 

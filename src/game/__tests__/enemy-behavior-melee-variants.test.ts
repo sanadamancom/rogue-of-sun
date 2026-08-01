@@ -389,7 +389,7 @@ describe('golem HP boundary at real definition values (phase-07-5-golem-hp-tune,
     const result = processTurn(state, { type: 'action' }); // hit 40
     expect(enemy.hp).toBe(0);
     expect(enemy.alive).toBe(false);
-    expect(result.events).toContainEqual({ type: 'enemy_defeated', enemyType: 'golem' });
+    expect(result.events).toContainEqual({ type: 'enemy_defeated', enemyType: 'golem', targetId: 0 });
   });
 });
 

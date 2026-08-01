@@ -144,6 +144,7 @@ export function getIncomingDamage(state: GameState, attackPower: number): number
  */
 function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: GameEvent[]): { hit: boolean; defeated: boolean } {
   const weaponId = state.equippedWeaponId;
+  const targetId = target.id ?? 0;
   const hitChance = computeHitChance(state.player.accuracy, getPlayerWeaponHitModifier(state), target.evasion);
   const { roll, nextState } = rollPercent(state.combatRngState);
   state.combatRngState = nextState;
@@ -151,8 +152,8 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
   if (!resolvesAsHit(roll, hitChance)) {
     events.push(
       weaponId
-        ? { type: 'player_attack_missed', enemyType: target.type, weaponId, hitChance, roll }
-        : { type: 'player_attack_missed', enemyType: target.type, hitChance, roll },
+        ? { type: 'player_attack_missed', enemyType: target.type, targetId, weaponId, hitChance, roll }
+        : { type: 'player_attack_missed', enemyType: target.type, targetId, hitChance, roll },
     );
     return { hit: false, defeated: false };
   }
@@ -183,12 +184,14 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
     damage += SOL_ENCHANT_BONUS_DAMAGE;
   }
 
+  const targetHpBefore = target.hp;
   target.hp = Math.max(0, target.hp - damage);
+  const targetHpAfter = target.hp;
   const defeated = target.hp === 0;
   events.push(
     state.equippedWeaponId
-      ? { type: 'player_attack', enemyType: target.type, damage, weaponId: state.equippedWeaponId }
-      : { type: 'player_attack', enemyType: target.type, damage },
+      ? { type: 'player_attack', enemyType: target.type, targetId, damage, targetHpBefore, targetHpAfter, weaponId: state.equippedWeaponId }
+      : { type: 'player_attack', enemyType: target.type, targetId, damage, targetHpBefore, targetHpAfter },
   );
   if (solActivates) {
     events.push({
@@ -203,7 +206,7 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
   }
   if (defeated) {
     target.alive = false;
-    events.push({ type: 'enemy_defeated', enemyType: target.type });
+    events.push({ type: 'enemy_defeated', enemyType: target.type, targetId });
   }
   return { hit: true, defeated };
 }
@@ -776,18 +779,19 @@ function tryMeleeAttack(state: GameState, enemy: EnemyActor, events: GameEvent[]
  */
 function resolveEnemyAttackHit(state: GameState, enemy: EnemyActor, events: GameEvent[]): boolean {
   const { player } = state;
+  const attackerId = enemy.id ?? 0;
   const hitChance = computeHitChance(enemy.accuracy, 0, player.evasion);
   const { roll, nextState } = rollPercent(state.combatRngState);
   state.combatRngState = nextState;
 
   if (!resolvesAsHit(roll, hitChance)) {
-    events.push({ type: 'enemy_attack_missed', enemyType: enemy.type, hitChance, roll });
+    events.push({ type: 'enemy_attack_missed', enemyType: enemy.type, attackerId, hitChance, roll });
     return false;
   }
 
   const damage = getIncomingDamage(state, enemy.attack);
   player.hp = Math.max(0, player.hp - damage);
-  events.push({ type: 'enemy_attack', enemyType: enemy.type, damage });
+  events.push({ type: 'enemy_attack', enemyType: enemy.type, attackerId, damage });
   if (player.hp === 0) player.alive = false;
   return true;
 }

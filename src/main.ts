@@ -10,6 +10,7 @@ import {
   inventoryEntries,
   moveInventorySelection,
   toggleInventory,
+  selectedInventoryAction,
   useSelectedInventoryItem,
 } from './game/inventory';
 import { formatEvent, formatEvents, MessageLog } from './game/message-log';
@@ -893,7 +894,7 @@ class MainScene extends Phaser.Scene {
     // TurnSnapshot doc comment.
     const turnSnapshot = snapshotForTurn(this.state);
     const result = processTurn(this.state, action);
-    recordTurn(this.telemetry, action, result.events, turnSnapshot, this.state);
+    recordTurn(this.telemetry, action, result, turnSnapshot, this.state);
     finalizeRun(this.telemetry, this.state);
     this.applyTurnResult(result, playerBefore, enemiesBefore);
   }
@@ -926,7 +927,21 @@ class MainScene extends Phaser.Scene {
     if (key === 'Enter') {
       const playerBefore = { ...this.state.player.pos };
       const enemiesBefore = this.state.enemies.map((enemy) => ({ ...enemy.pos }));
+      // Telemetry (Phase 10.3.2 fix): this Enter-to-equip/use path
+      // previously never called recordTurn/finalizeRun at all, so every
+      // weapon/armor equip and every apple/sun-fruit use made through
+      // the inventory overlay was silently invisible to telemetry (the
+      // "missing_equipment_changes" root cause). selectedInventoryAction
+      // determines the PlayerAction Enter is about to submit — the same
+      // routing useSelectedInventoryItem itself does internally — purely
+      // so recordTurn can be given a real action instead of guessing.
+      const action = selectedInventoryAction(this.state);
+      const turnSnapshot = snapshotForTurn(this.state);
       const result = useSelectedInventoryItem(this.state);
+      if (action) {
+        recordTurn(this.telemetry, action, result, turnSnapshot, this.state);
+        finalizeRun(this.telemetry, this.state);
+      }
       this.applyTurnResult(result, playerBefore, enemiesBefore);
       this.refreshInventoryOverlay();
       return;
