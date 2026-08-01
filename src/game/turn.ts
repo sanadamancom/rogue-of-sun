@@ -149,16 +149,17 @@ function applyPlayerAction(
     return applyArmorEquip(state, action.armorId, events);
   }
 
-  // Solar charge (Phase 09.3): a distinct, non-attack, non-item action —
-  // deliberately checked here rather than folded into use_item/action, so
-  // it never touches hammerRecovery, weapon reach, or SOL-gun logic. See
-  // resolveCharge for its own success/failure rules.
-  if (action.type === 'charge') {
-    return resolveCharge(state, events);
-  }
-
+  // Sunlight solar charge (Phase 09.3a): folded into normal 'wait' rather
+  // than a dedicated action (superseding Phase 09.3's V-only 'charge').
+  // Recovers 1 SOL as a side effect of waiting on a sunlit tile below
+  // maxSolarEnergy; every other wait behaves exactly as before this
+  // phase. See isSunlitAt for the sunlight-layer read.
   if (action.type === 'wait') {
     state.hammerRecovery = false;
+    if (isSunlitAt(state.sunlight, state.player.pos) && state.solarEnergy < state.maxSolarEnergy) {
+      state.solarEnergy = Math.min(state.maxSolarEnergy, state.solarEnergy + 1);
+      events.push({ type: 'solar_charge_used', recovered: 1 });
+    }
     return { consumed: true, attacked: false, defeated: false };
   }
 
@@ -434,35 +435,6 @@ function resolveSolarGunAttack(
   }
 
   events.push({ type: 'player_whiff', weaponId });
-  return { consumed: true, attacked: false, defeated: false };
-}
-
-/**
- * Resolves a 'charge' action (Phase 09.3 sunlight charging). Never moves
- * the player, never itself resolves enemy actions — a successful charge
- * returns consumed: true and the caller (processTurn) runs the normal
- * enemy-resolution/regen/floor-check pipeline exactly as for any other
- * consumed action, same as applyItemUse. Deliberately does not touch
- * `hammerRecovery` in either the success or failure path — charging is
- * not routed through the X-action's hammerRecovery bookkeeping at all
- * (fixed_spec: "チャージ成功だけではhammerRecoveryを解除しない" /
- * "日陰または満タンによる不成立でもhammerRecoveryを変更しない").
- */
-function resolveCharge(state: GameState, events: GameEvent[]): { consumed: boolean; attacked: boolean; defeated: boolean } {
-  if (!isSunlitAt(state.sunlight, state.player.pos)) {
-    events.push({ type: 'solar_charge_failed_shadow' });
-    return { consumed: false, attacked: false, defeated: false };
-  }
-
-  if (state.solarEnergy >= state.maxSolarEnergy) {
-    events.push({ type: 'solar_charge_failed_full' });
-    return { consumed: false, attacked: false, defeated: false };
-  }
-
-  const before = state.solarEnergy;
-  state.solarEnergy = Math.min(state.maxSolarEnergy, state.solarEnergy + 1);
-  const recovered = state.solarEnergy - before;
-  events.push({ type: 'solar_charge_used', recovered });
   return { consumed: true, attacked: false, defeated: false };
 }
 

@@ -386,5 +386,4 @@ export type PlayerAction =
   | { type: 'action' }
   | { type: 'use_item'; itemId: ItemId }
   | { type: 'equip_weapon'; weaponId: WeaponId }
-  | { type: 'equip_armor'; armorId: ArmorId }
-  | { type: 'charge' };
+  | { type: 'equip_armor'; armorId: ArmorId };

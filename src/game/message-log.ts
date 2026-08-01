@@ -100,11 +100,7 @@ export function formatEvent(event: GameEvent): string {
     case 'solar_gun_insufficient_solar':
       return '太陽エネルギーが足りない。';
     case 'solar_charge_used':
-      return '太陽の光でチャージし、太陽エネルギーが回復した。';
-    case 'solar_charge_failed_shadow':
-      return '日向でないとチャージできない。';
-    case 'solar_charge_failed_full':
-      return '太陽エネルギーは満タンだ。';
+      return '日向で待機し、太陽エネルギーが回復した。';
     case 'weapon_equipped': {
       const name = ITEM_DEFINITIONS[event.weaponId].displayName;
       return `${name}を装備した。`;

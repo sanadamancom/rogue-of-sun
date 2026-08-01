@@ -53,8 +53,6 @@ export type GameEvent =
   | { type: 'sun_fruit_use_failed'; itemId: ItemId; reason: 'sol_full' }
   | { type: 'solar_gun_insufficient_solar' }
   | { type: 'solar_charge_used'; recovered: number }
-  | { type: 'solar_charge_failed_shadow' }
-  | { type: 'solar_charge_failed_full' }
   | { type: 'weapon_equipped'; weaponId: WeaponId }
   | { type: 'weapon_already_equipped'; weaponId: WeaponId }
   | { type: 'armor_equipped'; armorId: ArmorId }

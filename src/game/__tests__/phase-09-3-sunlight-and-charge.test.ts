@@ -238,44 +238,50 @@ describe('sunlight determinism vs existing generation (Phase 09.3)', () => {
   });
 });
 
-describe('solar charge success (Phase 09.3)', () => {
-  it('charging on a sunlit tile with SOL 0 raises it to 1', () => {
+describe('sunlight SOL recovery on wait, success case (Phase 09.3a)', () => {
+  it('waiting on a sunlit tile with SOL 0 raises it to 1', () => {
     const state = freshState({ solarEnergy: 0 });
-    const result = processTurn(state, { type: 'charge' });
+    const result = processTurn(state, { type: 'wait' });
     expect(result.consumed).toBe(true);
     expect(state.solarEnergy).toBe(1);
   });
 
-  it('charging on a sunlit tile with SOL 4 raises it to 5', () => {
+  it('waiting on a sunlit tile with SOL 4 raises it to 5', () => {
     const state = freshState({ solarEnergy: 4 });
-    processTurn(state, { type: 'charge' });
+    processTurn(state, { type: 'wait' });
     expect(state.solarEnergy).toBe(5);
   });
 
-  it('a single charge recovers exactly 1 SOL, never more', () => {
+  it('a single wait recovers exactly 1 SOL, never more', () => {
     const state = freshState({ solarEnergy: 2 });
-    processTurn(state, { type: 'charge' });
+    processTurn(state, { type: 'wait' });
     expect(state.solarEnergy).toBe(3);
   });
 
   it('does not exceed maxSolarEnergy', () => {
     const state = freshState({ solarEnergy: 4, maxSolarEnergy: 5 });
-    processTurn(state, { type: 'charge' });
+    processTurn(state, { type: 'wait' });
     expect(state.solarEnergy).toBeLessThanOrEqual(5);
   });
 
-  it('consumes exactly 1 turn on success', () => {
+  it('waiting at SOL 5 (already full) on a sunlit tile leaves SOL at 5', () => {
+    const state = freshState({ solarEnergy: 5, maxSolarEnergy: 5 });
+    processTurn(state, { type: 'wait' });
+    expect(state.solarEnergy).toBe(5);
+  });
+
+  it('consumes exactly 1 turn like any other wait', () => {
     const state = freshState({ solarEnergy: 0, turn: 3 });
-    processTurn(state, { type: 'charge' });
+    processTurn(state, { type: 'wait' });
     expect(state.turn).toBe(4);
   });
 
-  it('lets the enemy act exactly once on success', () => {
+  it('lets the enemy act exactly once', () => {
     const state = freshState({ solarEnergy: 0 });
     const enemy = createInitialEnemy('bok', { x: 15, y: 15 }, 5, 1);
     const before = { ...enemy.pos };
     state.enemies = [enemy];
-    const result = processTurn(state, { type: 'charge' });
+    const result = processTurn(state, { type: 'wait' });
     expect(result.enemyActed).toBe(true);
     expect(enemy.pos).not.toEqual(before);
   });
@@ -285,30 +291,41 @@ describe('solar charge success (Phase 09.3)', () => {
     const e1 = createInitialEnemy('bok', { x: 15, y: 15 }, 5, 1);
     const e2 = createInitialEnemy('bok', { x: 4, y: 4 }, 5, 1);
     state.enemies = [e1, e2];
-    const result = processTurn(state, { type: 'charge' });
-    // Each enemy should have exactly one recorded action opportunity per
-    // turn; the shared resolveEnemiesAction pipeline used elsewhere is
-    // relied on unchanged, so this just asserts a single processTurn
-    // call only advances the turn counter by 1 (no double-processing).
+    const result = processTurn(state, { type: 'wait' });
     expect(result.consumed).toBe(true);
     expect(state.turn).toBe(1);
   });
 
-  it('a successful charge emits exactly one solar_charge_used event', () => {
+  it('a SOL-recovering wait emits exactly one solar_charge_used event', () => {
     const state = freshState({ solarEnergy: 0 });
-    const result = processTurn(state, { type: 'charge' });
+    const result = processTurn(state, { type: 'wait' });
     const chargeEvents = result.events.filter((e) => e.type === 'solar_charge_used');
     expect(chargeEvents.length).toBe(1);
   });
 
-  it('HUD-relevant solarEnergy value is updated synchronously (no async delay)', () => {
+  it('solarEnergy is updated synchronously (no async delay)', () => {
     const state = freshState({ solarEnergy: 0 });
-    processTurn(state, { type: 'charge' });
+    processTurn(state, { type: 'wait' });
     expect(state.solarEnergy).toBe(1); // already updated by the time processTurn returns
+  });
+
+  it('moving onto a sunlit tile alone does not recover SOL (only waiting does)', () => {
+    const map = openMap();
+    const state = freshState({ map, sunlight: allTrueGrid(map), solarEnergy: 2 });
+    processTurn(state, { type: 'move', direction: 'E' });
+    expect(state.solarEnergy).toBe(2);
+  });
+
+  it('repeated waits do not recover more than 1 SOL per wait', () => {
+    const state = freshState({ solarEnergy: 0 });
+    processTurn(state, { type: 'wait' });
+    expect(state.solarEnergy).toBe(1);
+    processTurn(state, { type: 'wait' });
+    expect(state.solarEnergy).toBe(2);
   });
 });
 
-describe('solar charge failure in shadow (Phase 09.3)', () => {
+describe('waiting in shadow (Phase 09.3a): normal wait, no SOL change', () => {
   function shadowState(overrides?: Partial<GameState>): GameState {
     const map = openMap();
     return freshState({ map, sunlight: allFalseGrid(map), ...overrides });
@@ -316,93 +333,113 @@ describe('solar charge failure in shadow (Phase 09.3)', () => {
 
   it('does not recover SOL in shadow', () => {
     const state = shadowState({ solarEnergy: 2 });
-    processTurn(state, { type: 'charge' });
+    processTurn(state, { type: 'wait' });
     expect(state.solarEnergy).toBe(2);
   });
 
-  it('does not consume a turn in shadow', () => {
+  it('still consumes 1 turn like any other wait', () => {
     const state = shadowState({ solarEnergy: 2, turn: 5 });
-    processTurn(state, { type: 'charge' });
-    expect(state.turn).toBe(5);
+    processTurn(state, { type: 'wait' });
+    expect(state.turn).toBe(6);
   });
 
-  it('does not let the enemy act in shadow', () => {
+  it('still lets the enemy act normally', () => {
     const state = shadowState({ solarEnergy: 2 });
     const enemy = createInitialEnemy('bok', { x: 15, y: 15 }, 5, 1);
     const before = { ...enemy.pos };
     state.enemies = [enemy];
-    const result = processTurn(state, { type: 'charge' });
-    expect(result.enemyActed).toBe(false);
-    expect(enemy.pos).toEqual(before);
+    const result = processTurn(state, { type: 'wait' });
+    expect(result.enemyActed).toBe(true);
+    expect(enemy.pos).not.toEqual(before);
   });
 
-  it('reports consumed: false in shadow', () => {
+  it('reports consumed: true, same as any normal wait', () => {
     const state = shadowState({ solarEnergy: 2 });
-    const result = processTurn(state, { type: 'charge' });
-    expect(result.consumed).toBe(false);
+    const result = processTurn(state, { type: 'wait' });
+    expect(result.consumed).toBe(true);
   });
 
-  it('emits a shadow-failure event notifying the need for sunlight', () => {
+  it('does not emit a solar_charge_used event', () => {
     const state = shadowState({ solarEnergy: 2 });
-    const result = processTurn(state, { type: 'charge' });
-    expect(result.events).toContainEqual({ type: 'solar_charge_failed_shadow' });
+    const result = processTurn(state, { type: 'wait' });
+    expect(result.events.some((e) => e.type === 'solar_charge_used')).toBe(false);
+  });
+
+  it('does not emit any charge-failure event (shadow waiting is not a failure)', () => {
+    const state = shadowState({ solarEnergy: 2 });
+    const result = processTurn(state, { type: 'wait' });
+    // No 'solar_charge_failed_shadow' (or similar) event type exists any
+    // more as of Phase 09.3a; this only asserts the event list contains
+    // nothing charge-related at all.
+    expect(result.events.every((e) => !e.type.startsWith('solar_charge'))).toBe(true);
   });
 });
 
-describe('solar charge failure at full SOL (Phase 09.3)', () => {
+describe('waiting at full SOL in sunlight (Phase 09.3a): normal wait, no SOL change', () => {
   it('does not recover SOL when already at maxSolarEnergy', () => {
     const state = freshState({ solarEnergy: 5, maxSolarEnergy: 5 });
-    processTurn(state, { type: 'charge' });
+    processTurn(state, { type: 'wait' });
     expect(state.solarEnergy).toBe(5);
   });
 
-  it('does not consume a turn when full', () => {
+  it('still consumes 1 turn when full', () => {
     const state = freshState({ solarEnergy: 5, turn: 9 });
-    processTurn(state, { type: 'charge' });
-    expect(state.turn).toBe(9);
+    processTurn(state, { type: 'wait' });
+    expect(state.turn).toBe(10);
   });
 
-  it('does not let the enemy act when full', () => {
+  it('still lets the enemy act normally when full', () => {
     const state = freshState({ solarEnergy: 5 });
     const enemy = createInitialEnemy('bok', { x: 15, y: 15 }, 5, 1);
     const before = { ...enemy.pos };
     state.enemies = [enemy];
-    const result = processTurn(state, { type: 'charge' });
-    expect(result.enemyActed).toBe(false);
-    expect(enemy.pos).toEqual(before);
+    const result = processTurn(state, { type: 'wait' });
+    expect(result.enemyActed).toBe(true);
+    expect(enemy.pos).not.toEqual(before);
   });
 
-  it('emits a full-SOL failure event even while sunlit', () => {
+  it('does not emit a solar_charge_used event when already full', () => {
     const state = freshState({ solarEnergy: 5 });
-    const result = processTurn(state, { type: 'charge' });
-    expect(result.events).toContainEqual({ type: 'solar_charge_failed_full' });
+    const result = processTurn(state, { type: 'wait' });
+    expect(result.events.some((e) => e.type === 'solar_charge_used')).toBe(false);
   });
 });
 
-describe('solar charge and hammerRecovery interaction (Phase 09.3)', () => {
-  it('a successful charge does not change hammerRecovery', () => {
-    const state = freshState({ solarEnergy: 0, hammerRecovery: true });
-    processTurn(state, { type: 'charge' });
-    expect(state.hammerRecovery).toBe(true);
+describe('V key no longer produces any action (Phase 09.3a)', () => {
+  it('actionForKey returns null for "v"', async () => {
+    const { actionForKey } = await import('../input');
+    expect(actionForKey('v')).toBeNull();
+    expect(actionForKey('V')).toBeNull();
   });
+});
 
-  it('a successful charge does not clear hammerRecovery when it was already false', () => {
-    const state = freshState({ solarEnergy: 0, hammerRecovery: false });
-    processTurn(state, { type: 'charge' });
+describe('sunlight wait-charge and hammerRecovery interaction (Phase 09.3a)', () => {
+  it('a SOL-recovering wait clears hammerRecovery, same as any other wait', () => {
+    const state = freshState({ solarEnergy: 0, hammerRecovery: true });
+    processTurn(state, { type: 'wait' });
     expect(state.hammerRecovery).toBe(false);
   });
 
-  it('a shadow failure does not change hammerRecovery', () => {
+  it('a shadow wait also clears hammerRecovery, same as any other wait', () => {
     const map = openMap();
     const state = freshState({ map, sunlight: allFalseGrid(map), hammerRecovery: true, solarEnergy: 2 });
-    processTurn(state, { type: 'charge' });
-    expect(state.hammerRecovery).toBe(true);
+    processTurn(state, { type: 'wait' });
+    expect(state.hammerRecovery).toBe(false);
   });
 
-  it('a full-SOL failure does not change hammerRecovery', () => {
+  it('a full-SOL wait also clears hammerRecovery, same as any other wait', () => {
     const state = freshState({ solarEnergy: 5, hammerRecovery: true });
-    processTurn(state, { type: 'charge' });
-    expect(state.hammerRecovery).toBe(true);
+    processTurn(state, { type: 'wait' });
+    expect(state.hammerRecovery).toBe(false);
+  });
+
+  it('SOL recovery and hammerRecovery clearing happen within the same single wait turn (no duplication)', () => {
+    const state = freshState({ solarEnergy: 0, hammerRecovery: true, turn: 0 });
+    const result = processTurn(state, { type: 'wait' });
+    expect(state.solarEnergy).toBe(1);
+    expect(state.hammerRecovery).toBe(false);
+    expect(state.turn).toBe(1);
+    expect(result.events.filter((e) => e.type === 'solar_charge_used').length).toBe(1);
   });
 
   it('the existing hammer re-cock mechanic via X is unchanged', () => {
