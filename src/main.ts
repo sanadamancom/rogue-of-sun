@@ -781,13 +781,13 @@ class MainScene extends Phaser.Scene {
       this.snapActor(this.playerSprite, this.state.player);
     }
 
-    // Charge motion (Phase 09.3; folded into normal 'wait' as of Phase
-    // 09.3a): played exactly once when a wait actually recovered SOL
+    // Charge motion (Phase 09.3; Space made contextual as of Phase 09.3b):
+    // played exactly once when the resolved action was a solar charge
     // (detected from the resolved events, not re-derived from input), on
     // top of the ordinary snap-in-place above. Increments
     // activeAnimations for its own duration so the existing "ignore
     // input while an animation plays" guard in handleKey also prevents a
-    // second wait/charge (or any other input) from landing mid-motion.
+    // second charge (or any other input) from landing mid-motion.
     if (result.events.some((event) => event.type === 'solar_charge_used')) {
       this.playChargeMotion();
     }
@@ -864,15 +864,15 @@ class MainScene extends Phaser.Scene {
   }
 
   /**
-   * Brief visual feedback for a successful sunlight SOL recovery (Phase
-   * 09.3, folded into normal 'wait' as of Phase 09.3a): a single scale
-   * pulse on the existing player sprite — no new image asset, no screen
-   * shake, no sound. Increments activeAnimations for its own duration
-   * (like animateMove) so the "ignore input while an animation plays"
-   * guard in handleKey doubles as a double-recovery guard; purely
-   * cosmetic, so it never affects the already-committed SOL amount or
-   * turn count from applyPlayerAction's 'wait' handling, which already
-   * ran synchronously before this is called.
+   * Brief visual feedback for a successful solar charge (Phase 09.3;
+   * Space made contextual as of Phase 09.3b): a single scale pulse on
+   * the existing player sprite — no new image asset, no screen shake, no
+   * sound. Increments activeAnimations for its own duration (like
+   * animateMove) so the "ignore input while an animation plays" guard in
+   * handleKey doubles as a double-charge guard; purely cosmetic, so it
+   * never affects the already-committed SOL amount or turn count from
+   * applyPlayerAction's charge handling, which already ran
+   * synchronously before this is called.
    */
   private readonly CHARGE_MOTION_DURATION = 160;
 
@@ -936,7 +936,7 @@ class MainScene extends Phaser.Scene {
     this.hudText.setText(
       `FLOOR ${this.state.floor}/${this.state.totalFloors}   HP: ${player.hp}/${player.maxHp}   SOL ${this.state.solarEnergy} / ${this.state.maxSolarEnergy}   Turn: ${this.state.turn}\n` +
         `Run Seed: ${this.state.runSeed}   Floor Seed: ${this.state.seed}\n` +
-        `移動:方向キー  Shift+方向:向き変更  X:攻撃  Space:待機／日向でSOL回復  Tab:インベントリ`,
+        `移動:方向キー  Shift+方向:向き変更  X:攻撃  Space：待機／日向でチャージ  Tab:インベントリ`,
     );
 
     if (this.state.phase === 'gameover') {

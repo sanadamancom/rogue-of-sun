@@ -149,17 +149,21 @@ function applyPlayerAction(
     return applyArmorEquip(state, action.armorId, events);
   }
 
-  // Sunlight solar charge (Phase 09.3a): folded into normal 'wait' rather
-  // than a dedicated action (superseding Phase 09.3's V-only 'charge').
-  // Recovers 1 SOL as a side effect of waiting on a sunlit tile below
-  // maxSolarEnergy; every other wait behaves exactly as before this
-  // phase. See isSunlitAt for the sunlight-layer read.
+  // Space (Phase 09.3b correction): a contextual input, not a single
+  // action. On a sunlit tile with SOL below maxSolarEnergy, Space starts
+  // a distinct solar-charge action (resolveSolarCharge) instead of a
+  // plain wait — deliberately NOT the same action with a side effect
+  // tacked on, so charge and wait can be told apart in events/logs/UI
+  // and so hammerRecovery treats them differently (see
+  // resolveSolarCharge's own doc comment). Every other case (shadow, or
+  // sunlit but already at maxSolarEnergy) is a perfectly ordinary wait —
+  // SOL never changes, and this is the only place plain 'wait' handling
+  // lives.
   if (action.type === 'wait') {
-    state.hammerRecovery = false;
     if (isSunlitAt(state.sunlight, state.player.pos) && state.solarEnergy < state.maxSolarEnergy) {
-      state.solarEnergy = Math.min(state.maxSolarEnergy, state.solarEnergy + 1);
-      events.push({ type: 'solar_charge_used', recovered: 1 });
+      return resolveSolarCharge(state, events);
     }
+    state.hammerRecovery = false;
     return { consumed: true, attacked: false, defeated: false };
   }
 
@@ -435,6 +439,36 @@ function resolveSolarGunAttack(
   }
 
   events.push({ type: 'player_whiff', weaponId });
+  return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
+ * Resolves the solar-charge branch of a contextual Space input (Phase
+ * 09.3b correction): only ever called when the caller has already
+ * confirmed the player is on a sunlit tile with SOL below
+ * maxSolarEnergy, so this never re-checks either condition or fails.
+ * Recovers exactly 1 SOL, pushes the same `solar_charge_used` event the
+ * UI's charge-motion trigger already watches for, and consumes a turn
+ * (so the caller's normal enemy-resolution/regen/floor-check pipeline
+ * runs once, same as any other consumed action).
+ *
+ * Deliberately does NOT touch `hammerRecovery`, unlike plain 'wait'
+ * (which always clears it). Investigated against the existing
+ * hammerRecovery rules (turn.ts's applyPlayerAction / hammer_recover
+ * comments): the documented clearing triggers are "successful move,
+ * wait, X attack with a different weapon" — a deliberately enumerated
+ * list of ordinary, weapon-neutral actions, not "any turn-consuming
+ * action". Charge is a new, distinct action outside that list, and no
+ * spec anywhere says charging while the hammer is recovering should
+ * also finish re-cocking it "for free" alongside the SOL gain. Absent
+ * that explicit basis, charge is treated as its own action that leaves
+ * hammerRecovery exactly as it found it — the same treatment Phase
+ * 09.3's original V-only charge action used, so this only restores that
+ * behavior rather than inventing a new rule.
+ */
+function resolveSolarCharge(state: GameState, events: GameEvent[]): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  state.solarEnergy = Math.min(state.maxSolarEnergy, state.solarEnergy + 1);
+  events.push({ type: 'solar_charge_used', recovered: 1 });
   return { consumed: true, attacked: false, defeated: false };
 }
 
