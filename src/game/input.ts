@@ -28,6 +28,8 @@ const KEY_TO_DIRECTION: Record<string, Direction8> = {
  * - 'x' (with or without Shift; both are treated identically per
  *   fixed_decisions.action) -> 'action' (resolves an attack in the
  *   player's current facing direction; this phase's only action).
+ * - 'v' (Phase 09.3) -> 'charge' (attempts to recover 1 SOL while
+ *   standing on a sunlit tile; see turn.ts's resolveCharge).
  * - Space -> 'wait', unaffected by Shift.
  */
 export function actionForKey(key: string, shiftKey = false): PlayerAction | null {
@@ -37,6 +39,9 @@ export function actionForKey(key: string, shiftKey = false): PlayerAction | null
   }
   if (lower === 'x') {
     return { type: 'action' };
+  }
+  if (lower === 'v') {
+    return { type: 'charge' };
   }
   const direction = KEY_TO_DIRECTION[lower];
   if (direction) {

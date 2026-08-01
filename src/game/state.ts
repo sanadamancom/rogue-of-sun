@@ -3,6 +3,7 @@ import { createInitialActor, createInitialEnemy } from './turn';
 import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
 import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
 import { createEmptyInventory } from './item-def';
+import { generateSunlightLayer } from './sunlight';
 import { Actor, EnemyActor, EnemyType, GameState, GroundItem, Inventory, Vec2, WeaponId, ArmorId, Direction8 } from './types';
 
 /** Generates a random run seed without relying on Math.random's implicit global state at call sites. */
@@ -269,6 +270,11 @@ function buildFloorState(
     // starts at 5/5.
     solarEnergy: carry ? carry.solarEnergy : INITIAL_SOLAR_ENERGY,
     maxSolarEnergy: carry ? carry.maxSolarEnergy : INITIAL_MAX_SOLAR_ENERGY,
+    // Sunlight layer (Phase 09.3): always regenerated fresh per floor from
+    // the finished map/start, using its own independent RNG stream (see
+    // sunlight.ts) — never carried over across floor transitions, like
+    // webs/groundItems.
+    sunlight: generateSunlightLayer(map, floor, floorSeed, placement.start),
   };
 }
 

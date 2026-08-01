@@ -54,6 +54,7 @@ function baseState(map: GameMap): GameState {
     hammerRecovery: false,
     solarEnergy: 5,
     maxSolarEnergy: 5,
+    sunlight: [],
   };
 }
 

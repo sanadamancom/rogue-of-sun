@@ -320,6 +320,17 @@ export interface GameState {
    * transitions; resets to 5 on a brand new run.
    */
   maxSolarEnergy: number;
+  /**
+   * Per-tile sunlight layer (Phase 09.3), independent of `map.terrain`:
+   * `sunlight[y][x]` is true when tile (x,y) is sunlit, false otherwise
+   * (every wall tile is always false, though normal play never queries a
+   * wall tile's sunlight). Regenerated fresh per floor by buildFloorState
+   * (like webs/groundItems) — never carried over across floor
+   * transitions or into a new run. Purely a display/charge-eligibility
+   * concern: never affects walkability, collision, or line-of-sight —
+   * existing movement/attack/ray code never reads this field.
+   */
+  sunlight: boolean[][];
 }
 
 /**
@@ -375,4 +386,5 @@ export type PlayerAction =
   | { type: 'action' }
   | { type: 'use_item'; itemId: ItemId }
   | { type: 'equip_weapon'; weaponId: WeaponId }
-  | { type: 'equip_armor'; armorId: ArmorId };
+  | { type: 'equip_armor'; armorId: ArmorId }
+  | { type: 'charge' };

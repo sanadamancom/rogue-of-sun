@@ -85,6 +85,7 @@ function spiderState(
     hammerRecovery: false,
     solarEnergy: 5,
     maxSolarEnergy: 5,
+    sunlight: [],
   };
 }
 
@@ -544,6 +545,7 @@ describe('spider regression: no diagonal movement or corner-crossing for other s
       hammerRecovery: false,
     solarEnergy: 5,
     maxSolarEnergy: 5,
+    sunlight: [],
     };
     // bok already moves diagonally when unobstructed (8-direction chase),
     // so this isn't a meaningful corner-cross regression check by itself;

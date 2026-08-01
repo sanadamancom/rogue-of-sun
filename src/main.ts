@@ -350,14 +350,28 @@ class MainScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * Warm, semi-transparent overlay color used to mark a sunlit floor tile
+   * (Phase 09.3). Drawn only on top of floor tiles (never walls), after
+   * the base floor fill, so it reads as a lighting difference rather than
+   * a different tile type — never changes actor/item/exit rendering,
+   * hit-testing, or coordinates.
+   */
+  private readonly SUNLIGHT_OVERLAY_COLOR = 0xffb454;
+  private readonly SUNLIGHT_OVERLAY_ALPHA = 0.22;
+
   private drawTerrain(): void {
-    const { map } = this.state;
+    const { map, sunlight } = this.state;
     this.terrainGraphics.clear();
     for (let y = 0; y < map.height; y++) {
       for (let x = 0; x < map.width; x++) {
         const isWall = map.terrain[y][x] === 'wall';
         this.terrainGraphics.fillStyle(isWall ? 0x333333 : 0x1c1c1c, 1);
         this.terrainGraphics.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        if (!isWall && sunlight[y]?.[x]) {
+          this.terrainGraphics.fillStyle(this.SUNLIGHT_OVERLAY_COLOR, this.SUNLIGHT_OVERLAY_ALPHA);
+          this.terrainGraphics.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        }
         this.terrainGraphics.lineStyle(1, 0x000000, 0.4);
         this.terrainGraphics.strokeRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
       }
@@ -767,6 +781,17 @@ class MainScene extends Phaser.Scene {
       this.snapActor(this.playerSprite, this.state.player);
     }
 
+    // Charge motion (Phase 09.3): played exactly once per successful
+    // charge (detected from the resolved events, not re-derived from
+    // input), on top of the ordinary snap-in-place above. Increments
+    // activeAnimations for its own duration so the existing
+    // "ignore input while an animation plays" guard in handleKey also
+    // prevents a second charge (or any other input) from landing mid
+    // -motion.
+    if (result.events.some((event) => event.type === 'solar_charge_used')) {
+      this.playChargeMotion();
+    }
+
     this.state.enemies.forEach((enemy, i) => {
       const before = enemiesBefore[i];
       const sprite = this.enemySprites[i];
@@ -838,6 +863,34 @@ class MainScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Brief visual feedback for a successful charge (Phase 09.3): a single
+   * scale pulse on the existing player sprite — no new image asset, no
+   * screen shake, no sound. Increments activeAnimations for its own
+   * duration (like animateMove) so the "ignore input while an animation
+   * plays" guard in handleKey doubles as a double-charge guard; purely
+   * cosmetic, so it never affects the already-committed SOL amount or
+   * turn count from resolveCharge, which already ran synchronously
+   * before this is called.
+   */
+  private readonly CHARGE_MOTION_DURATION = 160;
+
+  private playChargeMotion(): void {
+    this.activeAnimations += 1;
+    this.tweens.add({
+      targets: this.playerSprite,
+      scaleX: SPRITE_SCALE_X * 1.15,
+      scaleY: SPRITE_SCALE_Y * 1.15,
+      duration: this.CHARGE_MOTION_DURATION,
+      yoyo: true,
+      ease: 'Sine.easeInOut',
+      onComplete: () => {
+        this.playerSprite.setScale(SPRITE_SCALE_X, SPRITE_SCALE_Y);
+        this.activeAnimations -= 1;
+      },
+    });
+  }
+
   /** Tweens the sprite from its previous tile to its new tile while the walk loop keeps playing. */
   private animateMove(
     sprite: Phaser.GameObjects.Sprite,
@@ -882,7 +935,7 @@ class MainScene extends Phaser.Scene {
     this.hudText.setText(
       `FLOOR ${this.state.floor}/${this.state.totalFloors}   HP: ${player.hp}/${player.maxHp}   SOL ${this.state.solarEnergy} / ${this.state.maxSolarEnergy}   Turn: ${this.state.turn}\n` +
         `Run Seed: ${this.state.runSeed}   Floor Seed: ${this.state.seed}\n` +
-        `移動:方向キー  Shift+方向:向き変更  X:攻撃  Space:待機  Tab:インベントリ`,
+        `移動:方向キー  Shift+方向:向き変更  X:攻撃  V:日向でチャージ  Space:待機  Tab:インベントリ`,
     );
 
     if (this.state.phase === 'gameover') {

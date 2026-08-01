@@ -77,6 +77,7 @@ function krakenState(
     hammerRecovery: false,
     solarEnergy: 5,
     maxSolarEnergy: 5,
+    sunlight: [],
   };
 }
 

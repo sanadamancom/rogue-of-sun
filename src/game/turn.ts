@@ -5,6 +5,7 @@ import { ITEM_DEFINITIONS } from './item-def';
 import { WEAPON_DEFINITIONS } from './weapon-def';
 import { ARMOR_DEFINITIONS } from './armor-def';
 import { canPlaceWebNow, expireWebs, placeWeb } from './web';
+import { isSunlitAt } from './sunlight';
 import { GameEvent } from './events';
 import {
   Actor,
@@ -146,6 +147,14 @@ function applyPlayerAction(
 
   if (action.type === 'equip_armor') {
     return applyArmorEquip(state, action.armorId, events);
+  }
+
+  // Solar charge (Phase 09.3): a distinct, non-attack, non-item action —
+  // deliberately checked here rather than folded into use_item/action, so
+  // it never touches hammerRecovery, weapon reach, or SOL-gun logic. See
+  // resolveCharge for its own success/failure rules.
+  if (action.type === 'charge') {
+    return resolveCharge(state, events);
   }
 
   if (action.type === 'wait') {
@@ -425,6 +434,35 @@ function resolveSolarGunAttack(
   }
 
   events.push({ type: 'player_whiff', weaponId });
+  return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
+ * Resolves a 'charge' action (Phase 09.3 sunlight charging). Never moves
+ * the player, never itself resolves enemy actions — a successful charge
+ * returns consumed: true and the caller (processTurn) runs the normal
+ * enemy-resolution/regen/floor-check pipeline exactly as for any other
+ * consumed action, same as applyItemUse. Deliberately does not touch
+ * `hammerRecovery` in either the success or failure path — charging is
+ * not routed through the X-action's hammerRecovery bookkeeping at all
+ * (fixed_spec: "チャージ成功だけではhammerRecoveryを解除しない" /
+ * "日陰または満タンによる不成立でもhammerRecoveryを変更しない").
+ */
+function resolveCharge(state: GameState, events: GameEvent[]): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  if (!isSunlitAt(state.sunlight, state.player.pos)) {
+    events.push({ type: 'solar_charge_failed_shadow' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  if (state.solarEnergy >= state.maxSolarEnergy) {
+    events.push({ type: 'solar_charge_failed_full' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  const before = state.solarEnergy;
+  state.solarEnergy = Math.min(state.maxSolarEnergy, state.solarEnergy + 1);
+  const recovered = state.solarEnergy - before;
+  events.push({ type: 'solar_charge_used', recovered });
   return { consumed: true, attacked: false, defeated: false };
 }
 
