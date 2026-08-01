@@ -183,8 +183,15 @@ function applyPlayerAction(
     // hammer is the equipped weapon. Equip-switching itself never touches
     // this flag (see applyWeaponEquip): re-equipping the hammer later
     // does not implicitly clear a recoil left over from before it was
-    // switched away.
-    state.hammerRecovery = state.equippedWeaponId === 'hammer';
+    // switched away. Phase 09.2: this only runs when the action actually
+    // consumed a turn — an insufficient-SOL solar gun attempt (consumed:
+    // false) must leave hammerRecovery exactly as it was (fixed_spec's
+    // "SOL不足による不発ではhammerRecoveryを解除しない"), whereas every
+    // melee resolution (including a whiff) always consumes, so this is a
+    // no-op change for sword/spear/hammer.
+    if (result.consumed) {
+      state.hammerRecovery = state.equippedWeaponId === 'hammer';
+    }
 
     return result;
   }
@@ -272,6 +279,15 @@ function resolveFacingAttack(
   events: GameEvent[],
 ): { consumed: boolean; attacked: boolean; defeated: boolean } {
   const { player, enemies, map } = state;
+
+  // Solar gun (Phase 09.2): a ranged, SOL-consuming weapon entirely
+  // distinct from the adjacent/reach-2 melee resolution below — routed
+  // out first so melee logic never has to reason about ray distance or
+  // solar cost.
+  if (state.equippedWeaponId && WEAPON_DEFINITIONS[state.equippedWeaponId].solarCost) {
+    return resolveSolarGunAttack(state, direction, events);
+  }
+
   const destination: Vec2 = destinationOf(player.pos, direction);
 
   const target = enemies.find(
@@ -354,6 +370,62 @@ function tryKnockback(state: GameState, target: EnemyActor, direction: Direction
 
   target.pos = dest;
   events.push({ type: 'enemy_knocked_back', enemyType: target.type });
+}
+
+/**
+ * Resolves an X-action attack with the solar gun equipped (Phase 09.2): a
+ * ranged, SOL-consuming weapon entirely separate from the melee
+ * adjacent/reach-2 path in resolveFacingAttack. Checks solarEnergy first
+ * — if below the weapon's solarCost, nothing happens at all (no damage,
+ * no ray, no turn consumed, no SOL change), matching the fixed_spec's
+ * "SOLが不足している場合は攻撃、ダメージ、ターン消費、敵行動を発生させ
+ * ない" / "SOL不足時に値を負数にしない" requirements. Otherwise consumes
+ * solarCost SOL unconditionally (hit, whiff, or immediate wall) and walks
+ * a ray via the existing castGazeRay (reused as-is: wall/bounds/diagonal
+ * corner-cut aware, terrain-only blocking — ground items and the exit
+ * never obstruct it), hitting only the first living enemy found, for
+ * exactly 1 damage via the shared applyPlayerAttackToEnemy path (so
+ * defeat handling/events match every other weapon). Never knocks back
+ * (the solar gun's knockbackDistance is 0, so tryKnockback would be a
+ * no-op anyway; not called here to keep this branch self-contained).
+ * Always returns consumed: true when SOL was sufficient — even a whiff
+ * or an immediately-blocked ray still spends the turn and the SOL, per
+ * fixed_spec.solar_consumption.
+ */
+function resolveSolarGunAttack(
+  state: GameState,
+  direction: Direction8,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const weaponId = state.equippedWeaponId as import('./types').WeaponId;
+  const weaponDef = WEAPON_DEFINITIONS[weaponId];
+  const solarCost = weaponDef.solarCost ?? 0;
+
+  if (state.solarEnergy < solarCost) {
+    events.push({ type: 'solar_gun_insufficient_solar' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  state.solarEnergy -= solarCost;
+
+  const reached = castGazeRay(state.map, state.player.pos, direction, weaponDef.reach);
+  // Walk the ray tiles in near-to-far order (castGazeRay's return order)
+  // so the closest living enemy on the line is always hit first,
+  // regardless of state.enemies' array order — a naive find-over-enemies
+  // would not guarantee this.
+  let target: EnemyActor | undefined;
+  for (const tile of reached) {
+    target = state.enemies.find((enemy) => enemy.alive && enemy.pos.x === tile.x && enemy.pos.y === tile.y);
+    if (target) break;
+  }
+
+  if (target) {
+    const defeated = applyPlayerAttackToEnemy(state, target, events);
+    return { consumed: true, attacked: true, defeated };
+  }
+
+  events.push({ type: 'player_whiff', weaponId });
+  return { consumed: true, attacked: false, defeated: false };
 }
 
 /**

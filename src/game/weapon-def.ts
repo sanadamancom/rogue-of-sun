@@ -28,6 +28,16 @@ export interface WeaponDefinition {
    * a recoil mechanic (sword, spear).
    */
   hasRecoil: boolean;
+  /**
+   * Solar energy consumed per X-action attack (Phase 09.2). Only present
+   * for the ranged solar gun — undefined/0 for every melee weapon. When
+   * set, turn.ts's resolveFacingAttack routes the attack through the
+   * separate ranged-ray resolution (resolveSolarGunAttack) instead of the
+   * adjacent/reach-2 melee path, and `reach` is interpreted as the
+   * gun's maximum ray distance in tiles rather than a melee reach step
+   * count.
+   */
+  solarCost?: number;
 }
 
 // Single source of truth for every registered weapon's combat stats.
@@ -55,7 +65,17 @@ export const WEAPON_DEFINITIONS: Record<WeaponId, WeaponDefinition> = {
     knockbackDistance: 1,
     hasRecoil: true,
   },
+  solar_gun: {
+    id: 'solar_gun',
+    attackPower: 1,
+    // Interpreted as max ray distance (tiles), not melee reach steps —
+    // see WeaponDefinition.solarCost doc comment.
+    reach: 5,
+    knockbackDistance: 0,
+    hasRecoil: false,
+    solarCost: 1,
+  },
 };
 
-/** Fixed iteration order for weapons (Phase 08.3: sword; Phase 08.5 adds spear; Phase 08.7 adds hammer). */
-export const WEAPON_IDS_IN_ORDER: WeaponId[] = ['sword', 'spear', 'hammer'];
+/** Fixed iteration order for weapons (Phase 08.3: sword; Phase 08.5 adds spear; Phase 08.7 adds hammer; Phase 09.2 adds solar_gun). */
+export const WEAPON_IDS_IN_ORDER: WeaponId[] = ['sword', 'spear', 'hammer', 'solar_gun'];

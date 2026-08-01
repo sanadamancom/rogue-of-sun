@@ -97,6 +97,8 @@ export function formatEvent(event: GameEvent): string {
       return '太陽の実を使い、太陽エネルギーが回復した。';
     case 'sun_fruit_use_failed':
       return '太陽エネルギーは満タンだ。';
+    case 'solar_gun_insufficient_solar':
+      return '太陽エネルギーが足りない。';
     case 'weapon_equipped': {
       const name = ITEM_DEFINITIONS[event.weaponId].displayName;
       return `${name}を装備した。`;

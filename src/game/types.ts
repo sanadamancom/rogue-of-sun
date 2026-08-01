@@ -331,7 +331,7 @@ export interface GameState {
  * item's shared display data, src/game/weapon-def.ts for weapon combat
  * data, and src/game/armor-def.ts for armor combat data).
  */
-export type ItemId = 'apple' | 'sword' | 'armor' | 'spear' | 'hammer' | 'sun_fruit';
+export type ItemId = 'apple' | 'sword' | 'armor' | 'spear' | 'hammer' | 'sun_fruit' | 'solar_gun';
 
 /**
  * Weapon species — Phase 08.3 registered only 'sword'; Phase 08.5 added
@@ -342,7 +342,7 @@ export type ItemId = 'apple' | 'sword' | 'armor' | 'spear' | 'hammer' | 'sun_fru
  * WEAPON_DEFINITIONS) from silently accepting a consumable's or armor's
  * id.
  */
-export type WeaponId = 'sword' | 'spear' | 'hammer';
+export type WeaponId = 'sword' | 'spear' | 'hammer' | 'solar_gun';
 
 /**
  * Armor species — Phase 08.4 registers only 'armor'. A separate union

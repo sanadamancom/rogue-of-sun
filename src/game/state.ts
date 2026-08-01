@@ -218,6 +218,22 @@ function buildFloorState(
     groundItems.push({ id: groundItems.length, itemId: 'sun_fruit', pos: sunFruitPos });
   }
 
+  // Solar gun placement (Phase 09.2 ranged solar weapon): floor 1 only,
+  // using a ninth distinct independent RNG stream, placed after every
+  // other floor-1 ground item (including sun fruit) so it never perturbs
+  // any prior RNG sequence/consumption order.
+  if (floor === 1) {
+    const solarGunExclusions = [
+      placement.start,
+      placement.exit,
+      ...placement.enemies,
+      ...groundItems.map((item) => item.pos),
+    ];
+    const solarGunRng = createRng(floorSeed ^ 0x2b9e5c74);
+    const solarGunPos = chooseGroundItemPosition(map, placement.start, solarGunExclusions, solarGunRng);
+    groundItems.push({ id: groundItems.length, itemId: 'solar_gun', pos: solarGunPos });
+  }
+
   return {
     map,
     player,
