@@ -182,10 +182,10 @@ describe('natural regeneration healing (Phase 10.3.3, confirmed_findings.unobser
     }
     expect(lastResult!.playerRegenerated).toBe(true);
     const healed = telemetry.events.find((e) => e.type === 'player_healed');
-    expect(healed).toMatchObject({ source: 'natural_regeneration', hpBefore: 5, hpAfter: 15, actualAmount: 10 });
+    expect(healed).toMatchObject({ source: 'natural_regeneration', hpBefore: 5, hpAfter: 15, actualHealing: 10 });
   });
 
-  it('actualAmount is clamped near max HP and never exceeds the real HP delta', () => {
+  it('actualHealing is clamped near max HP and never exceeds the real HP delta', () => {
     const state = freshState({ enemies: [] });
     state.player.hp = 25; // maxHp 30, regen would add 10 -> clamped to 5
     const telemetry = createRunTelemetry(state);
@@ -193,7 +193,7 @@ describe('natural regeneration healing (Phase 10.3.3, confirmed_findings.unobser
       step(state, { type: 'wait' }, telemetry);
     }
     const healed = telemetry.events.find((e) => e.type === 'player_healed');
-    expect((healed as { actualAmount: number }).actualAmount).toBe(5);
+    expect((healed as { actualHealing: number }).actualHealing).toBe(5);
     expect((healed as { hpAfter: number }).hpAfter).toBe(30);
   });
 
@@ -223,7 +223,7 @@ describe('natural regeneration healing (Phase 10.3.3, confirmed_findings.unobser
     const telemetry = createRunTelemetry(state);
     step(state, { type: 'use_item', itemId: 'apple' }, telemetry);
     const healed = telemetry.events.find((e) => e.type === 'player_healed');
-    expect(healed).toMatchObject({ source: 'item', itemId: 'apple', actualAmount: 20, hpBefore: 5, hpAfter: 25 });
+    expect(healed).toMatchObject({ source: 'item', itemId: 'apple', actualHealing: 20, hpBefore: 5, hpAfter: 25 });
   });
 
   it('a floor transition with no HP change never generates a player_healed event', () => {
@@ -238,7 +238,7 @@ describe('natural regeneration healing (Phase 10.3.3, confirmed_findings.unobser
     expect(telemetry.events.some((e) => e.type === 'player_healed')).toBe(false);
   });
 
-  it('healingBySource total matches the sum of all player_healed actualAmount values', () => {
+  it('healingBySource total matches the sum of all player_healed actualHealing values', () => {
     const state = freshState({ enemies: [], inventory: { ...createEmptyInventory(), apple: 1 } });
     state.player.hp = 5;
     const telemetry = createRunTelemetry(state);
@@ -251,8 +251,8 @@ describe('natural regeneration healing (Phase 10.3.3, confirmed_findings.unobser
     // type), so the regen tick actually lands after 4 more waits, not 5
     // — and by then hp is 25, so the +10 tick clamps to +5 (25->30).
     const summary = computeRunSummary(telemetry, state);
-    const healEvents = telemetry.events.filter((e) => e.type === 'player_healed') as Array<{ source: string; actualAmount: number }>;
-    const totalFromEvents = healEvents.reduce((s, e) => s + e.actualAmount, 0);
+    const healEvents = telemetry.events.filter((e) => e.type === 'player_healed') as Array<{ source: string; actualHealing: number }>;
+    const totalFromEvents = healEvents.reduce((s, e) => s + e.actualHealing, 0);
     const totalFromSummary = Object.values(summary.resources.healingBySource).reduce((s, v) => s + v, 0);
     expect(totalFromSummary).toBe(totalFromEvents);
     expect(summary.resources.healingBySource.item).toBe(20);
@@ -320,7 +320,7 @@ describe('no NaN/Infinity/negative values (Phase 10.3.3)', () => {
       'actualDamage',
       'damage',
       'requestedAmount',
-      'actualAmount',
+      'actualHealing',
       'damageDealt',
     ]);
     function checkNoNegatives(value: unknown): void {

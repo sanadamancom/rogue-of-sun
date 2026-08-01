@@ -407,7 +407,7 @@ describe('resource trace (Phase 10.3.1)', () => {
     const telemetry = createRunTelemetry(state);
     step(state, { type: 'use_item', itemId: 'apple' }, telemetry);
     const healed = telemetry.events.find((e) => e.type === 'player_healed');
-    expect((healed as { actualAmount: number }).actualAmount).toBe(5);
+    expect((healed as { actualHealing: number }).actualHealing).toBe(5);
   });
 });
 

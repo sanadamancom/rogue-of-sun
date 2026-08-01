@@ -45,6 +45,8 @@ telemetryの`translateGameEvent`が`'player_attack'`ケースで`event.damage`�
 
 `player_healed`イベント（Phase 10.3.2の`healed`から改名）へ`requestedAmount`（回復処理が試みた額面。アイテムは`ITEM_DEFINITIONS`の`healAmount`、自然回復は固定10）と`actualAmount`（`hpAfter - hpBefore`の実差分、`maxHp`でのクランプを自動的に反映）を分離しました。summaryの`healingBySource`は`actualAmount`のみを集計します。
 
+> **Phase 10.3.3aでの訂正**：指定仕様のフィールド名は`actualHealing`でしたが、実装時に誤って`actualAmount`としていました。Phase 10.3.3aで`actualHealing`へ修正済みです。以下の記述は当時の実装事実として残していますが、現在の正式なフィールド名は`actualHealing`です。
+
 ## 回復sourceの定義
 
 `'natural_regeneration'`（自然回復、`recordTurn`が`result.playerRegenerated`を直接参照して生成）と`'item'`（アイテム使用、既存の`item_used`GameEvent経由、`itemId`を付随フィールドとして保持）の2種類のみを実装しました。`'floor_transition'`・`'level_up'`は実際に存在する回復経路ではないため生成していません（`allowed_sources`のうち実在する経路のみを列挙する方針に従いました）。
@@ -94,7 +96,7 @@ telemetryの`translateGameEvent`が`'player_attack'`ケースで`event.damage`�
 - 同一ランで2回JSON保存を実行し、内容が完全に一致することを確認（`json_export`の非破壊性の再確認）
 - コンソールエラー・ページエラーともに0件
 
-自然回復の発生前後HP・`actualAmount`・sourceの確認、および残HPを超える攻撃での`actualDamage`確認は、ランダム操作による短時間の手動プレイでは狙って再現することが困難だったため、これらは自動テスト（`phase-10-3-3-damage-recovery-fix.test.ts`の該当12件、自然回復・overkillの双方を実際の`turn.ts`ロジック経由で明示的に検証）の結果をもって確認済みとします。
+自然回復の発生前後HP・`actualHealing`（当時の実装では`actualAmount`。Phase 10.3.3aで訂正）・sourceの確認、および残HPを超える攻撃での`actualDamage`確認は、ランダム操作による短時間の手動プレイでは狙って再現することが困難だったため、これらは自動テスト（`phase-10-3-3-damage-recovery-fix.test.ts`の該当12件、自然回復・overkillの双方を実際の`turn.ts`ロジック経由で明示的に検証）の結果をもって確認済みとします。
 
 ## 戦闘・回復・SOLのバランス数値を変更していないこと
 

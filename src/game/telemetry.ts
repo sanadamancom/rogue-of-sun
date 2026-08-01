@@ -136,7 +136,7 @@ export type RunEventPayload =
   // itemId, so healingBySource groups consistently by mechanism
   // ('natural_regeneration', 'item', ...) — itemId (when applicable) is
   // kept as a separate, optional detail field instead.
-  | { type: 'player_healed'; source: 'natural_regeneration' | 'item'; itemId?: ItemId; requestedAmount: number; actualAmount: number; hpBefore: number; hpAfter: number }
+  | { type: 'player_healed'; source: 'natural_regeneration' | 'item'; itemId?: ItemId; requestedAmount: number; actualHealing: number; hpBefore: number; hpAfter: number }
   | { type: 'exit_reached'; floor: number };
 
 export type RunEvent = RunEventCommon & RunEventPayload;
@@ -247,17 +247,17 @@ export function recordTurn(
   // turn.ts exposes this only as TurnResult.playerRegenerated (a plain
   // boolean), never as a GameEvent — see the history doc's investigation
   // (Phase 10.3.3) — so it must be checked here directly rather than in
-  // translateGameEvent's event-type switch. actualAmount is the real
+  // translateGameEvent's event-type switch. actualHealing is the real
   // hp delta (before.playerHp -> after.player.hp), already correctly
   // clamped to maxHp by turn.ts's own Math.min.
   if (result.playerRegenerated) {
-    const actualAmount = after.player.hp - before.playerHp;
-    if (actualAmount > 0) {
+    const actualHealing = after.player.hp - before.playerHp;
+    if (actualHealing > 0) {
       pushEvent(telemetry, after, consumed, {
         type: 'player_healed',
         source: 'natural_regeneration',
         requestedAmount: 10, // REGEN_TURNS_PER_HP's fixed per-tick amount (turn.ts)
-        actualAmount,
+        actualHealing,
         hpBefore: before.playerHp,
         hpAfter: after.player.hp,
       });
@@ -513,7 +513,7 @@ function translateGameEvent(
       if (event.healed > 0) {
         // event.healed is already the actual, maxHp-clamped delta (see
         // turn.ts's applyItemUse: `healed = player.hp - before`, computed
-        // *after* the Math.min clamp) — it is the correct actualAmount
+        // *after* the Math.min clamp) — it is the correct actualHealing
         // as-is. requestedAmount is the item's raw, unclamped healAmount
         // (ITEM_DEFINITIONS), purely for visibility into how much was
         // "lost" to the clamp; it is never used for summary aggregation.
@@ -522,7 +522,7 @@ function translateGameEvent(
           source: 'item',
           itemId: event.itemId,
           requestedAmount: ITEM_DEFINITIONS[event.itemId].healAmount ?? event.healed,
-          actualAmount: event.healed,
+          actualHealing: event.healed,
           hpBefore: before.playerHp,
           hpAfter: after.player.hp,
         });
@@ -888,8 +888,8 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
         solarChargeActions++;
         break;
       case 'player_healed':
-        healingBySource[event.source] = (healingBySource[event.source] ?? 0) + event.actualAmount;
-        getFloorStats(event.floor).healing += event.actualAmount;
+        healingBySource[event.source] = (healingBySource[event.source] ?? 0) + event.actualHealing;
+        getFloorStats(event.floor).healing += event.actualHealing;
         break;
       case 'item_used':
         itemsUsedByType[event.itemId] = (itemsUsedByType[event.itemId] ?? 0) + 1;
