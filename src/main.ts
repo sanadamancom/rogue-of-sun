@@ -228,6 +228,19 @@ class MainScene extends Phaser.Scene {
    * lines, screen-fixed (unaffected by camera scroll). Deliberately no
    * scroll, expand button, icons, or color-coding per ui.requirements.
    */
+  /**
+   * HUD text for the current enchantment state (Phase 10.1). Distinguishes
+   * "not yet unlocked" from "unlocked but off" from "sol active" from "sol
+   * selected but SOL currently empty" per ui.hud.required — the selection
+   * itself is never hidden or reset just because SOL happens to be 0.
+   */
+  private enchantHudLabel(): string {
+    if (!this.state.solUnlocked) return 'ENCHANT：未取得';
+    if (this.state.selectedEnchantment === 'none') return 'ENCHANT：なし';
+    if (this.state.solarEnergy <= 0) return 'ENCHANT：ソル（SOL不足）';
+    return 'ENCHANT：ソル';
+  }
+
   private readonly LOG_PANEL_PADDING = 6;
   private readonly LOG_LINE_HEIGHT = 18;
 
@@ -792,6 +805,15 @@ class MainScene extends Phaser.Scene {
       this.playChargeMotion();
     }
 
+    // Sol melee enchantment activation flash (Phase 10.1): played exactly
+    // once when the resolved action's events include a successful
+    // activation (never on a whiff, SOL-insufficient, ineligible-weapon,
+    // or plain hit) — detected from events, same pattern as the charge
+    // motion above.
+    if (result.events.some((event) => event.type === 'sol_enchantment_used')) {
+      this.playSolEnchantFlash();
+    }
+
     this.state.enemies.forEach((enemy, i) => {
       const before = enemiesBefore[i];
       const sprite = this.enemySprites[i];
@@ -831,6 +853,25 @@ class MainScene extends Phaser.Scene {
     // is always freshly false from buildFloorState), but keep the on-screen
     // overlay in sync regardless.
     this.refreshInventoryOverlay();
+  }
+
+  /**
+   * Brief warm/platinum flash on the player sprite for a successful sol
+   * enchantment activation (Phase 10.1): reuses the existing sprite (no
+   * new image asset) via a short tint overlay, restored via
+   * updatePlayerSlowedTint (not a bare clearTint) so it never fights with
+   * the slowed-tint indicator if both happen to be relevant. Purely
+   * cosmetic — never re-runs damage/SOL logic, which has already been
+   * committed synchronously before this is called.
+   */
+  private readonly SOL_ENCHANT_FLASH_COLOR = 0xfff0b0;
+  private readonly SOL_ENCHANT_FLASH_DURATION = 180;
+
+  private playSolEnchantFlash(): void {
+    this.playerSprite.setTint(this.SOL_ENCHANT_FLASH_COLOR);
+    this.time.delayedCall(this.SOL_ENCHANT_FLASH_DURATION, () => {
+      this.updatePlayerSlowedTint();
+    });
   }
 
   /** Snaps a non-moving actor's sprite to its tile; it keeps idle-stepping in place. */
@@ -934,9 +975,9 @@ class MainScene extends Phaser.Scene {
     this.updateFacingMarker();
 
     this.hudText.setText(
-      `FLOOR ${this.state.floor}/${this.state.totalFloors}   HP: ${player.hp}/${player.maxHp}   SOL ${this.state.solarEnergy} / ${this.state.maxSolarEnergy}   Turn: ${this.state.turn}\n` +
+      `FLOOR ${this.state.floor}/${this.state.totalFloors}   HP: ${player.hp}/${player.maxHp}   SOL ${this.state.solarEnergy} / ${this.state.maxSolarEnergy}   ${this.enchantHudLabel()}   Turn: ${this.state.turn}\n` +
         `Run Seed: ${this.state.runSeed}   Floor Seed: ${this.state.seed}\n` +
-        `移動:方向キー  Shift+方向:向き変更  X:攻撃  Space：待機／日向でチャージ  Tab:インベントリ`,
+        `移動:方向キー  Shift+方向:向き変更  X:攻撃  Space：待機／日向でチャージ  F:エンチャント切替  Tab:インベントリ`,
     );
 
     if (this.state.phase === 'gameover') {

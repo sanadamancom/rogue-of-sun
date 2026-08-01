@@ -93,6 +93,21 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     consumable: false,
     stackable: false,
   },
+  // Sol enchantment (Phase 10.1): a one-time unlock pickup, not a stacked
+  // inventory item. Deliberately excluded from ITEM_IDS_IN_ORDER (below) so
+  // it never appears in the general inventory overlay or gets counted via
+  // the generic inventory[itemId]++ auto-pickup path — turn.ts's move
+  // handler special-cases this id and sets GameState.solUnlocked directly
+  // instead. category/consumable/stackable are unused for this id but kept
+  // populated to satisfy ItemDefinition/Record<ItemId, ...> completeness.
+  sol_enchantment: {
+    id: 'sol_enchantment',
+    displayName: 'ソル',
+    glyph: '🔆',
+    category: 'consumable',
+    consumable: false,
+    stackable: false,
+  },
 };
 
 /** Fixed display/iteration order for items (Phase 08.2: apple; Phase 08.3 adds sword; Phase 08.4 adds armor; Phase 08.5 adds spear; Phase 08.7 adds hammer; Phase 09.1 adds sun_fruit; Phase 09.2 adds solar_gun). */

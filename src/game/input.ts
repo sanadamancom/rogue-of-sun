@@ -32,6 +32,10 @@ const KEY_TO_DIRECTION: Record<string, Direction8> = {
  *   sunlit tile below maxSolarEnergy also recovers 1 SOL as a side
  *   effect (see turn.ts's 'wait' handling) — there is no dedicated
  *   charge key; Phase 09.3's 'v' binding was removed.
+ * - 'f' (Phase 10.1 sol enchant foundation) -> 'toggle_enchantment':
+ *   cycles the selected melee enchantment (none<->sol). Chosen after
+ *   confirming no existing binding uses it (every other letter/arrow/
+ *   Tab/Escape/Enter/Space/Shift key above is already in use).
  */
 export function actionForKey(key: string, shiftKey = false): PlayerAction | null {
   const lower = key.toLowerCase();
@@ -40,6 +44,9 @@ export function actionForKey(key: string, shiftKey = false): PlayerAction | null
   }
   if (lower === 'x') {
     return { type: 'action' };
+  }
+  if (lower === 'f') {
+    return { type: 'toggle_enchantment' };
   }
   const direction = KEY_TO_DIRECTION[lower];
   if (direction) {

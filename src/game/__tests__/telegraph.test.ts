@@ -46,7 +46,7 @@ function baseState(map: GameMap): GameState {
     nextWebId: 0,
     groundItems: [],
     nextGroundItemId: 0,
-    inventory: { apple: 0, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0 },
+    inventory: { apple: 0, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0 },
     inventoryOpen: false,
     selectedItemIndex: 0,
     equippedWeaponId: null,
@@ -54,6 +54,8 @@ function baseState(map: GameMap): GameState {
     hammerRecovery: false,
     solarEnergy: 5,
     maxSolarEnergy: 5,
+    solUnlocked: false,
+    selectedEnchantment: 'none',
     sunlight: [],
   };
 }

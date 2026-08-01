@@ -331,6 +331,20 @@ export interface GameState {
    * existing movement/attack/ray code never reads this field.
    */
   sunlight: boolean[][];
+  /**
+   * Whether the player has picked up the sol enchantment item (Phase 10.1).
+   * Once true, never reverts to false. Persists across floor transitions
+   * like equippedWeaponId; resets to false on a brand new run.
+   */
+  solUnlocked: boolean;
+  /**
+   * The player's currently selected melee enchantment (Phase 10.1),
+   * player-common (not per-weapon) and independent of equippedWeaponId —
+   * switching weapons never changes this. Toggled by the 'f' key (see
+   * input.ts) while solUnlocked is true; toggling while locked is a no-op.
+   * Persists across floor transitions; resets to 'none' on a brand new run.
+   */
+  selectedEnchantment: EnchantmentId;
 }
 
 /**
@@ -342,7 +356,14 @@ export interface GameState {
  * item's shared display data, src/game/weapon-def.ts for weapon combat
  * data, and src/game/armor-def.ts for armor combat data).
  */
-export type ItemId = 'apple' | 'sword' | 'armor' | 'spear' | 'hammer' | 'sun_fruit' | 'solar_gun';
+export type ItemId = 'apple' | 'sword' | 'armor' | 'spear' | 'hammer' | 'sun_fruit' | 'solar_gun' | 'sol_enchantment';
+
+/**
+ * Selectable melee enchantment (Phase 10.1 sol enchant foundation). 'none'
+ * is the default/off state; 'sol' is the only registered attribute this
+ * phase. Player-common (not per-weapon) — see GameState.selectedEnchantment.
+ */
+export type EnchantmentId = 'none' | 'sol';
 
 /**
  * Weapon species — Phase 08.3 registered only 'sword'; Phase 08.5 added
@@ -386,4 +407,5 @@ export type PlayerAction =
   | { type: 'action' }
   | { type: 'use_item'; itemId: ItemId }
   | { type: 'equip_weapon'; weaponId: WeaponId }
-  | { type: 'equip_armor'; armorId: ArmorId };
+  | { type: 'equip_armor'; armorId: ArmorId }
+  | { type: 'toggle_enchantment' };

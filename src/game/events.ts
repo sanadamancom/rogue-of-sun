@@ -1,4 +1,4 @@
-import { Direction8, EnemyType, ItemId, WeaponId, ArmorId, Vec2 } from './types';
+import { Direction8, EnchantmentId, EnemyType, ItemId, WeaponId, ArmorId, Vec2 } from './types';
 
 /**
  * Typed, display-agnostic record of a notable action that happened during
@@ -59,4 +59,16 @@ export type GameEvent =
   | { type: 'armor_already_equipped'; armorId: ArmorId }
   | { type: 'player_whiff'; weaponId?: WeaponId }
   | { type: 'enemy_knocked_back'; enemyType: EnemyType }
-  | { type: 'hammer_recover' };
+  | { type: 'hammer_recover' }
+  // Sol melee enchantment (Phase 10.1 sol enchant foundation).
+  | { type: 'sol_enchantment_acquired' }
+  | { type: 'enchantment_toggled'; selected: EnchantmentId }
+  | {
+      type: 'sol_enchantment_used';
+      weaponId: WeaponId;
+      enemyType: EnemyType;
+      solBefore: number;
+      solAfter: number;
+      baseDamage: number;
+      bonusDamage: number;
+    };

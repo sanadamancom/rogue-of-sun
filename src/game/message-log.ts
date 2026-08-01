@@ -125,6 +125,12 @@ export function formatEvent(event: GameEvent): string {
     }
     case 'hammer_recover':
       return 'ハンマーを構え直した。';
+    case 'sol_enchantment_acquired':
+      return 'ソルエンチャントを取得した。';
+    case 'enchantment_toggled':
+      return event.selected === 'sol' ? 'エンチャントをソルに切り替えた。' : 'エンチャントを解除した。';
+    case 'sol_enchantment_used':
+      return 'ソルの力が攻撃に宿った。';
     default: {
       const exhaustiveCheck: never = event;
       throw new Error(`Unhandled game event: ${JSON.stringify(exhaustiveCheck)}`);

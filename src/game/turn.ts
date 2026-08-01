@@ -17,7 +17,24 @@ import {
   GameState,
   PlayerAction,
   Vec2,
+  WeaponId,
 } from './types';
+
+/**
+ * Weapons the sol melee enchantment can apply to (Phase 10.1 confirmed
+ * design: bare hands and the solar gun are explicitly excluded). Checked
+ * in applyPlayerAttackToEnemy, the single shared hit-resolution function
+ * used by every player-attack site (adjacent melee, spear's reach-2 melee,
+ * and the solar gun's ranged hit) — for the solar gun this list simply
+ * never matches, so no separate exclusion check is needed there.
+ */
+const SOL_ENCHANT_ELIGIBLE_WEAPONS: WeaponId[] = ['sword', 'spear', 'hammer'];
+
+/** SOL consumed per successful sol-enchanted hit (Phase 10.1 provisional value). */
+const SOL_ENCHANT_COST = 1;
+
+/** Bonus damage added to a hit's final damage when the sol enchantment activates (Phase 10.1 provisional value). */
+const SOL_ENCHANT_BONUS_DAMAGE = 1;
 
 /** Consumed player actions required for one natural HP tick (Phase 04 initial setting). */
 export const REGEN_TURNS_PER_HP = 5;
@@ -71,7 +88,32 @@ export function getIncomingDamage(state: GameState, attackPower: number): number
  * weapon. Never itself resolves enemy actions.
  */
 function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: GameEvent[]): boolean {
-  const damage = getEffectiveAttackPower(state);
+  const baseDamage = getEffectiveAttackPower(state);
+  let damage = baseDamage;
+
+  // Sol melee enchantment activation (Phase 10.1): only for sword/spear/
+  // hammer (SOL_ENCHANT_ELIGIBLE_WEAPONS — never bare hands, never the
+  // solar gun), only while 'sol' is selected and unlocked, and only when
+  // there is at least SOL_ENCHANT_COST SOL available. A confirmed hit
+  // (this function is only ever called once an enemy target has already
+  // been found — never on a whiff) is required, so a miss never consumes
+  // SOL. When SOL is insufficient, the selection is left exactly as-is
+  // and the attack simply deals its normal (unbonused) damage — no event,
+  // no log line, no animation trigger.
+  const weaponId = state.equippedWeaponId;
+  const solEligible = weaponId !== null && SOL_ENCHANT_ELIGIBLE_WEAPONS.includes(weaponId);
+  const solActivates =
+    solEligible &&
+    state.selectedEnchantment === 'sol' &&
+    state.solUnlocked &&
+    state.solarEnergy >= SOL_ENCHANT_COST;
+
+  const solBefore = state.solarEnergy;
+  if (solActivates) {
+    state.solarEnergy -= SOL_ENCHANT_COST;
+    damage += SOL_ENCHANT_BONUS_DAMAGE;
+  }
+
   target.hp = Math.max(0, target.hp - damage);
   const defeated = target.hp === 0;
   events.push(
@@ -79,6 +121,17 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
       ? { type: 'player_attack', enemyType: target.type, damage, weaponId: state.equippedWeaponId }
       : { type: 'player_attack', enemyType: target.type, damage },
   );
+  if (solActivates) {
+    events.push({
+      type: 'sol_enchantment_used',
+      weaponId: weaponId as WeaponId,
+      enemyType: target.type,
+      solBefore,
+      solAfter: state.solarEnergy,
+      baseDamage,
+      bonusDamage: SOL_ENCHANT_BONUS_DAMAGE,
+    });
+  }
   if (defeated) {
     target.alive = false;
     events.push({ type: 'enemy_defeated', enemyType: target.type });
@@ -147,6 +200,19 @@ function applyPlayerAction(
 
   if (action.type === 'equip_armor') {
     return applyArmorEquip(state, action.armorId, events);
+  }
+
+  // Enchantment toggle (Phase 10.1, 'f' key): cycles none<->sol while
+  // solUnlocked; a no-op (no event, no state change) before unlock, per
+  // confirmed_design's "切替入力を行ってもsolへ変更しない". UI-only, like
+  // 'face' below — never consumes a turn and never triggers enemy actions.
+  if (action.type === 'toggle_enchantment') {
+    if (!state.solUnlocked) {
+      return { consumed: false, attacked: false, defeated: false };
+    }
+    state.selectedEnchantment = state.selectedEnchantment === 'none' ? 'sol' : 'none';
+    events.push({ type: 'enchantment_toggled', selected: state.selectedEnchantment });
+    return { consumed: false, attacked: false, defeated: false };
   }
 
   // Space (Phase 09.3b correction): a contextual input, not a single
@@ -265,8 +331,23 @@ function applyPlayerAction(
     if (itemIndex !== -1) {
       const item = state.groundItems[itemIndex];
       state.groundItems.splice(itemIndex, 1);
-      state.inventory[item.itemId] = (state.inventory[item.itemId] ?? 0) + 1;
-      events.push({ type: 'item_picked_up', itemId: item.itemId });
+      // Sol enchantment (Phase 10.1): a one-time unlock, not a stacked
+      // inventory item — see item-def.ts's doc comment. Sets solUnlocked
+      // directly instead of going through inventory[itemId]++, and never
+      // auto-selects it (selectedEnchantment stays whatever it already
+      // was, per confirmed_design's "自動でONにはしない"). Idempotent
+      // against a hypothetical duplicate (never happens in this phase,
+      // only one is ever placed) so re-picking one up can't re-unlock or
+      // push a duplicate acquisition event.
+      if (item.itemId === 'sol_enchantment') {
+        if (!state.solUnlocked) {
+          state.solUnlocked = true;
+          events.push({ type: 'sol_enchantment_acquired' });
+        }
+      } else {
+        state.inventory[item.itemId] = (state.inventory[item.itemId] ?? 0) + 1;
+        events.push({ type: 'item_picked_up', itemId: item.itemId });
+      }
     }
     return { consumed: true, attacked: false, defeated: false };
   }

@@ -4,7 +4,7 @@ import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
 import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
 import { createEmptyInventory } from './item-def';
 import { generateSunlightLayer } from './sunlight';
-import { Actor, EnemyActor, EnemyType, GameState, GroundItem, Inventory, Vec2, WeaponId, ArmorId, Direction8 } from './types';
+import { Actor, EnchantmentId, EnemyActor, EnemyType, GameState, GroundItem, Inventory, Vec2, WeaponId, ArmorId, Direction8 } from './types';
 
 /** Generates a random run seed without relying on Math.random's implicit global state at call sites. */
 export function randomSeed(): number {
@@ -22,6 +22,8 @@ interface CarryOverStats {
   facing: Direction8;
   solarEnergy: number;
   maxSolarEnergy: number;
+  solUnlocked: boolean;
+  selectedEnchantment: EnchantmentId;
 }
 
 /** Fixed initial/maximum solar energy for a brand new run (Phase 09.1; provisional value, see history doc). */
@@ -233,6 +235,23 @@ function buildFloorState(
     const solarGunRng = createRng(floorSeed ^ 0x2b9e5c74);
     const solarGunPos = chooseGroundItemPosition(map, placement.start, solarGunExclusions, solarGunRng);
     groundItems.push({ id: groundItems.length, itemId: 'solar_gun', pos: solarGunPos });
+
+    // Sol enchantment placement (Phase 10.1): floor 1 only, using a tenth
+    // distinct independent RNG stream, placed after every other floor-1
+    // ground item (including the solar gun) so it never perturbs any
+    // prior RNG sequence/consumption order. Floor-1-only guarantees it is
+    // reachable and pickable during every 3-floor playthrough, matching
+    // confirmed_design's "3フロアの試作中に必ず取得して検証できる位置へ
+    // 決定論的に1個配置する".
+    const solEnchantExclusions = [
+      placement.start,
+      placement.exit,
+      ...placement.enemies,
+      ...groundItems.map((item) => item.pos),
+    ];
+    const solEnchantRng = createRng(floorSeed ^ 0x9f4a1e63);
+    const solEnchantPos = chooseGroundItemPosition(map, placement.start, solEnchantExclusions, solEnchantRng);
+    groundItems.push({ id: groundItems.length, itemId: 'sol_enchantment', pos: solEnchantPos });
   }
 
   return {
@@ -270,6 +289,11 @@ function buildFloorState(
     // starts at 5/5.
     solarEnergy: carry ? carry.solarEnergy : INITIAL_SOLAR_ENERGY,
     maxSolarEnergy: carry ? carry.maxSolarEnergy : INITIAL_MAX_SOLAR_ENERGY,
+    // Sol enchantment state (Phase 10.1): persists across floor transitions
+    // like solarEnergy/equippedWeaponId; a brand new run always starts
+    // locked and unselected.
+    solUnlocked: carry ? carry.solUnlocked : false,
+    selectedEnchantment: carry ? carry.selectedEnchantment : 'none',
     // Sunlight layer (Phase 09.3): always regenerated fresh per floor from
     // the finished map/start, using its own independent RNG stream (see
     // sunlight.ts) — never carried over across floor transitions, like
@@ -300,6 +324,8 @@ export function advanceToNextFloor(state: GameState): GameState {
     facing: state.player.facing,
     solarEnergy: state.solarEnergy,
     maxSolarEnergy: state.maxSolarEnergy,
+    solUnlocked: state.solUnlocked,
+    selectedEnchantment: state.selectedEnchantment,
   };
   return buildFloorState(state.runSeed, state.floor + 1, state.turn, carry);
 }
