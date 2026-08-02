@@ -3,6 +3,7 @@ import { toDirection4 } from './game/direction';
 import { actionForKey } from './game/input';
 import { ENEMY_DEFINITIONS } from './game/enemy-def';
 import { ITEM_DEFINITIONS } from './game/item-def';
+import { ELEMENT_DISPLAY_NAMES } from './game/element-def';
 import { ARMOR_DEFINITIONS } from './game/armor-def';
 import { WEAPON_DEFINITIONS } from './game/weapon-def';
 import {
@@ -297,11 +298,22 @@ class MainScene extends Phaser.Scene {
    * selected but SOL currently empty" per ui.hud.required — the selection
    * itself is never hidden or reset just because SOL happens to be 0.
    */
+  /**
+   * HUD text for the current enchantment state (Phase 10.1 sol-only;
+   * Phase 14.2 extends to all five elements). Distinguishes "not yet
+   * unlocked" from "unlocked but off" from "an element is active" from
+   * "sol selected but SOL currently empty" per ui.hud.required — the
+   * selection itself is never hidden or reset just because SOL happens
+   * to be 0. "not yet unlocked" now checks every element (Phase 14.2),
+   * not just solUnlocked, since flame/frost/cloud/earth can each be
+   * unlocked (and selected) independently of sol.
+   */
   private enchantHudLabel(): string {
-    if (!this.state.solUnlocked) return 'ENCHANT：未取得';
+    const anyUnlocked = Object.values(this.state.unlockedEnchantments).some((u) => u);
+    if (!anyUnlocked) return 'ENCHANT：未取得';
     if (this.state.selectedEnchantment === 'none') return 'ENCHANT：なし';
-    if (this.state.solarEnergy <= 0) return 'ENCHANT：ソル（SOL不足）';
-    return 'ENCHANT：ソル';
+    if (this.state.selectedEnchantment === 'sol' && this.state.solarEnergy <= 0) return 'ENCHANT：ソル（SOL不足）';
+    return `ENCHANT：${ELEMENT_DISPLAY_NAMES[this.state.selectedEnchantment]}`;
   }
 
   /**

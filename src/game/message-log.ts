@@ -1,6 +1,7 @@
 import { ENEMY_DEFINITIONS } from './enemy-def';
 import { ITEM_DEFINITIONS } from './item-def';
 import { EFFECT_DEFINITIONS } from './effects';
+import { ELEMENT_DISPLAY_NAMES } from './element-def';
 import { GameEvent } from './events';
 
 /**
@@ -173,8 +174,12 @@ export function formatEvent(event: GameEvent): string {
       return 'ハンマーを構え直した。';
     case 'sol_enchantment_acquired':
       return 'ソルエンチャントを取得した。';
+    case 'element_enchantment_acquired':
+      return `${ELEMENT_DISPLAY_NAMES[event.element]}エンチャントを取得した。`;
     case 'enchantment_toggled':
-      return event.selected === 'sol' ? 'エンチャントをソルに切り替えた。' : 'エンチャントを解除した。';
+      return event.selected === 'none'
+        ? 'エンチャントを解除した。'
+        : `エンチャントを${ELEMENT_DISPLAY_NAMES[event.selected]}に切り替えた。`;
     case 'sol_enchantment_used':
       return 'ソルの力が攻撃に宿った。';
     case 'effect_granted': {

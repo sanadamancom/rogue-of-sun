@@ -114,7 +114,7 @@ describe('sol enchantment state (Phase 10.1)', () => {
   });
 
   it('toggles none<->sol once unlocked', () => {
-    const state = freshState({ solUnlocked: true });
+    const state = freshState({ solUnlocked: true, unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false } });
     processTurn(state, { type: 'toggle_enchantment' });
     expect(state.selectedEnchantment).toBe('sol');
     processTurn(state, { type: 'toggle_enchantment' });

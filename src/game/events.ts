@@ -1,4 +1,4 @@
-import { AbilityId, Direction8, EffectId, ElementalAffinity, EnchantmentId, EnemyType, ItemId, StatusAilmentId, TrapType, WeaponId, ArmorId, Vec2 } from './types';
+import { AbilityId, Direction8, EffectId, ElementalAffinity, ElementId, EnchantmentId, EnemyType, ItemId, StatusAilmentId, TrapType, WeaponId, ArmorId, Vec2 } from './types';
 
 /**
  * Typed, display-agnostic record of a notable action that happened during
@@ -107,6 +107,13 @@ export type GameEvent =
   | { type: 'hammer_recover' }
   // Sol melee enchantment (Phase 10.1 sol enchant foundation).
   | { type: 'sol_enchantment_acquired' }
+  // Phase 14.2 five-element acquisition: fired once, the turn a
+  // flame/frost/cloud/earth pickup is collected (never for sol, which
+  // keeps using sol_enchantment_acquired above unchanged). Idempotent
+  // against a hypothetical duplicate exactly like sol_enchantment_
+  // acquired (never happens this phase, only one of each is ever
+  // placed per run).
+  | { type: 'element_enchantment_acquired'; element: ElementId }
   | { type: 'enchantment_toggled'; selected: EnchantmentId }
   | {
       type: 'sol_enchantment_used';

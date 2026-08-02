@@ -662,7 +662,27 @@ export interface ActiveEffect {
  * item's shared display data, src/game/weapon-def.ts for weapon combat
  * data, and src/game/armor-def.ts for armor combat data).
  */
-export type ItemId = 'apple' | 'sword' | 'armor' | 'spear' | 'hammer' | 'sun_fruit' | 'solar_gun' | 'sol_enchantment' | 'chocolate' | 'banana' | 'antidote' | 'panacea';
+export type ItemId =
+  | 'apple'
+  | 'sword'
+  | 'armor'
+  | 'spear'
+  | 'hammer'
+  | 'sun_fruit'
+  | 'solar_gun'
+  | 'sol_enchantment'
+  | 'chocolate'
+  | 'banana'
+  | 'antidote'
+  | 'panacea'
+  // Phase 14.2 five-element acquisition: one-time unlock ground items
+  // for the four non-sol elements, following the same
+  // pickup-directly-unlocks-and-never-enters-inventory pattern as
+  // sol_enchantment (see turn.ts's ground-item pickup handling).
+  | 'flame_enchantment'
+  | 'frost_enchantment'
+  | 'cloud_enchantment'
+  | 'earth_enchantment';
 
 /**
  * Selectable melee enchantment (Phase 10.1 sol enchant foundation). 'none'

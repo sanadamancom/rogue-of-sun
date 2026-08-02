@@ -54,7 +54,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
       hammer: 0,
       sun_fruit: 0,
       solar_gun: 0,
-      sol_enchantment: 0,
+      sol_enchantment: 0, flame_enchantment: 0, frost_enchantment: 0, cloud_enchantment: 0, earth_enchantment: 0,
       chocolate: 0,
       banana: 0,
       antidote: 0,

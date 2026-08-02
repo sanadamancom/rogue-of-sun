@@ -445,6 +445,104 @@ function buildFloorState(
     groundItems.push({ id: groundItems.length, itemId: 'panacea', pos: panaceaPos });
   }
 
+  // Flame/frost/cloud/earth enchantment placement (Phase 14.2
+  // five-element acquisition): current 3-floor prototype distribution —
+  // flame on floor 1, frost+cloud on floor 2, earth on floor 3 — so all
+  // four are guaranteed obtainable within a single 3-floor run, exactly
+  // one of each per run. Each uses its own distinct independent RNG
+  // stream (four new XOR constants, none reused elsewhere in this file)
+  // so placement never perturbs any prior map-generation/species/item/
+  // trap RNG sequence or its consumption order, and each excludes every
+  // already-placed ground item/trap in addition to start/exit/every
+  // enemy position, same convention as every placement above. This
+  // per-floor distribution is explicitly a 3-floor prototype arrangement
+  // (confirmed_game_spec.current_three_floor_distribution) — the
+  // completed game's full-depth distribution is deferred to Phase 21,
+  // so no generic loot-table mechanism is introduced here.
+  if (floor === 1) {
+    const flameExclusions = [
+      placement.start,
+      placement.exit,
+      ...placement.enemies,
+      ...groundItems.map((item) => item.pos),
+      ...traps.map((t) => t.pos),
+    ];
+    const flameRng = createRng(floorSeed ^ 0x8b3e6f1a);
+    const flamePos = chooseGroundItemPosition(map, placement.start, flameExclusions, flameRng);
+    groundItems.push({ id: groundItems.length, itemId: 'flame_enchantment', pos: flamePos });
+  }
+
+  if (floor === 2) {
+    // frost placed first via the ordinary chooseGroundItemPosition
+    // candidate pool (every reachable, non-excluded floor tile).
+    const frostExclusions = [
+      placement.start,
+      placement.exit,
+      ...placement.enemies,
+      ...groundItems.map((item) => item.pos),
+      ...traps.map((t) => t.pos),
+    ];
+    const frostRng = createRng(floorSeed ^ 0x1e7c5a94);
+    const frostPos = chooseGroundItemPosition(map, placement.start, frostExclusions, frostRng);
+    groundItems.push({ id: groundItems.length, itemId: 'frost_enchantment', pos: frostPos });
+
+    // cloud placement prefers a different room from frost's
+    // (confirmed_game_spec.current_three_floor_distribution's "floor 2
+    // の二つは可能な限り別の部屋へ配置する"): the first attempt below
+    // additionally excludes every tile inside frost's containing room
+    // (found via roomIndexContaining); only if that leaves zero
+    // candidates (frost landed in a corridor/doorway tile, so
+    // roomIndexContaining returns -1 and no room-exclusion applies, or
+    // every other room is otherwise fully excluded) does the plain
+    // chooseGroundItemPosition call run again without the room
+    // exclusion. Both attempts share one continuous rng stream:
+    // chooseGroundItemPosition only ever consumes an rng() draw once it
+    // has found at least one candidate (it throws before drawing when
+    // candidates.length === 0), so a failed first attempt costs zero
+    // draws and the fallback draws exactly once — deterministic and
+    // reproducible for a given seed.
+    const cloudBaseExclusions = [
+      placement.start,
+      placement.exit,
+      ...placement.enemies,
+      ...groundItems.map((item) => item.pos),
+      ...traps.map((t) => t.pos),
+    ];
+    const frostRoomIndex = roomIndexContaining(map.rooms, frostPos);
+    const cloudRng = createRng(floorSeed ^ 0x4f9d2b83);
+    let cloudPos: Vec2;
+    if (frostRoomIndex !== -1) {
+      const frostRoom = map.rooms[frostRoomIndex];
+      const frostRoomTiles: Vec2[] = [];
+      for (let y = frostRoom.y; y < frostRoom.y + frostRoom.height; y++) {
+        for (let x = frostRoom.x; x < frostRoom.x + frostRoom.width; x++) {
+          frostRoomTiles.push({ x, y });
+        }
+      }
+      try {
+        cloudPos = chooseGroundItemPosition(map, placement.start, [...cloudBaseExclusions, ...frostRoomTiles], cloudRng);
+      } catch {
+        cloudPos = chooseGroundItemPosition(map, placement.start, cloudBaseExclusions, cloudRng);
+      }
+    } else {
+      cloudPos = chooseGroundItemPosition(map, placement.start, cloudBaseExclusions, cloudRng);
+    }
+    groundItems.push({ id: groundItems.length, itemId: 'cloud_enchantment', pos: cloudPos });
+  }
+
+  if (floor === 3) {
+    const earthExclusions = [
+      placement.start,
+      placement.exit,
+      ...placement.enemies,
+      ...groundItems.map((item) => item.pos),
+      ...traps.map((t) => t.pos),
+    ];
+    const earthRng = createRng(floorSeed ^ 0xb2c76e19);
+    const earthPos = chooseGroundItemPosition(map, placement.start, earthExclusions, earthRng);
+    groundItems.push({ id: groundItems.length, itemId: 'earth_enchantment', pos: earthPos });
+  }
+
   return {
     map,
     player,

@@ -1,4 +1,5 @@
 import { ItemId, Inventory } from './types';
+import { ELEMENT_DISPLAY_NAMES, ELEMENT_GLYPHS } from './element-def';
 
 /**
  * A single item species' shared display/inventory data (Phase 08.2
@@ -182,6 +183,47 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     category: 'consumable',
     consumable: true,
     stackable: true,
+  },
+  // Flame/frost/cloud/earth enchantments (Phase 14.2 five-element
+  // acquisition): one-time unlock pickups, exactly like sol_enchantment
+  // above — deliberately excluded from ITEM_IDS_IN_ORDER so they never
+  // appear in the general inventory overlay or go through the generic
+  // inventory[itemId]++ auto-pickup path; turn.ts's ground-item pickup
+  // handling special-cases each of these four ids and sets the matching
+  // GameState.unlockedEnchantments entry directly instead.
+  // displayName/glyph come from element-def.ts's single source of truth
+  // so each element's name/glyph exists in exactly one place.
+  flame_enchantment: {
+    id: 'flame_enchantment',
+    displayName: ELEMENT_DISPLAY_NAMES.flame,
+    glyph: ELEMENT_GLYPHS.flame,
+    category: 'consumable',
+    consumable: false,
+    stackable: false,
+  },
+  frost_enchantment: {
+    id: 'frost_enchantment',
+    displayName: ELEMENT_DISPLAY_NAMES.frost,
+    glyph: ELEMENT_GLYPHS.frost,
+    category: 'consumable',
+    consumable: false,
+    stackable: false,
+  },
+  cloud_enchantment: {
+    id: 'cloud_enchantment',
+    displayName: ELEMENT_DISPLAY_NAMES.cloud,
+    glyph: ELEMENT_GLYPHS.cloud,
+    category: 'consumable',
+    consumable: false,
+    stackable: false,
+  },
+  earth_enchantment: {
+    id: 'earth_enchantment',
+    displayName: ELEMENT_DISPLAY_NAMES.earth,
+    glyph: ELEMENT_GLYPHS.earth,
+    category: 'consumable',
+    consumable: false,
+    stackable: false,
   },
 };
 

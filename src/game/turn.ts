@@ -30,6 +30,8 @@ import {
   Direction8,
   DIRECTION_VECTORS,
   ElementalAffinity,
+  ElementId,
+  EnchantmentId,
   EnemyActor,
   EnemyType,
   GameState,
@@ -63,6 +65,41 @@ const SOL_ENCHANT_COST = 1;
  * every pre-14.1 result.
  */
 const SOL_ELEMENTAL_BASE_DAMAGE = 10;
+
+/**
+ * Maps each non-sol element's one-time-unlock ItemId to the ElementId it
+ * unlocks (Phase 14.2 five-element acquisition). sol_enchantment is
+ * deliberately excluded — it keeps its own dedicated branch above,
+ * unchanged since Phase 10.1.
+ */
+const ELEMENT_ENCHANTMENT_ITEM_IDS: Record<string, ElementId> = {
+  flame_enchantment: 'flame',
+  frost_enchantment: 'frost',
+  cloud_enchantment: 'cloud',
+  earth_enchantment: 'earth',
+};
+
+/**
+ * Fixed selection cycle order for the 'f' key (Phase 14.2
+ * confirmed_game_spec.switching.sequence). 'none' is always a candidate;
+ * every other entry is a candidate only while
+ * GameState.unlockedEnchantments[entry] is true — see
+ * getEnchantmentCycleCandidates below. This single array is the sole
+ * place the order is defined; no other code repeats it.
+ */
+const ENCHANTMENT_CYCLE_ORDER: EnchantmentId[] = ['none', 'sol', 'flame', 'frost', 'cloud', 'earth'];
+
+/**
+ * The ordered list of enchantment selections currently reachable by the
+ * 'f' key: 'none' plus every ElementId whose unlockedEnchantments entry
+ * is true, in ENCHANTMENT_CYCLE_ORDER's fixed order. Always at least
+ * length 1 (['none']) since 'none' is unconditional.
+ */
+function getEnchantmentCycleCandidates(state: GameState): EnchantmentId[] {
+  return ENCHANTMENT_CYCLE_ORDER.filter(
+    (id) => id === 'none' || state.unlockedEnchantments[id as ElementId],
+  );
+}
 
 /** Consumed player actions required for one natural HP tick (Phase 04 initial setting). */
 export const REGEN_TURNS_PER_HP = 5;
@@ -383,15 +420,22 @@ function applyPlayerAction(
     return applyDiscardItem(state, action.itemId, events);
   }
 
-  // Enchantment toggle (Phase 10.1, 'f' key): cycles none<->sol while
-  // solUnlocked; a no-op (no event, no state change) before unlock, per
-  // confirmed_design's "切替入力を行ってもsolへ変更しない". UI-only, like
-  // 'face' below — never consumes a turn and never triggers enemy actions.
+  // Enchantment toggle (Phase 10.1, 'f' key; Phase 14.2 extends the
+  // cycle from none<->sol to none/sol/flame/frost/cloud/earth, skipping
+  // any element whose unlockedEnchantments entry is false). A no-op (no
+  // event, no state change) when only 'none' is reachable — i.e. no
+  // element is unlocked at all — matching Phase 10.1's original
+  // "切替入力を行ってもsolへ変更しない" guard, now generalized to every
+  // element. UI-only, like 'face' below — never consumes a turn and
+  // never triggers enemy actions.
   if (action.type === 'toggle_enchantment') {
-    if (!state.solUnlocked) {
+    const candidates = getEnchantmentCycleCandidates(state);
+    if (candidates.length <= 1) {
       return { consumed: false, attacked: false, defeated: false };
     }
-    state.selectedEnchantment = state.selectedEnchantment === 'none' ? 'sol' : 'none';
+    const currentIndex = candidates.indexOf(state.selectedEnchantment);
+    const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % candidates.length;
+    state.selectedEnchantment = candidates[nextIndex];
     events.push({ type: 'enchantment_toggled', selected: state.selectedEnchantment });
     return { consumed: false, attacked: false, defeated: false };
   }
@@ -558,6 +602,17 @@ function applyPlayerAction(
           state.solUnlocked = true;
           state.unlockedEnchantments.sol = true;
           events.push({ type: 'sol_enchantment_acquired' });
+        }
+      } else if (item.itemId in ELEMENT_ENCHANTMENT_ITEM_IDS) {
+        // Flame/frost/cloud/earth enchantments (Phase 14.2): same
+        // one-time-unlock, never-enters-inventory, never-auto-selects
+        // pattern as sol_enchantment above, just for the other four
+        // elements. Idempotent against a hypothetical duplicate for the
+        // same reason sol_enchantment's branch is.
+        const element = ELEMENT_ENCHANTMENT_ITEM_IDS[item.itemId as keyof typeof ELEMENT_ENCHANTMENT_ITEM_IDS];
+        if (!state.unlockedEnchantments[element]) {
+          state.unlockedEnchantments[element] = true;
+          events.push({ type: 'element_enchantment_acquired', element });
         }
       } else if (hasInventoryCapacity(state)) {
         state.inventory[item.itemId] = (state.inventory[item.itemId] ?? 0) + 1;
