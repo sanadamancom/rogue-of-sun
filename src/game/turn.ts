@@ -23,7 +23,7 @@ import { canPlaceWebNow, expireWebs, placeWeb } from './web';
 import { isSunlitAt } from './sunlight';
 import { GameEvent } from './events';
 import { applyExperienceGain } from './progression';
-import { getPowerDamageBonus, getPlayerSpeed } from './ability';
+import { getPowerDamageBonus, getPlayerSpeed, getElementalMindBonus } from './ability';
 import {
   Actor,
   ALL_DIRECTIONS,
@@ -41,30 +41,47 @@ import {
 } from './types';
 
 /**
- * Weapons the sol melee enchantment can apply to (Phase 10.1 confirmed
- * design: bare hands and the solar gun are explicitly excluded). Checked
- * in applyPlayerAttackToEnemy, the single shared hit-resolution function
- * used by every player-attack site (adjacent melee, spear's reach-2 melee,
- * and the solar gun's ranged hit) — for the solar gun this list simply
- * never matches, so no separate exclusion check is needed there.
+ * Weapons any melee enchantment (sol or the four Phase 14.3 elements)
+ * can apply to (Phase 10.1 confirmed design, generalized in Phase 14.3:
+ * bare hands and the solar gun are explicitly excluded for every
+ * element, not just sol). Checked in applyPlayerAttackToEnemy, the
+ * single shared hit-resolution function used by every player-attack
+ * site (adjacent melee, spear's reach-2 melee, and the solar gun's
+ * ranged hit) — for the solar gun this list simply never matches, so no
+ * separate exclusion check is needed there. Single source of truth: no
+ * other per-element weapon list exists anywhere in this file.
  */
-const SOL_ENCHANT_ELIGIBLE_WEAPONS: WeaponId[] = ['sword', 'spear', 'hammer'];
-
-/** SOL consumed per successful sol-enchanted hit (Phase 10.1 provisional value). */
-const SOL_ENCHANT_COST = 1;
+const ELEMENT_ENCHANT_ELIGIBLE_WEAPONS: WeaponId[] = ['sword', 'spear', 'hammer'];
 
 /**
- * Base elemental damage for the sol enchantment, fed into combat.ts's
- * shared computeElementalDamage (Phase 10.1 introduced this at 1; Phase
- * 10.2 combat stat/scale redesign raised it to 10 to match the new
- * ~10x damage scale — still a provisional value, applied on top of the
- * already-defense-reduced physical damage per confirmed_design's
- * application_order). Phase 14.1 five-element enchantment foundation:
- * every current EnemyDefinition's sol affinity is 'neutral' (100%), so
- * this still yields exactly 10 elemental damage per hit — identical to
- * every pre-14.1 result.
+ * SOL consumed per successful enchanted hit, one entry per ElementId
+ * (Phase 14.3 five-element combat effects). sol keeps its original
+ * Phase 10.1 cost of 1; the other four elements cost 2 each -- a
+ * provisional consumption-ratio value referencing the source material's
+ * relative costs, per confirmed_combat_spec.sol_cost. Single source of
+ * truth: no per-element cost is hardcoded anywhere else.
  */
-const SOL_ELEMENTAL_BASE_DAMAGE = 10;
+const ELEMENT_ENCHANTMENT_SOL_COST: Record<ElementId, number> = {
+  sol: 1,
+  flame: 2,
+  frost: 2,
+  cloud: 2,
+  earth: 2,
+};
+
+/**
+ * Base elemental damage shared by every element (Phase 10.1 introduced
+ * this at 1 for sol only; Phase 10.2 combat stat/scale redesign raised
+ * it to 10; Phase 14.3 five-element combat effects extends the exact
+ * same constant to flame/frost/cloud/earth and adds the mind-rank bonus
+ * on top of it -- see getElementalMindBonus in ability.ts). Fed into
+ * combat.ts's shared computeElementalDamage as
+ * `ELEMENTAL_BASE_DAMAGE + getElementalMindBonus(state)`. At mind rank 0
+ * against every current (all-'neutral') EnemyDefinition, this still
+ * yields exactly 10 elemental damage for sol -- identical to every
+ * pre-14.3 result.
+ */
+const ELEMENTAL_BASE_DAMAGE = 10;
 
 /**
  * Maps each non-sol element's one-time-unlock ItemId to the ElementId it
@@ -237,30 +254,46 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
   );
   let damage = baseDamage;
 
-  // Sol melee enchantment activation (Phase 10.1): only for sword/spear/
-  // hammer (SOL_ENCHANT_ELIGIBLE_WEAPONS — never bare hands, never the
-  // solar gun), only while 'sol' is selected and unlocked, and only when
-  // there is at least SOL_ENCHANT_COST SOL available. A confirmed hit
-  // (this function is only ever called once an enemy target has already
-  // been found, and only reaches this point once the Phase 10.3 hit roll
-  // above has also succeeded) is required, so a miss never consumes
-  // SOL. When SOL is insufficient, the selection is left exactly as-is
-  // and the attack simply deals its normal (unbonused) damage — no event,
-  // no log line, no animation trigger.
-  const solEligible = weaponId !== null && SOL_ENCHANT_ELIGIBLE_WEAPONS.includes(weaponId);
-  const solActivates =
-    solEligible &&
-    state.selectedEnchantment === 'sol' &&
-    state.solUnlocked &&
-    state.solarEnergy >= SOL_ENCHANT_COST;
+  // Melee enchantment activation (Phase 10.1 sol-only; Phase 14.3
+  // generalizes this to all five elements through one shared check
+  // instead of a per-element if-chain). Only for sword/spear/hammer
+  // (ELEMENT_ENCHANT_ELIGIBLE_WEAPONS — never bare hands, never the
+  // solar gun), only while some element is selected (not 'none') and
+  // that element is unlocked, and only when there is at least that
+  // element's ELEMENT_ENCHANTMENT_SOL_COST SOL available. A confirmed
+  // hit (this function is only ever called once an enemy target has
+  // already been found, and only reaches this point once the Phase 10.3
+  // hit roll above has also succeeded) is required, so a miss never
+  // consumes SOL. When SOL is insufficient, the selection is left
+  // exactly as-is and the attack simply deals its normal (unbonused)
+  // damage — no event, no log line, no animation trigger. sol's own
+  // unlock state (unlockedEnchantments.sol) is kept in sync with the
+  // pre-existing solUnlocked flag at the single site solUnlocked is ever
+  // set (turn.ts's ground-item pickup handling), so reading
+  // unlockedEnchantments here reproduces sol's exact pre-14.3 unlock
+  // condition without a redundant solUnlocked check.
+  const selectedEnchantment = state.selectedEnchantment;
+  const weaponEligible = weaponId !== null && ELEMENT_ENCHANT_ELIGIBLE_WEAPONS.includes(weaponId);
+  const activatedElement: ElementId | null =
+    weaponEligible &&
+    selectedEnchantment !== 'none' &&
+    state.unlockedEnchantments[selectedEnchantment] &&
+    state.solarEnergy >= ELEMENT_ENCHANTMENT_SOL_COST[selectedEnchantment]
+      ? selectedEnchantment
+      : null;
 
   const solBefore = state.solarEnergy;
   let elementalDamage = 0;
-  let solAffinity: ElementalAffinity = 'neutral';
-  if (solActivates) {
-    state.solarEnergy -= SOL_ENCHANT_COST;
-    solAffinity = ENEMY_DEFINITIONS[target.type].elementalAffinities.sol;
-    elementalDamage = computeElementalDamage(SOL_ELEMENTAL_BASE_DAMAGE, solAffinity);
+  let affinity: ElementalAffinity = 'neutral';
+  if (activatedElement) {
+    state.solarEnergy -= ELEMENT_ENCHANTMENT_SOL_COST[activatedElement];
+    affinity = ENEMY_DEFINITIONS[target.type].elementalAffinities[activatedElement];
+    // Mind rank adds to the element's base damage before affinity is
+    // applied (confirmed_combat_spec.elemental_base_damage), identically
+    // for every element including sol — at mind rank 0 this is exactly
+    // ELEMENTAL_BASE_DAMAGE, matching every pre-14.3 sol result.
+    const elementalBaseDamage = ELEMENTAL_BASE_DAMAGE + getElementalMindBonus(state);
+    elementalDamage = computeElementalDamage(elementalBaseDamage, affinity);
     damage += elementalDamage;
   }
 
@@ -273,7 +306,9 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
       ? { type: 'player_attack', enemyType: target.type, targetId, damage, targetHpBefore, targetHpAfter, weaponId: state.equippedWeaponId }
       : { type: 'player_attack', enemyType: target.type, targetId, damage, targetHpBefore, targetHpAfter },
   );
-  if (solActivates) {
+  if (activatedElement === 'sol') {
+    // sol keeps its own Phase 10.1 event name/payload/field-meanings
+    // unchanged — see existing_sol_compatibility.
     events.push({
       type: 'sol_enchantment_used',
       weaponId: weaponId as WeaponId,
@@ -283,7 +318,21 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
       baseDamage,
       bonusDamage: elementalDamage,
       element: 'sol',
-      affinity: solAffinity,
+      affinity,
+    });
+  } else if (activatedElement) {
+    // flame/frost/cloud/earth share one event type (Phase 14.3) instead
+    // of four separate ones.
+    events.push({
+      type: 'element_enchantment_used',
+      element: activatedElement,
+      affinity,
+      weaponId: weaponId as WeaponId,
+      enemyType: target.type,
+      solBefore,
+      solAfter: state.solarEnergy,
+      physicalDamage: baseDamage,
+      elementalDamage,
     });
   }
   if (defeated) {

@@ -132,6 +132,24 @@ export type GameEvent =
       element: 'sol';
       affinity: ElementalAffinity;
     }
+  // Phase 14.3 five-element combat effects: the shared activation event
+  // for flame/frost/cloud/earth (sol keeps using sol_enchantment_used
+  // above, unchanged). One event per successful hit that activates a
+  // non-sol enchantment — never a separate event per element, per
+  // other_element_events's "属性ごとに四種類のイベント名を作らない".
+  // Pushed immediately after the triggering player_attack, before any
+  // enemy_defeated check, mirroring sol_enchantment_used's position.
+  | {
+      type: 'element_enchantment_used';
+      element: Exclude<ElementId, 'sol'>;
+      affinity: ElementalAffinity;
+      weaponId: WeaponId;
+      enemyType: EnemyType;
+      solBefore: number;
+      solAfter: number;
+      physicalDamage: number;
+      elementalDamage: number;
+    }
   // Phase 12.1 common temporary-effect foundation. 'effect_granted' fires
   // when banana grants attack_up with no prior instance active;
   // 'effect_refreshed' fires when banana renews an already-active

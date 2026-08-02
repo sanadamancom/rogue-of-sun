@@ -65,6 +65,20 @@ export function getPowerDamageBonus(state: GameState): number {
 }
 
 /**
+ * The elemental-enchantment base-damage bonus granted by the player's
+ * mind rank (Phase 14.3 five-element combat effects): +1 per rank,
+ * added to the element's base damage before affinity is applied.
+ * Applies identically to every element, including sol — see turn.ts's
+ * applyPlayerAttackToEnemy, the single call site. Pure — never mutates
+ * `state`; reads only the existing mind rank via getAbilityValue (the
+ * same source of truth power/body/speed already use), no new state
+ * field.
+ */
+export function getElementalMindBonus(state: GameState): number {
+  return getAbilityValue(state, 'mind');
+}
+
+/**
  * Phase 13.3b speed/action-gauge scheduler: the player's baseline speed
  * (rank 0, 1:1 with every enemy at ENEMY_BASE_SPEED — see turn.ts's
  * resolveEnemiesAction) and the flat bonus granted per speed rank.

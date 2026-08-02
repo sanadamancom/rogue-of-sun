@@ -436,6 +436,28 @@ function translateGameEvent(
       });
       break;
     }
+    case 'element_enchantment_used': {
+      // Phase 14.3: mirrors sol_enchantment_used's telemetry handling
+      // exactly (same RunEvent enrichment, same sol_changed reason),
+      // just reading physicalDamage/elementalDamage instead of
+      // baseDamage/bonusDamage. No new RunEvent category, no schema
+      // change — see required_correctness.
+      const last = telemetry.events[telemetry.events.length - 1];
+      if (last && last.type === 'player_attack') {
+        last.physicalDamage = event.physicalDamage;
+        last.additionalDamage = event.elementalDamage;
+        last.calculatedDamage = event.physicalDamage + event.elementalDamage;
+        last.solConsumed = event.solBefore - event.solAfter;
+      }
+      pushEvent(telemetry, after, consumed, {
+        type: 'sol_changed',
+        before: event.solBefore,
+        after: event.solAfter,
+        amount: event.solAfter - event.solBefore,
+        reason: 'melee_enchantment',
+      });
+      break;
+    }
     case 'enemy_knocked_back': {
       const last = telemetry.events[telemetry.events.length - 1];
       if (last && last.type === 'player_attack' && last.targetType === event.enemyType) {

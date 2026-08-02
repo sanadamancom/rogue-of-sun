@@ -182,6 +182,13 @@ export function formatEvent(event: GameEvent): string {
         : `エンチャントを${ELEMENT_DISPLAY_NAMES[event.selected]}に切り替えた。`;
     case 'sol_enchantment_used':
       return 'ソルの力が攻撃に宿った。';
+    case 'element_enchantment_used':
+      // Phase 14.3: minimal shared display for flame/frost/cloud/earth,
+      // matching sol's existing wording pattern. weak/resist-specific
+      // phrasing and damage-breakdown display are deferred to Phase
+      // 14.5 (message_log's "weak、resistの専用文言はPhase 14.5へ持ち越
+      // す").
+      return `${ELEMENT_DISPLAY_NAMES[event.element]}の力が攻撃に宿った。`;
     case 'effect_granted': {
       // Phase 12.2/12.3: movement_slow's and poison's grant messages are
       // fixed wording (fixed_specification.messages.applied for each

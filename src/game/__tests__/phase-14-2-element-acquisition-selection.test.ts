@@ -342,11 +342,18 @@ describe('Phase 14.2: switching (the "f" key)', () => {
   });
 });
 
-describe('Phase 14.2: combat boundary (other elements deal no damage/effect yet)', () => {
+// Phase 14.3 note: this describe block originally asserted that
+// flame/frost/cloud/earth dealt no damage and consumed no SOL, matching
+// Phase 14.2's scope (acquisition/selection only, no combat effects).
+// Phase 14.3 has since implemented those elements' combat effects (see
+// phase-14-3-element-combat-effects.test.ts for the dedicated coverage),
+// so this block is updated to assert the new, intended behavior instead
+// of the now-superseded Phase 14.2-era boundary.
+describe('Phase 14.2/14.3: other-element combat activation (superseded boundary, updated for Phase 14.3)', () => {
   const otherElements: Array<'flame' | 'frost' | 'cloud' | 'earth'> = ['flame', 'frost', 'cloud', 'earth'];
 
   for (const element of otherElements) {
-    it(`${element} selected: no sol_enchantment_used, no SOL consumed, normal physical attack still lands`, () => {
+    it(`${element} selected: activates via the shared element_enchantment_used event, consumes 2 SOL, still deals physical damage`, () => {
       const state = freshState({
         unlockedEnchantments: { sol: true, flame: true, frost: true, cloud: true, earth: true },
         selectedEnchantment: element,
@@ -356,7 +363,8 @@ describe('Phase 14.2: combat boundary (other elements deal no damage/effect yet)
       const before = state.enemies[0].hp;
       const result = processTurn(state, { type: 'action' });
       expect(result.events.some((e) => e.type === 'sol_enchantment_used')).toBe(false);
-      expect(state.solarEnergy).toBe(5);
+      expect(result.events.some((e) => e.type === 'element_enchantment_used' && e.element === element)).toBe(true);
+      expect(state.solarEnergy).toBe(3);
       const attackEvent = result.events.find((e) => e.type === 'player_attack');
       expect(attackEvent).toBeDefined();
       expect(before - state.enemies[0].hp).toBeGreaterThan(0);
@@ -390,7 +398,11 @@ describe('Phase 14.2: telemetry compatibility', () => {
     expect(telemetry.schemaVersion).toBe(7);
   });
 
-  it('records additionalDamage 0 for a normal attack while flame is selected', () => {
+  // Phase 14.3 note: originally asserted additionalDamage 0 (no combat
+  // effect yet); Phase 14.3 implements flame's combat effect, so this
+  // now asserts the new additionalDamage value (10 at mind rank 0
+  // against a neutral-affinity enemy) instead.
+  it('records additionalDamage for a normal attack while flame is selected (Phase 14.3 combat effect)', () => {
     const state = freshState({
       unlockedEnchantments: { sol: true, flame: true, frost: false, cloud: false, earth: false },
       selectedEnchantment: 'flame',
@@ -401,7 +413,8 @@ describe('Phase 14.2: telemetry compatibility', () => {
     const attackRunEvent = telemetry.events.find((e) => e.type === 'player_attack');
     expect(attackRunEvent).toBeDefined();
     if (attackRunEvent && attackRunEvent.type === 'player_attack') {
-      expect(attackRunEvent.additionalDamage).toBe(0);
+      expect(attackRunEvent.additionalDamage).toBe(10);
+      expect(attackRunEvent.solConsumed).toBe(2);
     }
   });
 });
