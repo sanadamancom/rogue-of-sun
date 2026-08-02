@@ -54,6 +54,7 @@ import { GameEvent } from './events';
 import { EnemyType, GameState, PlayerAction, WeaponId, ArmorId, ItemId } from './types';
 import type { TurnResult } from './turn';
 import { ITEM_DEFINITIONS } from './item-def';
+import { getExperience, getLevel, getUnspentAbilityPoints } from './progression';
 
 // ---------------------------------------------------------------------
 // Event schema (event_model / event_types / event_requirements)
@@ -155,7 +156,10 @@ export type RunEventPayload =
   // event exists for anyone wanting poison-specific detail without
   // re-deriving it from player_damaged + a source filter.
   | { type: 'poison_damage'; actualDamage: number; hpBefore: number; hpAfter: number }
-  | { type: 'exit_reached'; floor: number };
+  | { type: 'exit_reached'; floor: number }
+  // Phase 13.1 experience/level/ability-point progression foundation.
+  | { type: 'experience_gained'; amount: number; enemyId: number; enemyType: EnemyType; level: number; experience: number }
+  | { type: 'player_leveled_up'; previousLevel: number; newLevel: number; abilityPointsGained: number; unspentAbilityPoints: number };
 
 export type RunEvent = RunEventCommon & RunEventPayload;
 
@@ -164,15 +168,14 @@ export type RunEvent = RunEventCommon & RunEventPayload;
 // ---------------------------------------------------------------------
 
 export interface RunTelemetry {
-  // Phase 12.3: bumped from 3 to 4 — poison introduces a non-enemy
-  // player_damaged.source ('poison') and a new poison_damage event,
-  // which changes the meaning of existing fields (player_damaged.source,
-  // computeRunSummary's damageTaken aggregation) rather than only adding
-  // new ones, so schemaVersion must change per telemetry.policy's "毒
-  // ダメージを無視したままschemaVersion 3を維持してはならない". No v1-v3
-  // read-compatibility shim is provided (telemetry.forbidden's "v1〜v3の
-  // 読み込み互換機能は追加しない") — this is an export-only format.
-  schemaVersion: 4;
+  // Phase 13.1: bumped from 4 to 5 — experience/level/ability-point
+  // progression introduces new RunEvent categories (experience_gained,
+  // player_leveled_up) and new RunSummary.progression fields
+  // (experienceGained, levelsGained, endingLevel, endingExperience,
+  // unspentAbilityPoints), per telemetry.schema_version's "from: 4" /
+  // "to: 5". No v1-v4 read-compatibility shim is provided — this is an
+  // export-only format.
+  schemaVersion: 5;
   seed: number;
   result: 'in_progress' | 'clear' | 'death';
   endCause: string | null;
@@ -188,7 +191,7 @@ export interface RunTelemetry {
  */
 export function createRunTelemetry(state: GameState): RunTelemetry {
   const telemetry: RunTelemetry = {
-    schemaVersion: 4,
+    schemaVersion: 5,
     seed: state.runSeed,
     result: 'in_progress',
     endCause: null,
@@ -521,6 +524,27 @@ function translateGameEvent(
       pushEvent(telemetry, after, consumed, { type: 'enemy_defeated', targetType: event.enemyType, targetId: event.targetId });
       break;
     }
+    case 'experience_gained': {
+      pushEvent(telemetry, after, consumed, {
+        type: 'experience_gained',
+        amount: event.amount,
+        enemyId: event.enemyId,
+        enemyType: event.enemyType,
+        level: event.level,
+        experience: event.experience,
+      });
+      break;
+    }
+    case 'player_leveled_up': {
+      pushEvent(telemetry, after, consumed, {
+        type: 'player_leveled_up',
+        previousLevel: event.previousLevel,
+        newLevel: event.newLevel,
+        abilityPointsGained: event.abilityPointsGained,
+        unspentAbilityPoints: event.unspentAbilityPoints,
+      });
+      break;
+    }
     case 'player_defeated': {
       pushEvent(telemetry, after, consumed, { type: 'player_defeated', cause: deriveDeathCauseFromTail(telemetry) });
       break;
@@ -775,7 +799,16 @@ export interface RunSummary {
   damageTakenByEnemy: Record<string, EnemyDamageStats>;
   equipment: { acquiredCount: number; changeCount: number; endingEquipment: { weapon: WeaponId | null; armor: ArmorId | null } };
   resources: { solGained: number; solConsumed: number; solarChargeActions: number; healingBySource: Record<string, number>; itemsUsedByType: Record<string, number> };
-  progression: { enemiesDefeated: number; exitsReached: number };
+  progression: {
+    enemiesDefeated: number;
+    exitsReached: number;
+    // Phase 13.1 experience/level/ability-point progression foundation.
+    experienceGained: number;
+    levelsGained: number;
+    endingLevel: number;
+    endingExperience: number;
+    unspentAbilityPoints: number;
+  };
   perFloor: PerFloorStats[];
   finalState: {
     floor: number;
@@ -823,6 +856,8 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
   let exitsReached = 0;
   let acquiredCount = 0;
   let changeCount = 0;
+  let experienceGained = 0;
+  let levelsGained = 0;
 
   const getFloorStats = (floor: number): PerFloorStats => {
     let s = perFloorMap.get(floor);
@@ -972,6 +1007,12 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
       case 'exit_reached':
         exitsReached++;
         break;
+      case 'experience_gained':
+        experienceGained += event.amount;
+        break;
+      case 'player_leveled_up':
+        levelsGained++;
+        break;
       default:
         break;
     }
@@ -1019,7 +1060,15 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
       endingEquipment: { weapon: finalState.equippedWeaponId, armor: finalState.equippedArmorId },
     },
     resources: { solGained, solConsumed, solarChargeActions, healingBySource, itemsUsedByType },
-    progression: { enemiesDefeated: killedKeys.size, exitsReached },
+    progression: {
+      enemiesDefeated: killedKeys.size,
+      exitsReached,
+      experienceGained,
+      levelsGained,
+      endingLevel: getLevel(finalState),
+      endingExperience: getExperience(finalState),
+      unspentAbilityPoints: getUnspentAbilityPoints(finalState),
+    },
     perFloor: Array.from(perFloorMap.values()).sort((a, b) => a.floor - b.floor),
     finalState: {
       floor: finalState.floor,
@@ -1042,15 +1091,15 @@ function sanitizeForFilename(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, '');
 }
 
-/** Phase 12.3: schemaVersion 3 -> 4 (poison), "v3" -> "v4" filenames, so old exports are never confused with the new poison-aware ones. */
+/** Phase 13.1: schemaVersion 4 -> 5 (experience/level/ability-point progression), "v4" -> "v5" filenames, so old exports are never confused with the new progression-aware ones. */
 export function buildExportFilename(telemetry: RunTelemetry): string {
   const seedPart = sanitizeForFilename(String(telemetry.seed));
   const resultPart = telemetry.result === 'clear' ? 'clear' : 'death';
-  return `rogue-of-sun-run-v4-${seedPart}-${resultPart}.json`;
+  return `rogue-of-sun-run-v5-${seedPart}-${resultPart}.json`;
 }
 
 export interface TelemetryDocument {
-  schemaVersion: 4;
+  schemaVersion: 5;
   gameVersion: string;
   run: {
     seed: number;
@@ -1076,7 +1125,7 @@ export interface TelemetryDocument {
 export function buildTelemetryDocument(telemetry: RunTelemetry, finalState: GameState): TelemetryDocument {
   const summary = computeRunSummary(telemetry, finalState);
   return {
-    schemaVersion: 4,
+    schemaVersion: 5,
     gameVersion: 'phase-12.3',
     run: {
       seed: telemetry.seed,

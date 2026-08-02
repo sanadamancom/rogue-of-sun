@@ -239,6 +239,10 @@ export function formatEvent(event: GameEvent): string {
       // 抜けた。"), per messages.restrictions's "自然終了のメッセージを
       // 流用しない".
       return event.reason === 'antidote' ? '毒が消えた。' : '状態異常が治った。';
+    case 'experience_gained':
+      return `経験値を${event.amount}得た。`;
+    case 'player_leveled_up':
+      return `レベルが${event.newLevel}に上がった。\n能力ポイントを1得た。`;
     default: {
       const exhaustiveCheck: never = event;
       throw new Error(`Unhandled game event: ${JSON.stringify(exhaustiveCheck)}`);

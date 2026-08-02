@@ -119,6 +119,17 @@ export interface EnemyDefinition {
   behaviorType: BehaviorType;
   movementType: MovementType;
   stationary: boolean;
+  /**
+   * Experience points awarded to the player when this species is
+   * defeated (Phase 13.1 experience/level foundation). Every current
+   * species awards a flat 1, per this phase's decision to defer any
+   * per-species balancing until real playtest data exists (see
+   * docs/history/phase-13-1-experience-level-foundation.md) — this field
+   * exists explicitly per species (rather than a single shared constant)
+   * so a future phase can change individual species' rewards without
+   * touching the award mechanism itself.
+   */
+  experienceReward: number;
 }
 
 // Fixed spawn/species order used whenever a floor spawns one of each
@@ -139,6 +150,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     behaviorType: 'generic_melee',
     movementType: 'ground',
     stationary: false,
+    experienceReward: 1,
   },
   cockatrice: {
     id: 'cockatrice',
@@ -152,6 +164,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     behaviorType: 'cockatrice_gaze',
     movementType: 'ground',
     stationary: false,
+    experienceReward: 1,
   },
   spider: {
     id: 'spider',
@@ -165,6 +178,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     behaviorType: 'spider_cardinal',
     movementType: 'ground',
     stationary: false,
+    experienceReward: 1,
   },
   bat: {
     id: 'bat',
@@ -178,6 +192,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     behaviorType: 'bat_retreat',
     movementType: 'flying',
     stationary: false,
+    experienceReward: 1,
   },
   mummy: {
     id: 'mummy',
@@ -191,6 +206,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     behaviorType: 'mummy_shamble',
     movementType: 'ground',
     stationary: false,
+    experienceReward: 1,
   },
   golem: {
     id: 'golem',
@@ -204,6 +220,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     behaviorType: 'slow_melee',
     movementType: 'ground',
     stationary: false,
+    experienceReward: 1,
   },
   sword: {
     id: 'sword',
@@ -217,6 +234,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     behaviorType: 'fast_melee',
     movementType: 'ground',
     stationary: false,
+    experienceReward: 1,
   },
   axe: {
     id: 'axe',
@@ -230,6 +248,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     behaviorType: 'recovery_melee',
     movementType: 'ground',
     stationary: false,
+    experienceReward: 1,
   },
   kraken: {
     id: 'kraken',
@@ -243,6 +262,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     behaviorType: 'kraken_tentacle',
     movementType: 'none',
     stationary: true,
+    experienceReward: 1,
   },
 };
 

@@ -344,7 +344,7 @@ describe('schema v3 (Phase 10.3.3)', () => {
     const state = freshState({ enemies: [] });
     const telemetry = createRunTelemetry(state);
     const doc = buildTelemetryDocument(telemetry, state);
-    expect(doc.schemaVersion).toBe(4);
+    expect(doc.schemaVersion).toBe(5);
   });
 
   it('filename uses the v3 prefix', () => {
@@ -356,7 +356,7 @@ describe('schema v3 (Phase 10.3.3)', () => {
     });
     const telemetry = createRunTelemetry(state);
     step(state, { type: 'wait' }, telemetry);
-    expect(buildExportFilename(telemetry)).toMatch(/^rogue-of-sun-run-v4-777-/);
+    expect(buildExportFilename(telemetry)).toMatch(/^rogue-of-sun-run-v5-777-/);
   });
 
   it('the same seed and input sequence produce an identical JSON document', () => {

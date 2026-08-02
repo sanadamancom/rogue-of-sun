@@ -502,6 +502,33 @@ export interface GameState {
    * petrified, which stay as their own dedicated Actor fields.
    */
   activeEffects?: ActiveEffect[];
+  /**
+   * Phase 13.1 experience/level/ability-point progression foundation.
+   * Current player level (1..99). Optional, defaulting to 1 when absent
+   * (see progression.ts's getLevel) — like hunger/activeEffects, so
+   * existing GameState object literals across the test suite remain
+   * valid without every one of them being updated. Persists across floor
+   * transitions like inventory/equippedWeaponId; resets to 1 on a brand
+   * new run or a post-death retry.
+   */
+  level?: number;
+  /**
+   * Phase 13.1: current in-level experience, carried toward the next
+   * level's requirement (getExperienceRequirement(level)). Optional,
+   * defaulting to 0 when absent (see progression.ts's getExperience).
+   * Persists across floor transitions; resets to 0 on a brand new run or
+   * a post-death retry. Always reset to 0 once level reaches LEVEL_CAP
+   * (99) — see progression.ts's applyExperienceGain.
+   */
+  experience?: number;
+  /**
+   * Phase 13.1: unused ability points accumulated from level-ups (1 per
+   * level gained). Not yet spendable this phase (able assignment UI is
+   * Phase 13.2+) — see progression.ts's doc comment. Optional, defaulting
+   * to 0 when absent. Persists across floor transitions; resets to 0 on a
+   * brand new run or a post-death retry.
+   */
+  unspentAbilityPoints?: number;
 }
 
 /**

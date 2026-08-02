@@ -145,6 +145,7 @@ describe('processTurn events', () => {
     expect(result.events).toEqual([
       { type: 'player_attack', enemyType: 'bok', targetId: 0, damage: 1, targetHpBefore: 1, targetHpAfter: 0 },
       { type: 'enemy_defeated', enemyType: 'bok', targetId: 0 },
+      { type: 'experience_gained', amount: 1, enemyId: 0, enemyType: 'bok', level: 1, experience: 1 },
     ]);
   });
 

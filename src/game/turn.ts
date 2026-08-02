@@ -22,6 +22,7 @@ import { rollPercent } from './rng';
 import { canPlaceWebNow, expireWebs, placeWeb } from './web';
 import { isSunlitAt } from './sunlight';
 import { GameEvent } from './events';
+import { applyExperienceGain } from './progression';
 import {
   Actor,
   ALL_DIRECTIONS,
@@ -235,6 +236,32 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
   if (defeated) {
     target.alive = false;
     events.push({ type: 'enemy_defeated', enemyType: target.type, targetId });
+
+    // Phase 13.1 experience/level/ability-point progression foundation:
+    // exactly one experience award per enemy actually transitioning to
+    // defeated here (this is the sole enemy_defeated choke point, so this
+    // can never double-award for the same enemy). Never touches hp,
+    // attack, defense, or any other combat stat — see progression.ts's
+    // doc comment.
+    const experienceReward = ENEMY_DEFINITIONS[target.type].experienceReward;
+    const gainResult = applyExperienceGain(state, experienceReward);
+    events.push({
+      type: 'experience_gained',
+      amount: experienceReward,
+      enemyId: targetId,
+      enemyType: target.type,
+      level: gainResult.newLevel,
+      experience: gainResult.remainingExperience,
+    });
+    for (const levelUp of gainResult.levelUps) {
+      events.push({
+        type: 'player_leveled_up',
+        previousLevel: levelUp.level - 1,
+        newLevel: levelUp.level,
+        abilityPointsGained: levelUp.abilityPointsGained,
+        unspentAbilityPoints: levelUp.unspentAbilityPointsAfter,
+      });
+    }
   }
   return { hit: true, defeated };
 }

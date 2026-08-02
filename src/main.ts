@@ -31,6 +31,7 @@ import {
 } from './game/telemetry';
 import { getCockatriceTelegraph, getKrakenTelegraph } from './game/telegraph';
 import { getHunger, HUNGER_MAX } from './game/hunger';
+import { getExperience, getExperienceRequirement, getLevel, getUnspentAbilityPoints, LEVEL_CAP } from './game/progression';
 import { EFFECT_DEFINITIONS, getActiveEffects } from './game/effects';
 import { processTurn, TurnResult } from './game/turn';
 import { DIRECTION_VECTORS, EnemyType, GameState } from './game/types';
@@ -1406,8 +1407,11 @@ class MainScene extends Phaser.Scene {
     // introducing a distinct color for one segment isn't a minimal
     // change; the number itself already conveys "low" against /100.
     const hungerLabel = hunger <= 0 ? `${hunger} / ${HUNGER_MAX} (空腹)` : `${hunger} / ${HUNGER_MAX}`;
+    const level = getLevel(this.state);
+    const expLabel = level >= LEVEL_CAP ? 'MAX' : `${getExperience(this.state)}/${getExperienceRequirement(level)}`;
+    const progressionLabel = `LV ${level}  EXP ${expLabel}  能力P ${getUnspentAbilityPoints(this.state)}`;
     this.hudText.setText(
-      `FLOOR ${this.state.floor}/${this.state.totalFloors}   HP: ${player.hp}/${player.maxHp}   SOL ${this.state.solarEnergy} / ${this.state.maxSolarEnergy}   満腹度 ${hungerLabel}   ${this.enchantHudLabel()}${this.effectsHudLabel()}   Turn: ${this.state.turn}\n` +
+      `FLOOR ${this.state.floor}/${this.state.totalFloors}   HP: ${player.hp}/${player.maxHp}   SOL ${this.state.solarEnergy} / ${this.state.maxSolarEnergy}   満腹度 ${hungerLabel}   ${progressionLabel}   ${this.enchantHudLabel()}${this.effectsHudLabel()}   Turn: ${this.state.turn}\n` +
         `Run Seed: ${this.state.runSeed}   Floor Seed: ${this.state.seed}\n` +
         `移動:方向キー  Shift+方向:向き変更  X:攻撃  Space：待機／日向でチャージ  F:エンチャント切替  Tab:インベントリ`,
     );

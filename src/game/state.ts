@@ -5,6 +5,11 @@ import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from '.
 import { createEmptyInventory } from './item-def';
 import { generateSunlightLayer } from './sunlight';
 import { HUNGER_MAX } from './hunger';
+import {
+  PROGRESSION_INITIAL_EXPERIENCE,
+  PROGRESSION_INITIAL_LEVEL,
+  PROGRESSION_INITIAL_UNSPENT_ABILITY_POINTS,
+} from './progression';
 import { Actor, ActiveEffect, EnchantmentId, EnemyActor, EnemyType, GameState, GroundItem, Inventory, TrapTile, Vec2, WeaponId, ArmorId, Direction8 } from './types';
 
 /** Generates a random run seed without relying on Math.random's implicit global state at call sites. */
@@ -35,6 +40,9 @@ interface CarryOverStats {
   hungerLowWarned: boolean;
   hungerZeroWarned: boolean;
   activeEffects: ActiveEffect[];
+  level: number;
+  experience: number;
+  unspentAbilityPoints: number;
 }
 
 /** Fixed initial/maximum solar energy for a brand new run (Phase 09.1; provisional value, see history doc). */
@@ -507,6 +515,15 @@ function buildFloorState(
     // later mutation on this floor's state never reaches back into the
     // CarryOverStats object built from the previous floor.
     activeEffects: carry ? carry.activeEffects.map((effect) => ({ ...effect })) : [],
+    // Progression (Phase 13.1): carried over across floor transitions
+    // like inventory/equippedWeaponId; a brand new run or a post-death
+    // retry (both go through createInitialState/restart, which never
+    // pass a carry) always starts at level 1, 0 experience, 0 unspent
+    // ability points (fixed_specification.state_lifecycle's new_run/
+    // retry_after_death values).
+    level: carry ? carry.level : PROGRESSION_INITIAL_LEVEL,
+    experience: carry ? carry.experience : PROGRESSION_INITIAL_EXPERIENCE,
+    unspentAbilityPoints: carry ? carry.unspentAbilityPoints : PROGRESSION_INITIAL_UNSPENT_ABILITY_POINTS,
     // Sunlight layer (Phase 09.3): always regenerated fresh per floor from
     // the finished map/start, using its own independent RNG stream (see
     // sunlight.ts) — never carried over across floor transitions, like
@@ -549,6 +566,9 @@ export function advanceToNextFloor(state: GameState): GameState {
     hungerLowWarned: state.hungerLowWarned ?? false,
     hungerZeroWarned: state.hungerZeroWarned ?? false,
     activeEffects: state.activeEffects ?? [],
+    level: state.level ?? PROGRESSION_INITIAL_LEVEL,
+    experience: state.experience ?? PROGRESSION_INITIAL_EXPERIENCE,
+    unspentAbilityPoints: state.unspentAbilityPoints ?? PROGRESSION_INITIAL_UNSPENT_ABILITY_POINTS,
   };
   return buildFloorState(state.runSeed, state.floor + 1, state.turn, carry);
 }

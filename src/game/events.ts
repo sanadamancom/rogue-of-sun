@@ -183,4 +183,14 @@ export type GameEvent =
   // ones were actually active and removed this use (never the full
   // STATUS_AILMENT_IDS list regardless of what was actually cured).
   | { type: 'panacea_used'; itemId: ItemId; removedEffectIds: StatusAilmentId[] }
-  | { type: 'panacea_use_failed'; itemId: ItemId; reason: 'no_status_ailment' };
+  | { type: 'panacea_use_failed'; itemId: ItemId; reason: 'no_status_ailment' }
+  // Phase 13.1 experience/level/ability-point progression foundation.
+  // 'experience_gained' fires exactly once per enemy actually defeated
+  // (see turn.ts's applyPlayerAttackToEnemy, the sole enemy_defeated
+  // choke point); amount always equals that enemy's
+  // EnemyDefinition.experienceReward. 'player_leveled_up' fires once per
+  // level actually gained that same turn (ascending order for a
+  // multi-level gain) — never fired for a defeat that doesn't cross a
+  // level threshold.
+  | { type: 'experience_gained'; amount: number; enemyId: number; enemyType: EnemyType; level: number; experience: number }
+  | { type: 'player_leveled_up'; previousLevel: number; newLevel: number; abilityPointsGained: number; unspentAbilityPoints: number };
