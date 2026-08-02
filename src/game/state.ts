@@ -11,7 +11,7 @@ import {
   PROGRESSION_INITIAL_UNSPENT_ABILITY_POINTS,
 } from './progression';
 import { INITIAL_ABILITY_VALUES } from './ability';
-import { Actor, ActiveEffect, AbilityValues, EnchantmentId, EnemyActor, EnemyType, GameState, GroundItem, Inventory, TrapTile, Vec2, WeaponId, ArmorId, Direction8 } from './types';
+import { Actor, ActiveEffect, AbilityValues, ElementId, EnchantmentId, EnemyActor, EnemyType, GameState, GroundItem, Inventory, TrapTile, Vec2, WeaponId, ArmorId, Direction8 } from './types';
 
 /** Generates a random run seed without relying on Math.random's implicit global state at call sites. */
 export function randomSeed(): number {
@@ -34,6 +34,7 @@ interface CarryOverStats {
   maxSolarEnergy: number;
   solUnlocked: boolean;
   selectedEnchantment: EnchantmentId;
+  unlockedEnchantments: Record<ElementId, boolean>;
   combatRngState: number;
   hunger: number;
   hungerDecreaseProgress: number;
@@ -488,6 +489,13 @@ function buildFloorState(
     // locked and unselected.
     solUnlocked: carry ? carry.solUnlocked : false,
     selectedEnchantment: carry ? carry.selectedEnchantment : 'none',
+    // Five-element unlock state (Phase 14.1): carried over across floor
+    // transitions like solUnlocked; a brand new run always starts every
+    // element unlocked: false. Only 'sol' is ever set true in play this
+    // phase (kept in sync with solUnlocked at its own pickup site).
+    unlockedEnchantments: carry
+      ? carry.unlockedEnchantments
+      : { sol: false, flame: false, frost: false, cloud: false, earth: false },
     // Combat RNG (Phase 10.3 accuracy/evasion foundation): seeded from
     // runSeed via its own distinct XOR constant on a brand new run,
     // carried over (already-advanced) across floor transitions like
@@ -577,6 +585,7 @@ export function advanceToNextFloor(state: GameState): GameState {
     maxSolarEnergy: state.maxSolarEnergy,
     solUnlocked: state.solUnlocked,
     selectedEnchantment: state.selectedEnchantment,
+    unlockedEnchantments: state.unlockedEnchantments,
     combatRngState: state.combatRngState,
     hunger: state.hunger ?? HUNGER_MAX,
     hungerDecreaseProgress: state.hungerDecreaseProgress ?? 0,

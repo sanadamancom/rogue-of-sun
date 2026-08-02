@@ -1,4 +1,4 @@
-import { EnemyType } from './types';
+import { EnemyType, ElementId, ElementalAffinity } from './types';
 
 /**
  * behaviorType: AI dispatch key used by turn.ts.
@@ -130,6 +130,19 @@ export interface EnemyDefinition {
    * touching the award mechanism itself.
    */
   experienceReward: number;
+  /**
+   * Per-element affinity, one entry per ElementId (Phase 14.1
+   * five-element enchantment foundation). Required (not optional/
+   * partial) so every species must explicitly declare all five
+   * affinities — no implicit "undefined means neutral" fallback exists
+   * anywhere in production code; see combat.ts's computeElementalDamage
+   * for how this feeds the elemental-damage calculation. Every current
+   * species is 'neutral' across all five elements this phase (Phase
+   * 14.1 deliberately assigns no real weaknesses/resistances yet — see
+   * docs/history/phase-14-1-element-foundation.md), so today's sol
+   * enchant damage is unchanged from before this phase.
+   */
+  elementalAffinities: Record<ElementId, ElementalAffinity>;
 }
 
 // Fixed spawn/species order used whenever a floor spawns one of each
@@ -151,6 +164,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     movementType: 'ground',
     stationary: false,
     experienceReward: 1,
+    elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   },
   cockatrice: {
     id: 'cockatrice',
@@ -165,6 +179,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     movementType: 'ground',
     stationary: false,
     experienceReward: 1,
+    elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   },
   spider: {
     id: 'spider',
@@ -179,6 +194,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     movementType: 'ground',
     stationary: false,
     experienceReward: 1,
+    elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   },
   bat: {
     id: 'bat',
@@ -193,6 +209,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     movementType: 'flying',
     stationary: false,
     experienceReward: 1,
+    elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   },
   mummy: {
     id: 'mummy',
@@ -207,6 +224,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     movementType: 'ground',
     stationary: false,
     experienceReward: 1,
+    elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   },
   golem: {
     id: 'golem',
@@ -221,6 +239,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     movementType: 'ground',
     stationary: false,
     experienceReward: 1,
+    elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   },
   sword: {
     id: 'sword',
@@ -235,6 +254,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     movementType: 'ground',
     stationary: false,
     experienceReward: 1,
+    elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   },
   axe: {
     id: 'axe',
@@ -249,6 +269,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     movementType: 'ground',
     stationary: false,
     experienceReward: 1,
+    elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   },
   kraken: {
     id: 'kraken',
@@ -263,6 +284,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     movementType: 'none',
     stationary: true,
     experienceReward: 1,
+    elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   },
 };
 

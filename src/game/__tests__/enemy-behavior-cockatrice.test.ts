@@ -87,6 +87,7 @@ function cockatriceState(
     solarEnergy: 5,
     maxSolarEnergy: 5,
     solUnlocked: false,
+    unlockedEnchantments: { sol: false, flame: false, frost: false, cloud: false, earth: false },
     selectedEnchantment: 'none',
     combatRngState: 304,
     sunlight: [],

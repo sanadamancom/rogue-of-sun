@@ -494,6 +494,20 @@ export interface GameState {
    */
   selectedEnchantment: EnchantmentId;
   /**
+   * Per-element unlock state (Phase 14.1 five-element enchantment
+   * foundation), one boolean per ElementId. Purely additive alongside
+   * the pre-existing solUnlocked (which remains the sole authority
+   * combat code reads for sol's own activation condition — see
+   * turn.ts's applyPlayerAttackToEnemy): this field's 'sol' entry is
+   * kept in sync with solUnlocked at the same site solUnlocked flips to
+   * true (turn.ts's ground-item pickup handling), and every other
+   * element stays false forever this phase, since flame/frost/cloud/
+   * earth have no pickup item or unlock path yet. Persists across floor
+   * transitions like solUnlocked; a brand new run starts every element
+   * false.
+   */
+  unlockedEnchantments: Record<ElementId, boolean>;
+  /**
    * Combat RNG stream state (Phase 10.3 accuracy/evasion foundation) —
    * see rng.ts's mulberry32Step/rollPercent. A plain number (not a
    * closure) so GameState stays ordinary data; advanced by exactly one
@@ -655,7 +669,37 @@ export type ItemId = 'apple' | 'sword' | 'armor' | 'spear' | 'hammer' | 'sun_fru
  * is the default/off state; 'sol' is the only registered attribute this
  * phase. Player-common (not per-weapon) — see GameState.selectedEnchantment.
  */
-export type EnchantmentId = 'none' | 'sol';
+/**
+ * Attack element identifiers (Phase 14.1 five-element enchantment
+ * foundation). All five are registered as types this phase, but only
+ * 'sol' is actually obtainable/selectable in play — flame/frost/cloud/
+ * earth have no pickup, no selection path, and stay permanently
+ * unlocked: false in GameState.unlockedEnchantments (see that field's
+ * doc comment). Deliberately excludes 'luna' and any weapon/equipment
+ * affinity concept, per Phase 14.1's explicitly_excluded scope.
+ */
+export type ElementId = 'sol' | 'flame' | 'frost' | 'cloud' | 'earth';
+
+/**
+ * Integer-percent multiplier applied to an element's base damage
+ * (Phase 14.1): 'weak' (150%), 'neutral' (100%, the only value any
+ * current EnemyDefinition uses — see enemy-def.ts), 'resist' (50%).
+ * See combat.ts's ELEMENTAL_AFFINITY_PERCENT for the single source of
+ * truth for these percentages.
+ */
+export type ElementalAffinity = 'weak' | 'neutral' | 'resist';
+
+/**
+ * Selectable melee enchantment (Phase 10.1 sol enchant foundation;
+ * Phase 14.1 five-element enchantment foundation extends the union to
+ * every ElementId while keeping 'none' as the existing off/default
+ * state — equivalent to "ElementId or null" but expressed with the
+ * pre-existing 'none' string sentinel rather than introducing null,
+ * so every existing 'none' check keeps working unchanged). Only 'sol'
+ * is ever reachable in play this phase — see GameState.selectedEnchantment
+ * and GameState.unlockedEnchantments. Player-common (not per-weapon).
+ */
+export type EnchantmentId = ElementId | 'none';
 
 /**
  * Weapon species — Phase 08.3 registered only 'sword'; Phase 08.5 added

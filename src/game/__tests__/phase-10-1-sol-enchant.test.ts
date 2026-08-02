@@ -56,6 +56,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     solarEnergy: 5,
     maxSolarEnergy: 5,
     solUnlocked: false,
+    unlockedEnchantments: { sol: false, flame: false, frost: false, cloud: false, earth: false },
     selectedEnchantment: 'none',
     combatRngState: 304,
     sunlight: [],
@@ -133,6 +134,7 @@ describe('sol enchantment state (Phase 10.1)', () => {
   it('preserves the selected enchantment across a weapon switch', () => {
     const state = freshState({
       solUnlocked: true,
+      unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
       selectedEnchantment: 'sol',
       inventory: { ...createEmptyInventory(), sword: 1, spear: 1 },
       equippedWeaponId: 'sword',
@@ -148,6 +150,7 @@ describe('sol enchantment activation (Phase 10.1)', () => {
       equippedWeaponId: weaponId,
       inventory: { ...createEmptyInventory(), [weaponId]: 1 },
       solUnlocked: true,
+      unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
       selectedEnchantment: 'sol',
       solarEnergy,
     });
@@ -169,6 +172,7 @@ describe('sol enchantment activation (Phase 10.1)', () => {
       equippedWeaponId: 'spear',
       inventory: { ...createEmptyInventory(), spear: 1 },
       solUnlocked: true,
+      unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
       selectedEnchantment: 'sol',
       solarEnergy: 5,
       enemies: [createInitialEnemy('bok', { x: 4, y: 1 }, 1000, 1)],
@@ -231,6 +235,7 @@ describe('sol enchantment activation (Phase 10.1)', () => {
       equippedWeaponId: 'sword',
       inventory: { ...createEmptyInventory(), sword: 1 },
       solUnlocked: true,
+      unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
       selectedEnchantment: 'none',
       combatRngState: 304,
       solarEnergy: 5,
@@ -245,6 +250,7 @@ describe('sol enchantment activation (Phase 10.1)', () => {
       equippedWeaponId: 'sword',
       inventory: { ...createEmptyInventory(), sword: 1 },
       solUnlocked: true,
+      unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
       selectedEnchantment: 'sol',
       solarEnergy: 5,
       enemies: [], // nothing to hit
@@ -260,6 +266,7 @@ describe('sol enchantment activation (Phase 10.1)', () => {
     const state = freshState({
       equippedWeaponId: null,
       solUnlocked: true,
+      unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
       selectedEnchantment: 'sol',
       solarEnergy: 5,
     });
@@ -274,6 +281,7 @@ describe('sol enchantment activation (Phase 10.1)', () => {
       equippedWeaponId: 'solar_gun',
       inventory: { ...createEmptyInventory(), solar_gun: 1 },
       solUnlocked: true,
+      unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
       selectedEnchantment: 'sol',
       solarEnergy: 5,
     });
@@ -299,6 +307,7 @@ describe('sol enchantment activation (Phase 10.1)', () => {
       equippedWeaponId: 'sword',
       inventory: { ...createEmptyInventory(), sword: 1 },
       solUnlocked: true,
+      unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
       selectedEnchantment: 'sol',
       solarEnergy: 5,
       enemies: [createInitialEnemy('bok', { x: 3, y: 1 }, 1, 1)], // dies to the bonused hit
@@ -317,6 +326,7 @@ describe('existing weapon behavior preserved under sol enchantment (Phase 10.1)'
       equippedWeaponId: 'hammer',
       inventory: { ...createEmptyInventory(), hammer: 1 },
       solUnlocked: true,
+      unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
       selectedEnchantment: 'sol',
       solarEnergy: 5,
       enemies: [createInitialEnemy('bok', { x: 3, y: 1 }, 1000, 1)],
@@ -335,6 +345,7 @@ describe('existing weapon behavior preserved under sol enchantment (Phase 10.1)'
       equippedWeaponId: 'solar_gun',
       inventory: { ...createEmptyInventory(), solar_gun: 1 },
       solUnlocked: false,
+      unlockedEnchantments: { sol: false, flame: false, frost: false, cloud: false, earth: false },
       selectedEnchantment: 'none',
       combatRngState: 304,
       solarEnergy: 5,

@@ -29,6 +29,8 @@
  *   維持する" escape clause).
  */
 
+import type { ElementalAffinity } from './types';
+
 /**
  * Player-side (and solar-gun) outgoing damage: base attack plus the
  * equipped weapon's bonus (0 for bare hands or a weapon with no bonus),
@@ -80,4 +82,30 @@ export function computeHitChance(attackerAccuracy: number, weaponHitModifier: nu
  */
 export function resolvesAsHit(roll: number, hitChance: number): boolean {
   return roll < hitChance;
+}
+
+/**
+ * Integer-percent multiplier for each ElementalAffinity (Phase 14.1
+ * five-element enchantment foundation) — the single source of truth for
+ * these three percentages, so no call site repeats them inline.
+ */
+export const ELEMENTAL_AFFINITY_PERCENT: Record<ElementalAffinity, number> = {
+  weak: 150,
+  neutral: 100,
+  resist: 50,
+};
+
+/**
+ * Pure, common elemental-damage calculation (Phase 14.1): floor(
+ * baseElementalDamage * affinityPercent / 100). Deliberately state-free
+ * — no GameState, EnemyActor, RNG, or events — mirroring
+ * computeAttackDamage/computeIncomingDamage above. Physical defense is
+ * never applied here; only the caller (turn.ts's
+ * applyPlayerAttackToEnemy) combines this with the separately-computed
+ * physical damage. Shared by every element (currently only sol calls
+ * this in play; future elements reuse the same function per Phase
+ * 14.1's confirmed_element_model).
+ */
+export function computeElementalDamage(baseElementalDamage: number, affinity: ElementalAffinity): number {
+  return Math.floor((baseElementalDamage * ELEMENTAL_AFFINITY_PERCENT[affinity]) / 100);
 }

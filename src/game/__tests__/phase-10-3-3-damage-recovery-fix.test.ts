@@ -58,6 +58,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     solarEnergy: 5,
     maxSolarEnergy: 5,
     solUnlocked: false,
+    unlockedEnchantments: { sol: false, flame: false, frost: false, cloud: false, earth: false },
     selectedEnchantment: 'none',
     sunlight: [],
     combatRngState: 0,
@@ -81,6 +82,7 @@ describe('actual damage (Phase 10.3.3, confirmed_findings.damage_dealt)', () => 
       equippedWeaponId: 'hammer',
       inventory: { ...createEmptyInventory(), hammer: 1 },
       solUnlocked: true,
+      unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
       selectedEnchantment: 'sol',
       solarEnergy: 5,
       enemies: [createInitialEnemy('bok', { x: 3, y: 1 }, 10, 10, 0, 0, 0, 90, 0)], // hammer(20)+sol(10)=30 raw >> 10 hp

@@ -16,7 +16,7 @@ import {
 } from './hunger';
 import { WEAPON_DEFINITIONS } from './weapon-def';
 import { ARMOR_DEFINITIONS } from './armor-def';
-import { computeAttackDamage, computeIncomingDamage, computeHitChance, resolvesAsHit } from './combat';
+import { computeAttackDamage, computeIncomingDamage, computeHitChance, resolvesAsHit, computeElementalDamage } from './combat';
 import { advanceEffectDurations, EFFECT_DEFINITIONS, getActiveEffect, getEffectStrength, grantOrRefreshEffect, isEffectAtMaxDuration, removeEffect, removeStatusAilment, STATUS_AILMENT_IDS } from './effects';
 import { rollPercent } from './rng';
 import { canPlaceWebNow, expireWebs, placeWeb } from './web';
@@ -29,6 +29,7 @@ import {
   ALL_DIRECTIONS,
   Direction8,
   DIRECTION_VECTORS,
+  ElementalAffinity,
   EnemyActor,
   EnemyType,
   GameState,
@@ -51,13 +52,17 @@ const SOL_ENCHANT_ELIGIBLE_WEAPONS: WeaponId[] = ['sword', 'spear', 'hammer'];
 const SOL_ENCHANT_COST = 1;
 
 /**
- * Bonus damage added to a hit's final damage when the sol enchantment
- * activates (Phase 10.1 introduced this at 1; Phase 10.2 combat
- * stat/scale redesign raises it to 10 to match the new ~10x damage
- * scale — still a provisional value, applied on top of the already-
- * defense-reduced base damage per confirmed_design's application_order).
+ * Base elemental damage for the sol enchantment, fed into combat.ts's
+ * shared computeElementalDamage (Phase 10.1 introduced this at 1; Phase
+ * 10.2 combat stat/scale redesign raised it to 10 to match the new
+ * ~10x damage scale — still a provisional value, applied on top of the
+ * already-defense-reduced physical damage per confirmed_design's
+ * application_order). Phase 14.1 five-element enchantment foundation:
+ * every current EnemyDefinition's sol affinity is 'neutral' (100%), so
+ * this still yields exactly 10 elemental damage per hit — identical to
+ * every pre-14.1 result.
  */
-const SOL_ENCHANT_BONUS_DAMAGE = 10;
+const SOL_ELEMENTAL_BASE_DAMAGE = 10;
 
 /** Consumed player actions required for one natural HP tick (Phase 04 initial setting). */
 export const REGEN_TURNS_PER_HP = 5;
@@ -213,9 +218,13 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
     state.solarEnergy >= SOL_ENCHANT_COST;
 
   const solBefore = state.solarEnergy;
+  let elementalDamage = 0;
+  let solAffinity: ElementalAffinity = 'neutral';
   if (solActivates) {
     state.solarEnergy -= SOL_ENCHANT_COST;
-    damage += SOL_ENCHANT_BONUS_DAMAGE;
+    solAffinity = ENEMY_DEFINITIONS[target.type].elementalAffinities.sol;
+    elementalDamage = computeElementalDamage(SOL_ELEMENTAL_BASE_DAMAGE, solAffinity);
+    damage += elementalDamage;
   }
 
   const targetHpBefore = target.hp;
@@ -235,7 +244,9 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
       solBefore,
       solAfter: state.solarEnergy,
       baseDamage,
-      bonusDamage: SOL_ENCHANT_BONUS_DAMAGE,
+      bonusDamage: elementalDamage,
+      element: 'sol',
+      affinity: solAffinity,
     });
   }
   if (defeated) {
@@ -545,6 +556,7 @@ function applyPlayerAction(
       if (item.itemId === 'sol_enchantment') {
         if (!state.solUnlocked) {
           state.solUnlocked = true;
+          state.unlockedEnchantments.sol = true;
           events.push({ type: 'sol_enchantment_acquired' });
         }
       } else if (hasInventoryCapacity(state)) {

@@ -60,6 +60,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     solarEnergy: 5,
     maxSolarEnergy: 5,
     solUnlocked: false,
+    unlockedEnchantments: { sol: false, flame: false, frost: false, cloud: false, earth: false },
     selectedEnchantment: 'none',
     sunlight: [],
     combatRngState: 0,
@@ -250,6 +251,7 @@ describe('combat trace (Phase 10.3.1)', () => {
       equippedWeaponId: 'sword',
       inventory: { ...createEmptyInventory(), sword: 1 },
       solUnlocked: true,
+      unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
       selectedEnchantment: 'sol',
       solarEnergy: 5,
     });
@@ -370,6 +372,7 @@ describe('resource trace (Phase 10.3.1)', () => {
       equippedWeaponId: 'sword',
       inventory: { ...createEmptyInventory(), sword: 1 },
       solUnlocked: true,
+      unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
       selectedEnchantment: 'sol',
     });
     const telemetry = createRunTelemetry(state);

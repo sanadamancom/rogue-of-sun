@@ -54,6 +54,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     solarEnergy: 5,
     maxSolarEnergy: 5,
     solUnlocked: false,
+    unlockedEnchantments: { sol: false, flame: false, frost: false, cloud: false, earth: false },
     selectedEnchantment: 'none',
     combatRngState: 304,
     sunlight: [],
@@ -176,6 +177,7 @@ describe('weapon damage uses the shared calculation (Phase 10.2)', () => {
       equippedWeaponId: 'solar_gun',
       inventory: { ...createEmptyInventory(), solar_gun: 1 },
       solUnlocked: true,
+      unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
       selectedEnchantment: 'sol',
     });
     faceEast(state);
@@ -303,6 +305,7 @@ describe('sol enchantment at the new scale (Phase 10.2)', () => {
       equippedWeaponId: 'sword',
       inventory: { ...createEmptyInventory(), sword: 1 },
       solUnlocked: true,
+      unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
       selectedEnchantment: 'sol',
       solarEnergy: 5,
       ...overrides,
@@ -428,6 +431,7 @@ describe('existing weapon behavior regression at the new scale (Phase 10.2)', ()
       equippedWeaponId: 'hammer',
       inventory: { ...createEmptyInventory(), hammer: 1 },
       solUnlocked: true,
+      unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
       selectedEnchantment: 'sol',
       solarEnergy: 5,
     });

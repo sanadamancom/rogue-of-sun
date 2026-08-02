@@ -1,4 +1,4 @@
-import { AbilityId, Direction8, EffectId, EnchantmentId, EnemyType, ItemId, StatusAilmentId, TrapType, WeaponId, ArmorId, Vec2 } from './types';
+import { AbilityId, Direction8, EffectId, ElementalAffinity, EnchantmentId, EnemyType, ItemId, StatusAilmentId, TrapType, WeaponId, ArmorId, Vec2 } from './types';
 
 /**
  * Typed, display-agnostic record of a notable action that happened during
@@ -116,6 +116,14 @@ export type GameEvent =
       solAfter: number;
       baseDamage: number;
       bonusDamage: number;
+      // Phase 14.1 five-element enchantment foundation: bonusDamage keeps
+      // its existing meaning (the enchantment's final, affinity-adjusted
+      // damage — still 10 for every current 'neutral'-affinity enemy,
+      // matching every pre-14.1 result exactly). These two fields expose
+      // which element/affinity produced it without adding a new event or
+      // changing event count/ordering.
+      element: 'sol';
+      affinity: ElementalAffinity;
     }
   // Phase 12.1 common temporary-effect foundation. 'effect_granted' fires
   // when banana grants attack_up with no prior instance active;
