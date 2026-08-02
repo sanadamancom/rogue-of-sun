@@ -131,6 +131,11 @@ class MainScene extends Phaser.Scene {
   private terrainGraphics!: Phaser.GameObjects.Graphics;
   private exitGraphics!: Phaser.GameObjects.Graphics;
   private webGraphics!: Phaser.GameObjects.Graphics;
+  // Phase 12.2 slow trap: revealed-trap markers only (untriggered traps
+  // render as plain floor — nothing drawn for them at all). Its own
+  // Graphics layer, same reasoning as webGraphics (created before actor
+  // sprites so actors always render on top; redrawn each turn/reset).
+  private trapGraphics!: Phaser.GameObjects.Graphics;
   // phase-07-1-ranged-attack-telegraph-reticle-only: two layers, both
   // created above the player/enemy sprites (layer_order: 床と地形 →
   // (アイテムなし) → プレイヤーと敵 → 標的マスの照準アイコン → 攻撃準備
@@ -187,9 +192,11 @@ class MainScene extends Phaser.Scene {
     this.terrainGraphics = this.add.graphics();
     this.exitGraphics = this.add.graphics();
     this.webGraphics = this.add.graphics();
+    this.trapGraphics = this.add.graphics();
     this.drawTerrain();
     this.drawExit();
     this.drawWebs();
+    this.drawTraps();
     this.drawGroundItems();
 
     const mapPixelWidth = this.state.map.width * TILE_SIZE;
@@ -291,6 +298,14 @@ class MainScene extends Phaser.Scene {
     return effects
       .map((effect) => {
         const def = EFFECT_DEFINITIONS[effect.id];
+        // Phase 12.2: movement_slow's strength (1) means "additional enemy
+        // phases per successful move", not a displayable stat bonus like
+        // attack_up's +5 — so its HUD segment omits the "+N" prefix
+        // entirely (fixed_specification.hud's example "効果: 鈍足 (10)",
+        // no plus sign), unlike attack_up's "+5 (20)".
+        if (effect.id === 'movement_slow') {
+          return `   効果: ${def.displayName} (${effect.remainingTurns})`;
+        }
         const arrow = effect.id === 'attack_up' ? '攻撃↑' : def.displayName;
         return `   効果: ${arrow} +${effect.strength} (${effect.remainingTurns})`;
       })
@@ -580,6 +595,33 @@ class MainScene extends Phaser.Scene {
       // Cross-hatch.
       this.webGraphics.lineBetween(cx - r * 0.6, cy - r * 0.6, cx + r * 0.6, cy + r * 0.6);
       this.webGraphics.lineBetween(cx - r * 0.6, cy + r * 0.6, cx + r * 0.6, cy - r * 0.6);
+    }
+  }
+
+  /**
+   * Draws only revealed (triggered) slow traps as a simple asset-free
+   * warning mark: a dull-orange circle with an X through it, in the same
+   * plain-Graphics style as drawWebs (no new image asset, per
+   * fixed_specification.trap.rendering's "発動後は新規外部画像を使わず、
+   * 既存描画方式に合う簡素な罠記号を表示する"). Untriggered traps are
+   * deliberately skipped entirely — they render identically to plain
+   * floor (fixed_specification.trap.rendering's "未発動時は通常床と同じ
+   * 表示にする"), so there is nothing to draw for them. Redrawn every
+   * turn/reset like drawWebs (a trap can flip from hidden to revealed at
+   * most once per run, so this is cheap either way).
+   */
+  private drawTraps(): void {
+    this.trapGraphics.clear();
+    for (const trap of this.state.traps ?? []) {
+      if (!trap.triggered) continue;
+      const cx = trap.pos.x * TILE_SIZE + TILE_SIZE / 2;
+      const cy = trap.pos.y * TILE_SIZE + TILE_SIZE / 2;
+      const r = TILE_SIZE * 0.28;
+
+      this.trapGraphics.lineStyle(2, 0xc97a3a, 0.85);
+      this.trapGraphics.strokeCircle(cx, cy, r);
+      this.trapGraphics.lineBetween(cx - r * 0.6, cy - r * 0.6, cx + r * 0.6, cy + r * 0.6);
+      this.trapGraphics.lineBetween(cx - r * 0.6, cy + r * 0.6, cx + r * 0.6, cy - r * 0.6);
     }
   }
 
@@ -1318,6 +1360,7 @@ class MainScene extends Phaser.Scene {
     const { player } = this.state;
 
     this.drawWebs();
+    this.drawTraps();
     this.drawGroundItems();
     this.drawTelegraphs();
     this.updatePlayerSlowedTint();

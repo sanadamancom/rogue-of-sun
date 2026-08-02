@@ -435,6 +435,30 @@ function applyPlayerAction(
       player.slowed = true;
       events.push({ type: 'player_webbed' });
     }
+    // Slow trap (Phase 12.2): stepping onto an untriggered trap tile
+    // fires it — hidden until this moment, permanently revealed and
+    // inert afterward (one_shot). Grants/refreshes movement_slow via the
+    // same generic effects.ts helper banana uses; processTurn detects
+    // that this happened (by diffing each trap's `triggered` flag before
+    // vs. after applyPlayerAction, rather than adding a new return field)
+    // so it can skip movement_slow's decrement and the additional enemy
+    // phase for this specific turn (fixed_specification.effect.lifecycle's
+    // "罠発動ターン自体では敵の追加行動を発生させない" / "残り10を9へ減ら
+    // さない").
+    const trap = (state.traps ?? []).find(
+      (t) => !t.triggered && t.pos.x === destination.x && t.pos.y === destination.y,
+    );
+    if (trap) {
+      trap.triggered = true;
+      events.push({ type: 'trap_triggered' });
+      const def = EFFECT_DEFINITIONS.movement_slow;
+      const result = grantOrRefreshEffect(state, 'movement_slow');
+      events.push(
+        result === 'granted'
+          ? { type: 'effect_granted', effectId: 'movement_slow', strength: def.strength, remainingTurns: def.duration }
+          : { type: 'effect_refreshed', effectId: 'movement_slow', strength: def.strength, remainingTurns: def.duration },
+      );
+    }
     // Auto-pickup (Phase 08.2): stepping onto a ground item tile collects
     // it as part of this same move — no extra turn, and enemies still act
     // this turn exactly as for any other normal move.
@@ -1937,6 +1961,17 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
   }
 
   const events: GameEvent[] = [];
+  // Phase 12.2 additional-enemy-phase detection: captured before
+  // applyPlayerAction runs (rather than adding new return fields to it)
+  // so the extra-phase eligibility below can be derived purely from
+  // before/after comparisons of already-observable state — the same
+  // technique Phase 12.1's isBananaGrant used.
+  const posBeforeAction = { ...state.player.pos };
+  const movementSlowActiveBeforeAction = getEffectStrength(state, 'movement_slow') > 0;
+  const trapsTriggeredBeforeAction = new Set(
+    (state.traps ?? []).filter((t) => t.triggered).map((t) => t.id),
+  );
+
   const { consumed, attacked, defeated } = applyPlayerAction(state, action, events);
 
   if (!consumed) {
@@ -1958,6 +1993,56 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
   }
 
   const { acted: enemyActed, attacked: enemyAttacked } = resolveEnemiesAction(state, events);
+
+  // Phase 12.2 slow trap: an additional enemy action phase, using the
+  // exact same resolveEnemiesAction entry point as the normal phase
+  // above (implementation_policy's "追加敵フェーズの入口を一箇所に限定
+  // する" — this is that one place), runs only when ALL of the following
+  // hold:
+  //   - the resolved action was 'move' and the player's tile actually
+  //     changed (excludes whiffed/blocked moves, spider-web slow
+  //     cancellation, and petrified skips — none of those move the
+  //     player, so this comparison alone correctly excludes every one of
+  //     them without needing to check player.slowed/petrified directly)
+  //   - that move did not land on the exit tile (movement_rules.
+  //     not_affected's "出口によるフロア遷移")
+  //   - this exact move did not itself trigger the slow trap (fixed_
+  //     specification.effect.lifecycle's "罠発動ターン自体では敵の追加
+  //     行動を発生させない" — detected by diffing each trap's `triggered`
+  //     flag against the pre-action snapshot, so this also correctly
+  //     covers the rare case where movement_slow was already active from
+  //     a previous floor's trap and this move simultaneously refreshes it
+  //     via a second trap)
+  //   - movement_slow was already active BEFORE this action started
+  //     (movementSlowActiveBeforeAction) — a fresh grant this same turn
+  //     never qualifies, per the same rule above
+  //   - the player survived the first enemy phase (fixed_specification.
+  //     additional_enemy_phase's "最初の敵フェーズでプレイヤーが死亡した
+  //     場合は追加フェーズを実行しない"; the only way enemy actions alone
+  //     can end the game is player death, so this single check also
+  //     covers "ゲーム終了状態になった場合")
+  const actualMoveHappened =
+    action.type === 'move' &&
+    (state.player.pos.x !== posBeforeAction.x || state.player.pos.y !== posBeforeAction.y);
+  const reachedExitThisMove =
+    actualMoveHappened && state.player.pos.x === state.exit.x && state.player.pos.y === state.exit.y;
+  const trapTriggeredThisAction = (state.traps ?? []).some(
+    (t) => t.triggered && !trapsTriggeredBeforeAction.has(t.id),
+  );
+  const shouldRunAdditionalEnemyPhase =
+    actualMoveHappened &&
+    !reachedExitThisMove &&
+    !trapTriggeredThisAction &&
+    movementSlowActiveBeforeAction &&
+    state.player.alive;
+
+  let extraEnemyActed = false;
+  let extraEnemyAttacked = false;
+  if (shouldRunAdditionalEnemyPhase) {
+    const extra = resolveEnemiesAction(state, events);
+    extraEnemyActed = extra.acted;
+    extraEnemyAttacked = extra.attacked;
+  }
 
   // Phase 11.3 hunger/starvation: runs once per consumed turn, after
   // enemy actions resolve (so enemies still act exactly once per player
@@ -2020,12 +2105,21 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
   // applyPlayerAction/applyBananaUse) is safe here: applyBananaUse only
   // ever returns consumed: true on a successful grant/refresh, never on
   // any other outcome, so this check is unambiguous.
+  //
+  // Phase 12.2 extends this to a per-effect-id skip list (rather than an
+  // all-or-nothing skip of the whole advanceEffectDurations call) so a
+  // trap-triggering turn skips only movement_slow's decrement while any
+  // simultaneously-active attack_up still decrements normally this same
+  // turn (fixed_specification.compatibility.attack_up's "罠発動ターンの
+  // 減算除外はmovement_slowだけに適用する / そのターンに既存attack_upが
+  // 有効なら、attack_upは既存規則どおり減算する").
   const isBananaGrant = action.type === 'use_item' && action.itemId === 'banana' && consumed;
-  if (!isBananaGrant) {
-    const expiredEffects = advanceEffectDurations(state);
-    for (const effectId of expiredEffects) {
-      events.push({ type: 'effect_expired', effectId });
-    }
+  const effectSkipIds: import('./types').EffectId[] = [];
+  if (isBananaGrant) effectSkipIds.push('attack_up');
+  if (trapTriggeredThisAction) effectSkipIds.push('movement_slow');
+  const expiredEffects = advanceEffectDurations(state, effectSkipIds);
+  for (const effectId of expiredEffects) {
+    events.push({ type: 'effect_expired', effectId });
   }
 
   const reachedExit = state.player.pos.x === state.exit.x && state.player.pos.y === state.exit.y;
@@ -2052,8 +2146,15 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
     consumed: true,
     playerAttacked: attacked,
     enemyDefeated: defeated,
-    enemyActed,
-    enemyAttacked,
+    // Phase 12.2: ORs in the additional enemy phase's own acted/attacked
+    // flags so a caller (UI/telemetry) never loses visibility into the
+    // extra phase's activity — telemetry.ts's own player-action counting
+    // is unaffected (it counts the player's action, not enemy phases; see
+    // fixed_specification.movement_rules.successful_slowed_movement's
+    // "telemetry上のプレイヤー行動は1行動として扱う", which this does not
+    // touch).
+    enemyActed: enemyActed || extraEnemyActed,
+    enemyAttacked: enemyAttacked || extraEnemyAttacked,
     playerDefeated,
     playerRegenerated,
     events,

@@ -128,4 +128,13 @@ export type GameEvent =
   | { type: 'effect_granted'; effectId: EffectId; strength: number; remainingTurns: number }
   | { type: 'effect_refreshed'; effectId: EffectId; strength: number; remainingTurns: number }
   | { type: 'effect_expired'; effectId: EffectId }
-  | { type: 'banana_use_failed'; itemId: ItemId; reason: 'effect_at_max' };
+  | { type: 'banana_use_failed'; itemId: ItemId; reason: 'effect_at_max' }
+  // Phase 12.2 slow trap: fired the instant the player's own successful
+  // move lands on a previously-untriggered trap tile. One-shot (this
+  // trap object's `triggered` flips to true and never fires again), so
+  // this event can only occur at most once per trap per run. The
+  // resulting movement_slow grant/refresh is reported separately via the
+  // generic 'effect_granted'/'effect_refreshed' events above (no payload
+  // duplication) — this event exists purely to identify the trigger
+  // moment itself for messaging/telemetry.
+  | { type: 'trap_triggered' };

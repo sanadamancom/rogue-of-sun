@@ -255,6 +255,26 @@ export interface WebTile {
   placedTurn: number;
 }
 
+/**
+ * A hidden floor trap (Phase 12.2 slow trap): a fixture (per Fixture's
+ * 'trap' literal, reserved since Phase 02 but never backed by real data
+ * until now), not an actor or ground item. `id` is stable per-floor,
+ * mirroring WebTile/GroundItem's id pattern (this phase only ever places
+ * one per floor, so it's always 0, but kept as a field for consistency
+ * and to leave room for more than one trap per floor without a
+ * structural change — restrictions explicitly forbid actually doing that
+ * this phase). `triggered` starts false (hidden, dormant, renders
+ * identically to plain floor) and becomes true the instant the player's
+ * own successful move lands on its tile — a triggered trap is revealed
+ * but permanently inert (one_shot), stays in the array (so it keeps
+ * rendering its "revealed and inactive" symbol) and never fires again.
+ */
+export interface TrapTile {
+  id: number;
+  pos: Vec2;
+  triggered: boolean;
+}
+
 export interface GameState {
   map: GameMap;
   player: Actor;
@@ -286,6 +306,20 @@ export interface GameState {
   groundItems: GroundItem[];
   /** Monotonically increasing counter used to assign each new GroundItem's id; always reset to 0 on a new floor/restart. */
   nextGroundItemId: number;
+  /**
+   * This floor's hidden traps (Phase 12.2 slow trap), at most one per
+   * floor per fixed_specification.trap.placement's count_per_floor: 1.
+   * Always freshly built per floor/restart by buildFloorState (like
+   * webs/groundItems) — never carried over across floor transitions;
+   * each new floor gets its own independently (possibly empty, see
+   * chooseTrapPosition's null-candidate fallback) placed trap. Optional
+   * (unlike webs/groundItems, which are required) purely so existing
+   * GameState object literals across the test suite predating this phase
+   * remain valid without every one of them being updated — see
+   * turn.ts's trap-trigger logic and effects.ts's getActiveEffects for
+   * the same `?? []` pattern used elsewhere for this reason.
+   */
+  traps?: TrapTile[];
   /**
    * The player's stacked item counts. Persists across floor transitions
    * (carried over by advanceToNextFloor) and resets to empty on a brand
@@ -462,7 +496,7 @@ export interface GameState {
  * single source of truth for id/displayName/strength/duration so no call
  * site (item use, combat, HUD) repeats these numbers itself.
  */
-export type EffectId = 'attack_up';
+export type EffectId = 'attack_up' | 'movement_slow';
 
 /**
  * One currently-active instance of a temporary status effect (Phase 12.1),

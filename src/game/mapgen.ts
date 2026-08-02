@@ -691,6 +691,62 @@ export function chooseGroundItemPosition(
 }
 
 /**
+ * Chooses a single deterministic room-interior floor tile for the slow
+ * trap (Phase 12.2), or `null` if no candidate satisfies every
+ * constraint (fixed_specification.trap.placement's "条件を満たす候補が
+ * ない場合だけ配置なしを許可し、理由を記録する" — this doc comment is
+ * that record: this codebase has no runtime logging path for generation
+ * decisions, so the "reason" a floor ends up with no trap is simply
+ * "the constraints below left zero candidates on this particular
+ * generated map", which the caller (state.ts's buildFloorState) accepts
+ * by placing no trap that floor rather than retrying or throwing).
+ *
+ * Restricted to `rooms` rectangles only (never corridors/doorways — see
+ * doorway-rule.test.ts's finding that doorway tiles always lie strictly
+ * outside a room's own rectangle, so scanning only room interiors
+ * automatically excludes every corridor and doorway tile without needing
+ * a separate corridor-detection pass), excluding every tile in `exclude`
+ * (start/exit/every enemy position/every already-placed ground item, by
+ * convention matching chooseGroundItemPosition's caller), at least 4
+ * tiles (Manhattan) from `start` and at least 2 tiles (Manhattan) from
+ * `exit`. Candidates are gathered in a fixed order (rooms in `rooms`'
+ * existing deterministic order, then row-major within each room) so the
+ * single rng() draw among them stays reproducible for a given seed.
+ */
+export function chooseTrapPosition(
+  map: GameMap,
+  rooms: Room[],
+  start: Vec2,
+  exit: Vec2,
+  exclude: Vec2[],
+  rng: () => number,
+): Vec2 | null {
+  const key = (p: Vec2) => `${p.x},${p.y}`;
+  const excluded = new Set(exclude.map(key));
+
+  const candidates: Vec2[] = [];
+  for (const room of rooms) {
+    for (let y = room.y; y < room.y + room.height; y++) {
+      for (let x = room.x; x < room.x + room.width; x++) {
+        if (map.terrain[y][x] !== 'floor') continue;
+        const pos = { x, y };
+        if (excluded.has(key(pos))) continue;
+        const manhattanFromStart = Math.abs(x - start.x) + Math.abs(y - start.y);
+        if (manhattanFromStart < 4) continue;
+        const manhattanFromExit = Math.abs(x - exit.x) + Math.abs(y - exit.y);
+        if (manhattanFromExit < 2) continue;
+        candidates.push(pos);
+      }
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  const pickIndex = Math.floor(rng() * candidates.length);
+  return candidates[pickIndex];
+}
+
+/**
  * Generates a section-based room-and-corridor map deterministically from
  * `seed`. Retries deterministically (seed does not change, only an internal
  * attempt counter mixed in) up to maxGenerationAttempts before returning an

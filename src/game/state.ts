@@ -1,11 +1,11 @@
-import { choosePlacement, chooseGroundItemPosition, createRng, generateMap, MAP_GEN_PARAMS } from './mapgen';
+import { choosePlacement, chooseGroundItemPosition, chooseTrapPosition, createRng, generateMap, MAP_GEN_PARAMS } from './mapgen';
 import { createInitialActor, createInitialEnemy } from './turn';
 import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
 import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
 import { createEmptyInventory } from './item-def';
 import { generateSunlightLayer } from './sunlight';
 import { HUNGER_MAX } from './hunger';
-import { Actor, ActiveEffect, EnchantmentId, EnemyActor, EnemyType, GameState, GroundItem, Inventory, Vec2, WeaponId, ArmorId, Direction8 } from './types';
+import { Actor, ActiveEffect, EnchantmentId, EnemyActor, EnemyType, GameState, GroundItem, Inventory, TrapTile, Vec2, WeaponId, ArmorId, Direction8 } from './types';
 
 /** Generates a random run seed without relying on Math.random's implicit global state at call sites. */
 export function randomSeed(): number {
@@ -311,6 +311,29 @@ function buildFloorState(
     groundItems.push({ id: groundItems.length, itemId: 'banana', pos: bananaPos });
   }
 
+  // Slow trap placement (Phase 12.2): at most one per floor, using its
+  // own distinct independent RNG stream (a thirteenth XOR constant) so it
+  // never perturbs any prior RNG sequence/consumption order. Restricted
+  // to ordinary room-interior floor tiles via chooseTrapPosition (never
+  // corridors/doorways/walls/the exit — see that function's doc comment),
+  // excluding every already-placed ground item's tile in addition to
+  // start/exit/every enemy position. Unlike every other placement helper
+  // in this file, chooseTrapPosition returns null instead of throwing
+  // when no candidate qualifies — that floor simply gets no trap
+  // (fixed_specification.trap.placement's "条件を満たす候補がない場合
+  // だけ配置なしを許可し、理由を記録する"; see chooseTrapPosition's doc
+  // comment for why a code comment is this codebase's equivalent of a
+  // "recorded reason").
+  const trapExclusions = [
+    placement.start,
+    placement.exit,
+    ...placement.enemies,
+    ...groundItems.map((item) => item.pos),
+  ];
+  const trapRng = createRng(floorSeed ^ 0x1a6f83c5);
+  const trapPos = chooseTrapPosition(map, map.rooms, placement.start, placement.exit, trapExclusions, trapRng);
+  const traps: TrapTile[] = trapPos ? [{ id: 0, pos: trapPos, triggered: false }] : [];
+
   return {
     map,
     player,
@@ -332,6 +355,10 @@ function buildFloorState(
     // inventory and equipped weapon (below) are what carry over.
     groundItems,
     nextGroundItemId: groundItems.length,
+    // Slow trap (Phase 12.2): always freshly built per floor, never
+    // carried over from `carry` — like webs/groundItems, this floor's
+    // trap array is independent of the previous floor's.
+    traps,
     inventory: carry ? carry.inventory : createEmptyInventory(),
     inventoryOpen: false,
     selectedItemIndex: 0,

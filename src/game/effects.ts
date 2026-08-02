@@ -17,15 +17,29 @@ export interface EffectDefinition {
   duration: number;
 }
 
-// Phase 12.1 registers only 'attack_up'. Future effects (poison, defense
-// up, etc. — explicitly out of scope this phase) are expected to extend
-// this table rather than add parallel ad-hoc fields elsewhere.
+// Phase 12.1 registered only 'attack_up'; Phase 12.2 adds 'movement_slow'
+// (slow trap). Future effects (poison, defense up, etc. — explicitly out
+// of scope this phase) are expected to extend this table rather than add
+// parallel ad-hoc fields elsewhere.
 export const EFFECT_DEFINITIONS: Record<EffectId, EffectDefinition> = {
   attack_up: {
     id: 'attack_up',
     displayName: '攻撃力上昇',
     strength: 5,
     duration: 20,
+  },
+  // Phase 12.2 slow trap: `strength` here does not mean a flat numeric
+  // stat bonus (unlike attack_up) — it means "additional enemy action
+  // phases run per successful player move while this effect is active"
+  // (fixed_specification.effect.meaning_of_strength). turn.ts's
+  // movement-phase logic reads it with that meaning; effects.ts itself
+  // stays a generic id/strength/duration container and does not
+  // interpret it.
+  movement_slow: {
+    id: 'movement_slow',
+    displayName: '鈍足',
+    strength: 1,
+    duration: 10,
   },
 };
 
@@ -96,18 +110,30 @@ export function grantOrRefreshEffect(state: GameState, id: EffectId): 'granted' 
  * Advances every active effect's remaining duration by exactly 1 (once
  * per successful player turn, per fixed_specification.duration_and_
  * turn_boundary.progression — never per-action-type-duplicated), removing
- * any that reach 0. Returns the ids that expired this call so the caller
- * (turn.ts's processTurn) can push a single 'effect_expired' event per
- * expiry. Never called on the same turn an effect was freshly granted or
- * refreshed (fixed_specification.banana.use_success's "バナナ使用ターン
- * 自体ではattack_upの残りターンを減らさない") — that skip is the caller's
- * responsibility, not this function's, since this function has no way to
- * know which turn it's being called for.
+ * any that reach 0. `skipIds` (Phase 12.2 addition; defaults to none)
+ * lists effect ids whose decrement should be skipped this call — used
+ * when that specific effect was freshly granted/refreshed by the very
+ * action that just resolved this turn (banana's "バナナ使用ターン自体
+ * ではattack_upの残りターンを減らさない" and the slow trap's "罠発動
+ * ターン自体では残り10を9へ減らさない"), so a fresh/refreshed effect
+ * still reads as its full duration for this turn's HUD/next reads. Any
+ * other simultaneously-active effect not named in `skipIds` still
+ * decrements normally this same call (fixed_specification.compatibility.
+ * attack_up's "罠発動ターンの減算除外はmovement_slowだけに適用する / その
+ * ターンに既存attack_upが有効なら、attack_upは既存規則どおり減算する") —
+ * this is why the skip is a per-effect id list rather than an
+ * all-or-nothing call-level skip. Returns the ids that expired this call
+ * so the caller (turn.ts's processTurn) can push a single
+ * 'effect_expired' event per expiry. Determining which ids belong in
+ * `skipIds` for a given turn is the caller's responsibility, not this
+ * function's, since this function has no way to know which turn it's
+ * being called for.
  */
-export function advanceEffectDurations(state: GameState): EffectId[] {
+export function advanceEffectDurations(state: GameState, skipIds: EffectId[] = []): EffectId[] {
   const effects = state.activeEffects ?? [];
   const expired: EffectId[] = [];
   for (const effect of effects) {
+    if (skipIds.includes(effect.id)) continue;
     effect.remainingTurns -= 1;
   }
   state.activeEffects = effects.filter((effect) => {

@@ -178,19 +178,37 @@ export function formatEvent(event: GameEvent): string {
     case 'sol_enchantment_used':
       return 'ソルの力が攻撃に宿った。';
     case 'effect_granted': {
+      // Phase 12.2: movement_slow's grant message is fixed wording (the
+      // slow trap's fixed_specification.messages.applied), distinct from
+      // attack_up's banana-flavored line — both branches of this case
+      // already hardcode their triggering item/source in the message
+      // text (the existing attack_up line names "バナナ" explicitly), so
+      // branching by effectId here is consistent with that existing
+      // precedent rather than a new pattern.
+      if (event.effectId === 'movement_slow') {
+        return '体が重くなった。';
+      }
       const name = EFFECT_DEFINITIONS[event.effectId].displayName;
       return `バナナを食べ、${name}が${event.strength}上がった。`;
     }
     case 'effect_refreshed': {
+      if (event.effectId === 'movement_slow') {
+        return '体が重くなった。';
+      }
       const name = EFFECT_DEFINITIONS[event.effectId].displayName;
       return `バナナを食べ、${name}の効果が残り${event.remainingTurns}ターンに更新された。`;
     }
     case 'effect_expired': {
+      if (event.effectId === 'movement_slow') {
+        return '体の重さがなくなった。';
+      }
       const name = EFFECT_DEFINITIONS[event.effectId].displayName;
       return `${name}の効果が切れた。`;
     }
     case 'banana_use_failed':
       return '攻撃力上昇はすでに最大時間有効で、バナナは使えない。';
+    case 'trap_triggered':
+      return '鈍足の罠を踏んだ！';
     default: {
       const exhaustiveCheck: never = event;
       throw new Error(`Unhandled game event: ${JSON.stringify(exhaustiveCheck)}`);
