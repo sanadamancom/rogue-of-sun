@@ -64,6 +64,28 @@ export function getPowerDamageBonus(state: GameState): number {
   return POWER_DAMAGE_PER_RANK * getAbilityValue(state, 'power');
 }
 
+/**
+ * Phase 13.3b speed/action-gauge scheduler: the player's baseline speed
+ * (rank 0, 1:1 with every enemy at ENEMY_BASE_SPEED — see turn.ts's
+ * resolveEnemiesAction) and the flat bonus granted per speed rank.
+ * 100 + 10*rank yields the confirmed_spec milestones rank5=150 (1.5x)
+ * and rank10=200 (2x) exactly.
+ */
+export const PLAYER_BASE_SPEED = 100;
+export const SPEED_PER_RANK = 10;
+
+/**
+ * The player's current speed (Phase 13.3b): `PLAYER_BASE_SPEED +
+ * SPEED_PER_RANK * speedRank`. A pure getter — never stores a separate
+ * "current speed" field on GameState, so there is nothing to keep in
+ * sync with the speed ability rank; every reader (turn.ts's
+ * resolveEnemiesAction) always derives it fresh from the current rank.
+ * Never mutates `state`.
+ */
+export function getPlayerSpeed(state: GameState): number {
+  return PLAYER_BASE_SPEED + SPEED_PER_RANK * getAbilityValue(state, 'speed');
+}
+
 function isAbilityId(value: unknown): value is AbilityId {
   return value === 'body' || value === 'mind' || value === 'power' || value === 'speed';
 }
@@ -131,14 +153,18 @@ function failedAllocation(state: GameState): AbilityAllocationResult {
  * by MIND_MAX_SOL_PER_RANK. 'power' has no direct state side effect here
  * — its bonus is derived on demand by getPowerDamageBonus at the single
  * shared damage-computation point, never stored redundantly, so there is
- * no way for it to be double-applied. 'speed' has no numeric effect yet
- * (Phase 13.3b+). Every one of these side effects only ever fires once
- * per successful call, in lockstep with the single rank increment above
- * — never separately recomputed from scratch elsewhere (state.ts's floor-
- * transition carry-over already preserves the already-updated maxHp/
- * maxSolarEnergy values as opaque numbers, exactly like every other
- * player stat), so initialization and allocation can never double-count
- * the same rank's effect.
+ * no way for it to be double-applied. Phase 13.3b adds 'speed': every
+ * EnemyActor's actionGauge is reset to 0 (see turn.ts's
+ * resolveEnemiesAction for how actionGauge is otherwise accumulated) —
+ * speed itself has no separately-stored "current speed" field; it is
+ * always derived fresh from the rank via getPlayerSpeed. Every one of
+ * these side effects only ever fires once per successful call, in
+ * lockstep with the single rank increment above — never separately
+ * recomputed from scratch elsewhere (state.ts's floor-transition
+ * carry-over already preserves the already-updated maxHp/maxSolarEnergy
+ * values as opaque numbers, exactly like every other player stat), so
+ * initialization and allocation can never double-count the same rank's
+ * effect.
  */
 export function allocateAbilityPoint(state: GameState, ability: AbilityId): AbilityAllocationResult {
   if (state.phase !== 'playing') return failedAllocation(state);
@@ -160,6 +186,19 @@ export function allocateAbilityPoint(state: GameState, ability: AbilityId): Abil
   } else if (ability === 'mind') {
     state.maxSolarEnergy += MIND_MAX_SOL_PER_RANK;
     state.solarEnergy = Math.min(state.maxSolarEnergy, state.solarEnergy + MIND_MAX_SOL_PER_RANK);
+  } else if (ability === 'speed') {
+    // Phase 13.3b: a speed-rank change alters what "actionGauge >=
+    // playerSpeed" means for every enemy (the same absolute gauge value
+    // now represents a different fraction of the new threshold), so every
+    // enemy's actionGauge — not just living ones, per confirmed_spec's
+    // "生存敵だけでなく配列内の全EnemyActorを0へ揃えてよい" — is reset to
+    // 0 the instant a speed allocation actually succeeds. Never touched
+    // by body/mind/power allocations, a cancelled confirmation, a
+    // rejected (0-point/rank-10/invalid-id) request, or the overlay
+    // opening/closing/selection moving.
+    for (const enemy of state.enemies) {
+      enemy.actionGauge = 0;
+    }
   }
 
   const abilityDisplayName = ABILITY_DISPLAY_NAMES[ability];

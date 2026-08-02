@@ -230,6 +230,27 @@ export interface EnemyActor extends Actor {
    * boolean or direction. Defaults to absent (not telegraphing).
    */
   tentacleTarget?: Vec2;
+  /**
+   * Phase 13.3b speed/action-gauge scheduler: this enemy's accumulated
+   * action gauge, in the same 100=baseline units as ENEMY_BASE_SPEED/
+   * PLAYER_BASE_SPEED (see turn.ts's resolveEnemiesAction and ability.ts's
+   * getPlayerSpeed). Required (not optional) and always explicitly
+   * initialized to 0 by createInitialEnemy — the sole production
+   * EnemyActor constructor — so every enemy, from the very moment it is
+   * created, has a real `0`, never `undefined`. Incremented by
+   * ENEMY_BASE_SPEED once per resolveEnemiesAction pass over a living
+   * enemy; each time it reaches or exceeds the player's current speed
+   * (ability.ts's getPlayerSpeed), playerSpeed is subtracted and
+   * resolveOneEnemy is called once — so this can trigger 0, 1, or
+   * multiple actions per pass depending on relative speed. Persists
+   * across player turns within the same floor (never reset merely by the
+   * passage of turns); always freshly 0 when a floor (re)generates its
+   * enemies (a new EnemyActor from createInitialEnemy) and whenever a
+   * speed-ability allocation succeeds (see ability.ts's
+   * allocateAbilityPoint) — never otherwise mutated outside
+   * resolveEnemiesAction.
+   */
+  actionGauge: number;
 }
 
 // 'floor_cleared' is a transient signal set for a single processTurn call

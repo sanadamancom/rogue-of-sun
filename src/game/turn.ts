@@ -23,7 +23,7 @@ import { canPlaceWebNow, expireWebs, placeWeb } from './web';
 import { isSunlitAt } from './sunlight';
 import { GameEvent } from './events';
 import { applyExperienceGain } from './progression';
-import { getPowerDamageBonus } from './ability';
+import { getPowerDamageBonus, getPlayerSpeed } from './ability';
 import {
   Actor,
   ALL_DIRECTIONS,
@@ -1956,9 +1956,54 @@ function resolveOneEnemy(
 }
 
 /**
- * Runs each living enemy's action once, in fixed array order. Stops
- * immediately once the player is defeated, so no later enemy acts against
- * an already-defeated player.
+ * Phase 13.3b speed/action-gauge scheduler: the per-pass gauge gain every
+ * living enemy receives, once per resolveEnemiesAction call, regardless
+ * of species (no enemy-specific speed table this phase — confirmed_spec's
+ * "全敵共通" / "敵種別による速度テーブルを作らない"). Shares its 100=
+ * baseline unit convention with ability.ts's PLAYER_BASE_SPEED so that
+ * rank 0 (playerSpeed also 100) reduces to "gauge reaches the threshold
+ * exactly once per pass, with 0 remainder" — see resolveEnemiesAction's
+ * own doc comment for why this exactly reproduces pre-Phase-13.3b
+ * behavior.
+ */
+const ENEMY_BASE_SPEED = 100;
+
+/**
+ * Runs each living enemy's action zero, one, or multiple times this pass,
+ * per the Phase 13.3b speed/action-gauge scheduler: each living enemy's
+ * `actionGauge` (a required field on EnemyActor, always explicitly
+ * initialized to 0 by createInitialEnemy — see types.ts's doc comment)
+ * is incremented by ENEMY_BASE_SPEED
+ * once at the start of its turn in this pass; then, while it remains >=
+ * the player's current speed (ability.ts's getPlayerSpeed), playerSpeed
+ * is subtracted and resolveOneEnemy is called once more — so a faster
+ * player (higher getPlayerSpeed) makes enemies act less often on average,
+ * and any leftover gauge below the threshold carries over to the next
+ * pass unchanged (never rounded away). Enemies are still processed in
+ * the same fixed state.enemies array order as before this phase; a given
+ * enemy resolves all of its own due actions before the loop moves to the
+ * next enemy. Stops immediately (breaking out of both the inner and
+ * outer loop) the moment the player dies, exactly as before this phase —
+ * and additionally stops an individual enemy's own while-loop early if
+ * that specific enemy dies mid-loop (defensive; no current mechanic
+ * causes this, but confirmed_spec's interruption.enemy_death requires
+ * it). `resolveOneEnemy` itself, every behaviorType function it
+ * dispatches to, and the RNG it may consume are completely unchanged by
+ * this phase — a no-op result from an enemy's own internal AI logic
+ * (golem's off-turn wait, mummy's post-move rest, axe's post-attack
+ * recovery, etc.) still counts as exactly one consumed action-gauge
+ * "turn" and is never retried or refunded.
+ *
+ * Rank-0 exact backward compatibility: at the default player speed (100,
+ * ability.ts's PLAYER_BASE_SPEED) with every enemy's actionGauge starting
+ * at 0, each pass computes `gauge = 0 + 100 = 100`, `100 >= 100` is true
+ * exactly once (one call to resolveOneEnemy), then `100 - 100 = 0`
+ * leaves no remainder — so every living enemy is resolved exactly once
+ * per pass, in the same order, consuming RNG in the same sequence, as
+ * the pre-Phase-13.3b single-call-per-enemy loop. This holds for however
+ * many times resolveEnemiesAction itself is called within one player
+ * turn (e.g. the movement_slow additional-enemy-phase below), since each
+ * independent pass's remainder is exactly 0 at rank 0.
  */
 function resolveEnemiesAction(
   state: GameState,
@@ -1969,9 +2014,16 @@ function resolveEnemiesAction(
 
   for (const enemy of state.enemies) {
     if (!enemy.alive) continue;
-    const result = resolveOneEnemy(state, enemy, events);
-    if (result.acted) acted = true;
-    if (result.attacked) attacked = true;
+    const playerSpeed = getPlayerSpeed(state);
+    enemy.actionGauge += ENEMY_BASE_SPEED;
+    while (enemy.actionGauge >= playerSpeed) {
+      enemy.actionGauge -= playerSpeed;
+      const result = resolveOneEnemy(state, enemy, events);
+      if (result.acted) acted = true;
+      if (result.attacked) attacked = true;
+      if (!enemy.alive) break;
+      if (!state.player.alive) break;
+    }
     if (!state.player.alive) break;
   }
 
@@ -2441,5 +2493,6 @@ export function createInitialEnemy(
     recovering: false,
     id,
     webCooldown: 0,
+    actionGauge: 0,
   };
 }
