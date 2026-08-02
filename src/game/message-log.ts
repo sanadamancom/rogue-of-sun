@@ -220,6 +220,25 @@ export function formatEvent(event: GameEvent): string {
       return event.trapType === 'poison_trap' ? '毒の罠を踏んだ！' : '鈍足の罠を踏んだ！';
     case 'poison_damage':
       return `毒で${event.actualDamage}ダメージを受けた。`;
+    case 'antidote_used':
+      return '毒消しを使った。';
+    case 'antidote_use_failed':
+      return '今は毒に侵されていない。';
+    case 'panacea_used':
+      return '万能薬を使った。';
+    case 'panacea_use_failed':
+      return '今は治す状態異常がない。';
+    case 'effect_removed':
+      // Phase 12.4: a fixed, single "状態異常が治った。" line regardless
+      // of which specific ailment(s) were removed or how many
+      // 'effect_removed' events fired this same use (status_ailment_
+      // model/messages.restrictions's "解除された状態異常ごとに大量の
+      // 重複メッセージを表示しない") — the per-ailment detail lives in
+      // the event payload for telemetry/debugging, not in repeated user-
+      // facing text. Never reuses poison's natural-expiry wording ("毒が
+      // 抜けた。"), per messages.restrictions's "自然終了のメッセージを
+      // 流用しない".
+      return event.reason === 'antidote' ? '毒が消えた。' : '状態異常が治った。';
     default: {
       const exhaustiveCheck: never = event;
       throw new Error(`Unhandled game event: ${JSON.stringify(exhaustiveCheck)}`);
@@ -227,9 +246,33 @@ export function formatEvent(event: GameEvent): string {
   }
 }
 
-/** Formats a sequence of events (already in occurrence order) into display lines. */
+/**
+ * Formats a sequence of events (already in occurrence order) into display
+ * lines, collapsing consecutive identical lines into one (Phase 12.4
+ * addition). This matters when panacea cures multiple status ailments in
+ * a single use: turn.ts pushes one 'effect_removed' GameEvent per
+ * ailment actually cured (status_ailment_model.requirements's "解除した
+ * 状態異常1種類につきeffect_removedを1回発行する" — an event-level
+ * granularity requirement, for telemetry/testing purposes), but each of
+ * those formats to the same fixed "状態異常が治った。" text, and showing
+ * that sentence 2-4 times in a row would violate messages.restrictions's
+ * "解除された状態異常ごとに大量の重複メッセージを表示しない". Collapsing
+ * only *consecutive* duplicates (not all duplicates anywhere in the
+ * batch) keeps this narrowly scoped to that situation — no other
+ * existing event type ever produces back-to-back identical text in
+ * normal play, so this is a no-op for every pre-Phase-12.4 event
+ * sequence. The underlying GameEvent[] itself (and anything reading it,
+ * like telemetry.ts) is completely unaffected — only the display-string
+ * output of this function is deduplicated.
+ */
 export function formatEvents(events: GameEvent[]): string[] {
-  return events.map(formatEvent);
+  const lines = events.map(formatEvent);
+  const deduped: string[] = [];
+  for (const line of lines) {
+    if (deduped.length > 0 && deduped[deduped.length - 1] === line) continue;
+    deduped.push(line);
+  }
+  return deduped;
 }
 
 /**

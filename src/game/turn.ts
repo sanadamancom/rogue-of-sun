@@ -17,7 +17,7 @@ import {
 import { WEAPON_DEFINITIONS } from './weapon-def';
 import { ARMOR_DEFINITIONS } from './armor-def';
 import { computeAttackDamage, computeIncomingDamage, computeHitChance, resolvesAsHit } from './combat';
-import { advanceEffectDurations, EFFECT_DEFINITIONS, getEffectStrength, grantOrRefreshEffect, isEffectAtMaxDuration } from './effects';
+import { advanceEffectDurations, EFFECT_DEFINITIONS, getActiveEffect, getEffectStrength, grantOrRefreshEffect, isEffectAtMaxDuration, removeEffect, removeStatusAilment, STATUS_AILMENT_IDS } from './effects';
 import { rollPercent } from './rng';
 import { canPlaceWebNow, expireWebs, placeWeb } from './web';
 import { isSunlitAt } from './sunlight';
@@ -277,7 +277,32 @@ function applyPlayerAction(
   // input (move or wait) while petrified is entirely replaced by a forced
   // skip that still consumes the turn, then this clears. Only the very
   // next action is affected (not stacked/extended by repeat hits).
+  //
+  // Phase 12.4 exception: petrification_exception's "石化中でも
+  // inventory overlayを開いて万能薬を使用できるようにする" / "石化中に
+  // 許可する能動行動は万能薬使用だけとする". A 'use_item' action for
+  // 'panacea' specifically is tried via the normal applyItemUse path
+  // instead of the forced skip below. If it actually succeeds
+  // (petrification is always one of panacea's cure targets whenever
+  // player.petrified is true, so this only fails to succeed if the
+  // player doesn't actually own a panacea), its result is returned as-is
+  // — petrification_exception's "万能薬使用に成功したターンでは石化の
+  // 強制スキップを重複して処理しない" is satisfied simply by returning
+  // here instead of falling through to the forced-skip code. If the
+  // attempt does NOT succeed (not owned), execution falls through to the
+  // existing forced-skip behavior unchanged — petrification_exception's
+  // "万能薬を所持していない場合は既存どおり石化ターンを処理する". Every
+  // other action type (including antidote, other items, movement,
+  // attacks, waiting) is unaffected and still forces the skip below,
+  // per petrification_exception's "毒消し、通常アイテム、移動、攻撃、
+  // 待機などは既存の石化規則に従う".
   if (player.petrified) {
+    if (action.type === 'use_item' && action.itemId === 'panacea') {
+      const panaceaResult = applyItemUse(state, action.itemId, events);
+      if (panaceaResult.consumed) {
+        return panaceaResult;
+      }
+    }
     player.petrified = false;
     events.push({ type: 'player_petrified_skip' });
     return { consumed: true, attacked: false, defeated: false };
@@ -733,6 +758,19 @@ function applyItemUse(
     return { consumed: false, attacked: false, defeated: false };
   }
 
+  // Antidote / panacea (Phase 12.4 status-ailment removal foundation):
+  // each removes status ailments rather than restoring HP/SOL/hunger or
+  // granting/refreshing an effect, so both are handled by their own
+  // functions and neither has healAmount/solarAmount/hungerAmount set.
+  // Checked before the banana/hungerAmount/healAmount/solarAmount
+  // branches below for the same reason as banana's own check.
+  if (itemId === 'antidote') {
+    return applyAntidoteUse(state, itemId, events);
+  }
+  if (itemId === 'panacea') {
+    return applyPanaceaUse(state, itemId, events);
+  }
+
   // Banana (Phase 12.1 temporary-effect foundation): grants/refreshes
   // attack_up, handled by its own function since it reads/writes
   // effects.ts state rather than player.hp/solarEnergy/hunger. Checked
@@ -861,6 +899,104 @@ function applyBananaUse(
       ? { type: 'effect_granted', effectId: 'attack_up', strength: def.strength, remainingTurns: def.duration }
       : { type: 'effect_refreshed', effectId: 'attack_up', strength: def.strength, remainingTurns: def.duration },
   );
+  state.inventoryOpen = false;
+  return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
+ * Antidote use (Phase 12.4 status-ailment removal foundation): removes
+ * only the 'poison' status ailment, immediately and completely, never
+ * touching HP/SOL/hunger/attack_up/movement_slow/spider-web/
+ * petrification. Rejected (no consumption, no turn, no state change at
+ * all, inventory overlay stays open) when poison is not currently
+ * active — items.antidote.failure's "アイテムを消費しない" / "ターンを
+ * 消費しない" / "inventory overlayを閉じない". On success, this only
+ * removes poison (via effects.ts's removeEffect — never touches
+ * state.activeEffects directly) and decrements the antidote count; it
+ * pushes 'antidote_used' (removedEffectIds always exactly ['poison'] on
+ * success) and one 'effect_removed' (reason: 'antidote'). Deliberately
+ * does NOT touch attack_up/movement_slow/spider-web/petrification, enemy
+ * actions, hunger, or natural regen — those all remain processTurn's job
+ * downstream, unchanged from any other successful item use. Poison
+ * simply no longer exists in state.activeEffects by the time
+ * processTurn's later applyPoisonTick call runs this same turn, which is
+ * what naturally prevents a poison tick without needing any special-
+ * cased skip flag.
+ */
+function applyAntidoteUse(
+  state: GameState,
+  itemId: import('./types').ItemId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const owned = state.inventory[itemId] ?? 0;
+  if (owned <= 0) {
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  if (!getActiveEffect(state, 'poison')) {
+    events.push({ type: 'antidote_use_failed', itemId, reason: 'not_poisoned' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  removeEffect(state, 'poison');
+  state.inventory[itemId] = owned - 1;
+  events.push({ type: 'antidote_used', itemId, removedEffectIds: ['poison'] });
+  events.push({ type: 'effect_removed', effectId: 'poison', reason: 'antidote' });
+  state.inventoryOpen = false;
+  return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
+ * Panacea use (Phase 12.4 status-ailment removal foundation): removes
+ * every currently-active status ailment among effects.ts's
+ * STATUS_AILMENT_IDS (poison, movement_slow, spider_web, petrification)
+ * in one use, never attack_up (a beneficial effect — excluded from
+ * STATUS_AILMENT_IDS entirely, not by a name check here) and never HP/
+ * SOL/hunger. Iterates STATUS_AILMENT_IDS through effects.ts's
+ * removeStatusAilment (the single common removal entry point covering
+ * both activeEffects-backed ids and the two special Actor-field
+ * ailments), collecting exactly which ids were actually active and
+ * removed. Rejected (no consumption, no turn, no state change,
+ * inventory overlay stays open) when nothing was actually cured —
+ * items.panacea.failure's requirements. On success, decrements the
+ * panacea count by exactly 1 regardless of how many ailments were cured
+ * (items.panacea.success_result's "解除した状態異常の種類数にかかわら
+ * ず消費数は1個とする"), pushes 'panacea_used' (removedEffectIds listing
+ * every id actually cured) once, then one 'effect_removed' per cured id
+ * (never a single aggregate event). Curing 'petrification' here is what
+ * satisfies petrification_exception's "石化による強制スキップを解除す
+ * る" — the caller (applyPlayerAction's petrified-branch exception) never
+ * needs to touch player.petrified itself; this function's call into
+ * removeStatusAilment('petrification') already does that as part of the
+ * uniform loop below, with no separate special-casing required.
+ */
+function applyPanaceaUse(
+  state: GameState,
+  itemId: import('./types').ItemId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const owned = state.inventory[itemId] ?? 0;
+  if (owned <= 0) {
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  const removed: import('./types').StatusAilmentId[] = [];
+  for (const id of STATUS_AILMENT_IDS) {
+    if (removeStatusAilment(state, id) === 'removed') {
+      removed.push(id);
+    }
+  }
+
+  if (removed.length === 0) {
+    events.push({ type: 'panacea_use_failed', itemId, reason: 'no_status_ailment' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  state.inventory[itemId] = owned - 1;
+  events.push({ type: 'panacea_used', itemId, removedEffectIds: removed });
+  for (const id of removed) {
+    events.push({ type: 'effect_removed', effectId: id, reason: 'panacea' });
+  }
   state.inventoryOpen = false;
   return { consumed: true, attacked: false, defeated: false };
 }

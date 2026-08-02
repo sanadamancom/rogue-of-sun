@@ -1,4 +1,4 @@
-import { choosePlacement, chooseGroundItemPosition, chooseTrapPosition, roomIndexContaining, createRng, generateMap, MAP_GEN_PARAMS } from './mapgen';
+import { choosePlacement, chooseGroundItemPosition, chooseTrapPosition, chooseRoomFloorPosition, roomIndexContaining, createRng, generateMap, MAP_GEN_PARAMS } from './mapgen';
 import { createInitialActor, createInitialEnemy } from './turn';
 import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
 import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
@@ -389,6 +389,49 @@ function buildFloorState(
   }
   if (poisonTrapPos) {
     traps.push({ id: traps.length, pos: poisonTrapPos, triggered: false, trapType: 'poison_trap' });
+  }
+
+  // Antidote placement (Phase 12.4 status-ailment removal foundation):
+  // at most one per floor, restricted to ordinary room-interior floor
+  // tiles via chooseRoomFloorPosition (never corridors/doorways/walls/
+  // the exit — see that function's doc comment). Uses its own distinct
+  // independent RNG stream (a fifteenth XOR constant) so it never
+  // perturbs any prior RNG sequence/consumption order, and excludes
+  // every already-placed ground item's tile plus both trap positions in
+  // addition to start/exit/every enemy position. Returns null (never
+  // throws) when no candidate qualifies — that floor simply gets no
+  // antidote.
+  const antidoteExclusions = [
+    placement.start,
+    placement.exit,
+    ...placement.enemies,
+    ...groundItems.map((item) => item.pos),
+    ...traps.map((t) => t.pos),
+  ];
+  const antidoteRng = createRng(floorSeed ^ 0x6d5a91e7);
+  const antidotePos = chooseRoomFloorPosition(map, map.rooms, antidoteExclusions, antidoteRng);
+  if (antidotePos) {
+    groundItems.push({ id: groundItems.length, itemId: 'antidote', pos: antidotePos });
+  }
+
+  // Panacea placement (Phase 12.4): at most one per floor, same
+  // mechanism as antidote immediately above, using its own distinct
+  // independent RNG stream (a sixteenth XOR constant). Excludes
+  // antidote's own just-chosen tile (in addition to every other
+  // exclusion) so the two new items never land on the same tile
+  // (placement.common_requirements's "毒消しと万能薬を互いに重複させな
+  // い").
+  const panaceaExclusions = [
+    placement.start,
+    placement.exit,
+    ...placement.enemies,
+    ...groundItems.map((item) => item.pos),
+    ...traps.map((t) => t.pos),
+  ];
+  const panaceaRng = createRng(floorSeed ^ 0x2e8f4b6d);
+  const panaceaPos = chooseRoomFloorPosition(map, map.rooms, panaceaExclusions, panaceaRng);
+  if (panaceaPos) {
+    groundItems.push({ id: groundItems.length, itemId: 'panacea', pos: panaceaPos });
   }
 
   return {

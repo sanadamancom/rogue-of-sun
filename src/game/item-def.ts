@@ -150,10 +150,43 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     consumable: true,
     stackable: true,
   },
+  // Antidote (Phase 12.4 status-ailment removal foundation): removes
+  // only the 'poison' status ailment, never HP/SOL/hunger or any other
+  // effect — it has none of healAmount/solarAmount/hungerAmount set.
+  // turn.ts's applyItemUse special-cases itemId === 'antidote' (mirroring
+  // banana/chocolate). displayName/glyph corrected per user instruction:
+  // the item is "毒消し" (not "毒消し草"), sharing the provisional 💊
+  // glyph with panacea below — the two are distinguished by displayName
+  // wherever both might appear (ground glyphs render identically, but
+  // the inventory overlay and any hover/label always shows displayName).
+  antidote: {
+    id: 'antidote',
+    displayName: '毒消し',
+    glyph: '💊',
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+  },
+  // Panacea (Phase 12.4 status-ailment removal foundation): cures every
+  // currently-implemented status ailment at once (poison, movement_slow,
+  // spider_web, petrification — see effects.ts's STATUS_AILMENT_IDS),
+  // never attack_up (a beneficial effect, not an ailment) and never HP/
+  // SOL/hunger. turn.ts's applyItemUse special-cases itemId === 'panacea'
+  // exactly like antidote. Shares antidote's provisional 💊 glyph per
+  // user instruction (both are placeholder icons pending real sprite
+  // assets); displayName is the only reliable visual distinguisher.
+  panacea: {
+    id: 'panacea',
+    displayName: '万能薬',
+    glyph: '💊',
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+  },
 };
 
 /** Fixed display/iteration order for items (Phase 08.2: apple; Phase 08.3 adds sword; Phase 08.4 adds armor; Phase 08.5 adds spear; Phase 08.7 adds hammer; Phase 09.1 adds sun_fruit; Phase 09.2 adds solar_gun). */
-export const ITEM_IDS_IN_ORDER: ItemId[] = ['apple', 'sword', 'armor', 'spear', 'hammer', 'sun_fruit', 'solar_gun', 'chocolate', 'banana'];
+export const ITEM_IDS_IN_ORDER: ItemId[] = ['apple', 'sword', 'armor', 'spear', 'hammer', 'sun_fruit', 'solar_gun', 'chocolate', 'banana', 'antidote', 'panacea'];
 
 /** An inventory with every registered item at count 0 (used for new-run initialization). */
 export function createEmptyInventory(): Inventory {

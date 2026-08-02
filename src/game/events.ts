@@ -1,4 +1,4 @@
-import { Direction8, EffectId, EnchantmentId, EnemyType, ItemId, TrapType, WeaponId, ArmorId, Vec2 } from './types';
+import { Direction8, EffectId, EnchantmentId, EnemyType, ItemId, StatusAilmentId, TrapType, WeaponId, ArmorId, Vec2 } from './types';
 
 /**
  * Typed, display-agnostic record of a notable action that happened during
@@ -156,4 +156,31 @@ export type GameEvent =
   // clamped at 0, so a near-death player takes less than 3), matching
   // the same "record what actually happened, not the nominal amount"
   // convention as player_attack's/enemy_attack's own damage fields.
-  | { type: 'poison_damage'; actualDamage: number; hpBefore: number; hpAfter: number };
+  | { type: 'poison_damage'; actualDamage: number; hpBefore: number; hpAfter: number }
+  // Phase 12.4 status-ailment removal foundation. 'effect_removed' is the
+  // generic explicit-removal counterpart to 'effect_expired' (natural
+  // 0-duration end) — see effects.ts's removeEffect/removeStatusAilment
+  // doc comments for why these two stay distinct rather than one event
+  // covering both. `effectId` is typed StatusAilmentId (not EffectId)
+  // because this event also covers spider_web/petrification, which live
+  // outside activeEffects — 'attack_up' can never appear here (it's
+  // excluded from StatusAilmentId entirely; status_ailment_model.
+  // requirements's "attack_upについてeffect_removedを発行しない" is thus
+  // enforced at the type level, not just by convention). `reason`
+  // distinguishes which item caused the removal. One 'effect_removed' is
+  // pushed per status ailment actually removed (e.g. panacea curing all
+  // 4 pushes 4 of these), never one aggregate event.
+  | { type: 'effect_removed'; effectId: StatusAilmentId; reason: 'antidote' | 'panacea' }
+  // Antidote (Phase 12.4): cures only 'poison'. 'removedEffectIds' is an
+  // array (always length 1 in practice, since antidote only ever targets
+  // one ailment) rather than a single id, so its payload shape matches
+  // panacea's below and both can be handled uniformly by any future
+  // shared UI/telemetry code.
+  | { type: 'antidote_used'; itemId: ItemId; removedEffectIds: StatusAilmentId[] }
+  | { type: 'antidote_use_failed'; itemId: ItemId; reason: 'not_poisoned' }
+  // Panacea (Phase 12.4): cures every currently-active ailment among
+  // STATUS_AILMENT_IDS in one use. 'removedEffectIds' lists exactly which
+  // ones were actually active and removed this use (never the full
+  // STATUS_AILMENT_IDS list regardless of what was actually cured).
+  | { type: 'panacea_used'; itemId: ItemId; removedEffectIds: StatusAilmentId[] }
+  | { type: 'panacea_use_failed'; itemId: ItemId; reason: 'no_status_ailment' };

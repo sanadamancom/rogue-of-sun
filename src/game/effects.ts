@@ -1,4 +1,4 @@
-import { ActiveEffect, EffectId, GameState } from './types';
+import { ActiveEffect, EffectId, GameState, StatusAilmentId } from './types';
 
 /**
  * Central per-species definition of a temporary status effect (Phase 12.1
@@ -156,4 +156,100 @@ export function advanceEffectDurations(state: GameState, skipIds: EffectId[] = [
     return true;
   });
   return expired;
+}
+
+/**
+ * Explicitly removes every activeEffect record with id `id` (Phase 12.4
+ * status-ailment removal foundation), distinct from advanceEffectDurations'
+ * natural-expiry removal — callers must push their own 'effect_removed'
+ * event (never 'effect_expired') for this, since which is correct
+ * depends on *why* the effect ended, which this function has no way to
+ * know. Removes ALL matching records if more than one somehow exists
+ * (defensive; grantOrRefreshEffect never actually creates duplicates,
+ * but this function doesn't rely on that invariant —
+ * status_ailment_model.requirements's "同じEffectIdが不正に複数存在する
+ * 場合は対象をすべて削除する"). Returns 'removed' if at least one
+ * matching record was found and removed, or 'not_present' if none was
+ * active. This operates only on activeEffects — see removeStatusAilment
+ * below for the unified entry point that also covers the two special-
+ * status ailments (spider_web/petrification) living outside
+ * activeEffects. This is the *only* sanctioned way to mutate
+ * state.activeEffects for removal purposes — turn.ts must never splice/
+ * filter the array directly (implementation_policy's "状態異常解除処理を
+ * activeEffects配列や専用状態を無秩序に直接変更しない").
+ */
+export function removeEffect(state: GameState, id: EffectId): 'removed' | 'not_present' {
+  const effects = state.activeEffects ?? [];
+  const hadEffect = effects.some((effect) => effect.id === id);
+  state.activeEffects = effects.filter((effect) => effect.id !== id);
+  return hadEffect ? 'removed' : 'not_present';
+}
+
+/**
+ * Every currently-implemented status ailment id (Phase 12.4
+ * classification), spanning both activeEffects-backed ids (poison,
+ * movement_slow) and the two special-status ids living on
+ * Actor.slowed/Actor.petrified instead (spider_web, petrification).
+ * Deliberately excludes 'attack_up' — a beneficial effect, not an
+ * ailment (status_ailment_model.requirements's "万能薬の対象を名前の
+ * 否定判定で決めない" / "解除対象を明示的な一覧または分類として定義す
+ * る": this array — an explicit allowlist — is that definition, not
+ * "every EffectId except attack_up"). Panacea's cure logic
+ * (turn.ts's applyPanaceaUse) iterates this array via
+ * removeStatusAilment rather than re-deriving membership itself.
+ * Extending this array (plus removeStatusAilment's switch and, for an
+ * activeEffects-backed addition, nothing further — for a special-status
+ * addition, a new Actor field and a new branch below) is how a future
+ * status ailment gets added to panacea's coverage.
+ */
+export const STATUS_AILMENT_IDS: StatusAilmentId[] = ['poison', 'movement_slow', 'spider_web', 'petrification'];
+
+/**
+ * Removes the player's spider-web slowed status (enemy-behavior-02) if
+ * currently set. Distinct data shape from activeEffects (a plain
+ * Actor.slowed boolean, not an ActiveEffect record — see types.ts's
+ * Actor.slowed doc comment), so this has its own small removal function
+ * rather than going through removeEffect. Returns 'removed' if it was
+ * active, 'not_present' otherwise.
+ */
+export function removeSpiderWebSlow(state: GameState): 'removed' | 'not_present' {
+  if (state.player.slowed) {
+    state.player.slowed = false;
+    return 'removed';
+  }
+  return 'not_present';
+}
+
+/**
+ * Removes the player's petrified status (phase-06-cockatrice-petrifying-
+ * gaze) if currently set. Same reasoning as removeSpiderWebSlow — a
+ * plain Actor.petrified boolean, not an activeEffects record. Returns
+ * 'removed' if it was active, 'not_present' otherwise. Callers that need
+ * "does removing this also cancel this turn's forced petrified skip"
+ * semantics (turn.ts's applyPlayerAction petrified-branch) handle that
+ * distinction themselves — this function only ever touches the flag.
+ */
+export function removePetrification(state: GameState): 'removed' | 'not_present' {
+  if (state.player.petrified) {
+    state.player.petrified = false;
+    return 'removed';
+  }
+  return 'not_present';
+}
+
+/**
+ * The single common entry point for removing any status ailment
+ * (Phase 12.4), regardless of whether it's backed by activeEffects
+ * (poison, movement_slow) or a special Actor field (spider_web,
+ * petrification) — turn.ts's applyAntidoteUse/applyPanaceaUse call only
+ * this function (never removeEffect/removeSpiderWebSlow/
+ * removePetrification directly, though those remain exported for direct
+ * use where only one specific ailment kind is ever relevant), so callers
+ * never need their own id-based dispatch logic. Returns 'removed' or
+ * 'not_present' exactly like the functions it delegates to.
+ */
+export function removeStatusAilment(state: GameState, id: StatusAilmentId): 'removed' | 'not_present' {
+  if (id === 'spider_web') return removeSpiderWebSlow(state);
+  if (id === 'petrification') return removePetrification(state);
+  return removeEffect(state, id);
 }

@@ -615,6 +615,21 @@ function translateGameEvent(
       }
       break;
     }
+    case 'antidote_used': {
+      // Phase 12.4: reuses item_used's existing extensible effect:string/
+      // amount:number shape (telemetry.requirements's "既存item_used構造
+      // を再利用する") rather than a new event type. `amount` is fixed at
+      // 1 per telemetry.requirements's "amountは解除した状態異常数では
+      // なく使用成功1回を表す1とする" — not a count of removed ailments.
+      pushEvent(telemetry, after, consumed, { type: 'item_used', itemId: event.itemId, effect: 'poison_cure', amount: 1 });
+      break;
+    }
+    case 'panacea_used': {
+      // Same reasoning as antidote_used above — amount stays 1
+      // regardless of how many status ailments this single use cured.
+      pushEvent(telemetry, after, consumed, { type: 'item_used', itemId: event.itemId, effect: 'status_cure', amount: 1 });
+      break;
+    }
     default:
       // Every other GameEvent category (facing/AI-behavior-flavor events
       // like sword_dash, web_placed, bat_retreat, mummy_shamble_rest,

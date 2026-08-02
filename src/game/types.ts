@@ -513,6 +513,21 @@ export interface GameState {
 export type EffectId = 'attack_up' | 'movement_slow' | 'poison';
 
 /**
+ * Every currently-implemented status ailment id (Phase 12.4 status-
+ * ailment classification), spanning both activeEffects-backed ids
+ * (poison, movement_slow — a subset of EffectId) and the two special-
+ * status ids that live on Actor.slowed/Actor.petrified instead of
+ * activeEffects (spider_web, petrification). Deliberately does NOT
+ * include 'attack_up' — it's a beneficial effect, not an ailment
+ * (status_ailment_model.classification's beneficial_effects vs.
+ * status_ailments split; requirements' "万能薬の対象を名前の否定判定で
+ * 決めない" / "解除対象を明示的な一覧または分類として定義する"). See
+ * effects.ts's STATUS_AILMENT_IDS/removeStatusAilment for the runtime
+ * array and the single common removal entry point that iterates it.
+ */
+export type StatusAilmentId = 'poison' | 'movement_slow' | 'spider_web' | 'petrification';
+
+/**
  * One currently-active instance of a temporary status effect (Phase 12.1),
  * held in GameState.activeEffects. `strength`/`remainingTurns` are copied
  * from EFFECT_DEFINITIONS at grant/refresh time rather than looked up
@@ -535,7 +550,7 @@ export interface ActiveEffect {
  * item's shared display data, src/game/weapon-def.ts for weapon combat
  * data, and src/game/armor-def.ts for armor combat data).
  */
-export type ItemId = 'apple' | 'sword' | 'armor' | 'spear' | 'hammer' | 'sun_fruit' | 'solar_gun' | 'sol_enchantment' | 'chocolate' | 'banana';
+export type ItemId = 'apple' | 'sword' | 'armor' | 'spear' | 'hammer' | 'sun_fruit' | 'solar_gun' | 'sol_enchantment' | 'chocolate' | 'banana' | 'antidote' | 'panacea';
 
 /**
  * Selectable melee enchantment (Phase 10.1 sol enchant foundation). 'none'
