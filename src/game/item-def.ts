@@ -150,27 +150,10 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     consumable: true,
     stackable: true,
   },
-  // Antidote (Phase 12.4 effect-removal foundation): removes the
-  // 'poison' status effect entirely rather than restoring HP/SOL/hunger
-  // or granting/refreshing an effect, so it has none of healAmount/
-  // solarAmount/hungerAmount set — turn.ts's applyItemUse special-cases
-  // itemId === 'antidote' explicitly (mirroring how banana/chocolate are
-  // special-cased) rather than adding a fifth ItemDefinition amount
-  // field for a single-use effect removal. `provisional_glyph` per the
-  // phase spec — no processed sprite asset yet, plain emoji substitution
-  // like every other consumable registered so far.
-  antidote: {
-    id: 'antidote',
-    displayName: '毒消し草',
-    glyph: '🌿',
-    category: 'consumable',
-    consumable: true,
-    stackable: true,
-  },
 };
 
 /** Fixed display/iteration order for items (Phase 08.2: apple; Phase 08.3 adds sword; Phase 08.4 adds armor; Phase 08.5 adds spear; Phase 08.7 adds hammer; Phase 09.1 adds sun_fruit; Phase 09.2 adds solar_gun). */
-export const ITEM_IDS_IN_ORDER: ItemId[] = ['apple', 'sword', 'armor', 'spear', 'hammer', 'sun_fruit', 'solar_gun', 'chocolate', 'banana', 'antidote'];
+export const ITEM_IDS_IN_ORDER: ItemId[] = ['apple', 'sword', 'armor', 'spear', 'hammer', 'sun_fruit', 'solar_gun', 'chocolate', 'banana'];
 
 /** An inventory with every registered item at count 0 (used for new-run initialization). */
 export function createEmptyInventory(): Inventory {

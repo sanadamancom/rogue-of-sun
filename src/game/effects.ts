@@ -157,31 +157,3 @@ export function advanceEffectDurations(state: GameState, skipIds: EffectId[] = [
   });
   return expired;
 }
-
-/**
- * Explicitly removes every activeEffect record with id `id` (Phase 12.4
- * effect-removal foundation), distinct from advanceEffectDurations'
- * natural-expiry removal — callers must push their own 'effect_removed'
- * event (never 'effect_expired') for this, since which is correct
- * depends on *why* the effect ended, which this function has no way to
- * know (fixed_specification.effect_removal.distinction's "残りターン0に
- * よる自然終了は既存effect_expiredを使用する" / "毒消し草による途中解除
- * はeffect_removedを使用する"). Removes ALL matching records if more
- * than one somehow exists (defensive; grantOrRefreshEffect never
- * actually creates duplicates, but this function doesn't rely on that
- * invariant — fixed_specification.effect_removal.common_api's "同じIDの
- * レコードが不正に複数存在していても、指定IDをすべて削除する"). Returns
- * 'removed' if at least one matching record was found and removed, or
- * 'not_present' if none was active — callers (turn.ts's applyAntidoteUse)
- * use this to distinguish a successful removal from a no-op without
- * needing to call getActiveEffect first themselves. This is the *only*
- * sanctioned way to mutate state.activeEffects for removal purposes —
- * turn.ts must never splice/filter the array directly (implementation_
- * policy's "効果解除処理はeffects.ts内の共通関数へ集約する").
- */
-export function removeEffect(state: GameState, id: EffectId): 'removed' | 'not_present' {
-  const effects = state.activeEffects ?? [];
-  const hadEffect = effects.some((effect) => effect.id === id);
-  state.activeEffects = effects.filter((effect) => effect.id !== id);
-  return hadEffect ? 'removed' : 'not_present';
-}

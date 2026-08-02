@@ -220,18 +220,6 @@ export function formatEvent(event: GameEvent): string {
       return event.trapType === 'poison_trap' ? '毒の罠を踏んだ！' : '鈍足の罠を踏んだ！';
     case 'poison_damage':
       return `毒で${event.actualDamage}ダメージを受けた。`;
-    case 'antidote_used':
-      return '毒消し草を使った。';
-    case 'antidote_use_failed':
-      return '今は毒に侵されていない。';
-    case 'effect_removed':
-      // Phase 12.4: only 'poison' is ever removed this way so far (via
-      // antidote), hence the fixed "毒が消えた。" wording — see this
-      // event's doc comment (events.ts) for why an explicit removal is
-      // never worded as poison_expired's "毒が抜けた。" (fixed_
-      // specification.events_and_messages.restrictions's "成功時に
-      // poison_expiredのメッセージを使用しない").
-      return event.effectId === 'poison' ? '毒が消えた。' : `${EFFECT_DEFINITIONS[event.effectId].displayName}が解除された。`;
     default: {
       const exhaustiveCheck: never = event;
       throw new Error(`Unhandled game event: ${JSON.stringify(exhaustiveCheck)}`);

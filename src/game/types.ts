@@ -535,7 +535,7 @@ export interface ActiveEffect {
  * item's shared display data, src/game/weapon-def.ts for weapon combat
  * data, and src/game/armor-def.ts for armor combat data).
  */
-export type ItemId = 'apple' | 'sword' | 'armor' | 'spear' | 'hammer' | 'sun_fruit' | 'solar_gun' | 'sol_enchantment' | 'chocolate' | 'banana' | 'antidote';
+export type ItemId = 'apple' | 'sword' | 'armor' | 'spear' | 'hammer' | 'sun_fruit' | 'solar_gun' | 'sol_enchantment' | 'chocolate' | 'banana';
 
 /**
  * Selectable melee enchantment (Phase 10.1 sol enchant foundation). 'none'

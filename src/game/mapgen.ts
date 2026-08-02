@@ -782,52 +782,6 @@ export function chooseTrapPosition(
 }
 
 /**
- * Chooses a single deterministic room-interior floor tile (Phase 12.4
- * antidote), or `null` if no candidate satisfies every constraint.
- * Restricted to `rooms` rectangles only, exactly like chooseTrapPosition
- * (never corridors/doorways — same doorway-rule.test.ts reasoning), but
- * deliberately omits chooseTrapPosition's minimum-Manhattan-distance-
- * from-start/exit rules: antidote's fixed_specification.placement.
- * requirements only asks that it not land on the exact start/exit tile
- * (satisfied by passing them in `exclude`), not that it stay some
- * minimum distance away — see placement.restrictions's "poison_trapの
- * 位置を基準にantidoteの位置を固定しない" for why this is intentionally
- * a plainer, unconstrained room-floor search rather than reusing
- * chooseTrapPosition's stricter trap-specific rules. Never throws when
- * no candidate qualifies (matching chooseTrapPosition's null-return
- * convention, not chooseGroundItemPosition's throwing one — placement.
- * requirements's "候補がない場合は配置なしを許可し、例外を投げない").
- * rng() is called at most once, and only when at least one candidate
- * exists, for the same reproducibility reason as chooseTrapPosition.
- */
-export function chooseRoomFloorPosition(
-  map: GameMap,
-  rooms: Room[],
-  exclude: Vec2[],
-  rng: () => number,
-): Vec2 | null {
-  const key = (p: Vec2) => `${p.x},${p.y}`;
-  const excluded = new Set(exclude.map(key));
-
-  const candidates: Vec2[] = [];
-  for (const room of rooms) {
-    for (let y = room.y; y < room.y + room.height; y++) {
-      for (let x = room.x; x < room.x + room.width; x++) {
-        if (map.terrain[y][x] !== 'floor') continue;
-        const pos = { x, y };
-        if (excluded.has(key(pos))) continue;
-        candidates.push(pos);
-      }
-    }
-  }
-
-  if (candidates.length === 0) return null;
-
-  const pickIndex = Math.floor(rng() * candidates.length);
-  return candidates[pickIndex];
-}
-
-/**
  * Generates a section-based room-and-corridor map deterministically from
  * `seed`. Retries deterministically (seed does not change, only an internal
  * attempt counter mixed in) up to maxGenerationAttempts before returning an

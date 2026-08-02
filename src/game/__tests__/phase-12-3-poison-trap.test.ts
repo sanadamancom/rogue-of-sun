@@ -57,7 +57,6 @@ function freshState(overrides?: Partial<GameState>): GameState {
       sol_enchantment: 0,
       chocolate: 0,
       banana: 0,
-      antidote: 0,
     },
     inventoryOpen: false,
     selectedItemIndex: 0,
