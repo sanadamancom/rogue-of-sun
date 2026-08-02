@@ -329,7 +329,9 @@ describe('attack_up damage bonus (Phase 12.1)', () => {
   it('does not change sol enchantment bonus damage', () => {
     const state = freshState({
       player: createInitialActor({ x: 2, y: 1 }, 30, 10, 0, 100, 0),
-      enemies: [createInitialEnemy('bok', { x: 3, y: 1 }, 1000, 0, 0, 0, 0, 90, 0)],
+      // Phase 14.4 enemy affinities: bok is now sol-weak; use spider
+      // (still all-neutral) so the fixed sol bonus stays exactly 10.
+      enemies: [createInitialEnemy('spider', { x: 3, y: 1 }, 1000, 0, 0, 0, 0, 90, 0)],
       equippedWeaponId: 'sword',
       solUnlocked: true,
       unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },

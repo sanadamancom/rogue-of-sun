@@ -85,7 +85,10 @@ describe('actual damage (Phase 10.3.3, confirmed_findings.damage_dealt)', () => 
       unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
       selectedEnchantment: 'sol',
       solarEnergy: 5,
-      enemies: [createInitialEnemy('bok', { x: 3, y: 1 }, 10, 10, 0, 0, 0, 90, 0)], // hammer(20)+sol(10)=30 raw >> 10 hp
+      // Phase 14.4 enemy affinities: bok is now sol-weak; use spider
+      // (still all-neutral) so calculatedDamage keeps the exact
+      // pre-14.4 value asserted below.
+      enemies: [createInitialEnemy('spider', { x: 3, y: 1 }, 10, 10, 0, 0, 0, 90, 0)], // hammer(20)+sol(10)=30 raw >> 10 hp
     });
     const telemetry = createRunTelemetry(state);
     processTurn(state, { type: 'face', direction: 'E' });

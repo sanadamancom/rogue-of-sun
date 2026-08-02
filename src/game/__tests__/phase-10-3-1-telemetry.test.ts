@@ -254,6 +254,10 @@ describe('combat trace (Phase 10.3.1)', () => {
       unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
       selectedEnchantment: 'sol',
       solarEnergy: 5,
+      // Phase 14.4 enemy affinities: bok is now sol-weak; use spider
+      // (still all-neutral) so this continues to verify the plain
+      // neutral-affinity additionalDamage value.
+      enemies: [createInitialEnemy('spider', { x: 3, y: 1 }, 1000, 10, 0, 0, 0, 90, 0)],
     });
     const telemetry = createRunTelemetry(state);
     processTurn(state, { type: 'face', direction: 'E' });

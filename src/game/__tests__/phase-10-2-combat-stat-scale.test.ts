@@ -320,7 +320,10 @@ describe('sol enchantment at the new scale (Phase 10.2)', () => {
   });
 
   it('a sol-eligible hit adds exactly 10 bonus damage on top of the base formula', () => {
-    const state = solState();
+    // Phase 14.4 enemy affinities: bok is now sol-weak; use spider
+    // (still all-neutral) so this test continues to verify the plain
+    // neutral-affinity formula.
+    const state = solState({ enemies: [createInitialEnemy('spider', { x: 3, y: 1 }, 1000, 10, 0, 0, 0)] });
     faceEast(state);
     const result = processTurn(state, { type: 'action' });
     const attackEvent = result.events.find((e) => e.type === 'player_attack');

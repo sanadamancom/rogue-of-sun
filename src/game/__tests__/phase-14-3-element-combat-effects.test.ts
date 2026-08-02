@@ -289,7 +289,14 @@ describe('Phase 14.3: SOL cost and insufficient-SOL fallback', () => {
 describe('Phase 14.3: damage', () => {
   it('rank 0, all-neutral enemy: each element adds exactly 10 elemental damage', () => {
     for (const element of ALL_ELEMENTS) {
-      const state = freshState({ selectedEnchantment: element, abilities: { body: 0, mind: 0, power: 0, speed: 0 } });
+      // Phase 14.4 enemy affinities: bok is now sol-weak; use spider
+      // (still all-neutral to every element) so this keeps testing the
+      // plain neutral result for every element including sol.
+      const state = freshState({
+        selectedEnchantment: element,
+        abilities: { body: 0, mind: 0, power: 0, speed: 0 },
+        enemies: [createInitialEnemy('spider', { x: 3, y: 1 }, 1000, 1)],
+      });
       faceEastAtEnemy(state);
       const result = processTurn(state, { type: 'action' });
       const ev = result.events.find((e) => e.type === 'sol_enchantment_used' || e.type === 'element_enchantment_used');
@@ -500,14 +507,29 @@ describe('Phase 14.3: telemetry', () => {
   });
 });
 
-describe('Phase 14.3: enemy affinities unchanged', () => {
-  it('every current enemy is still neutral to all five elements', async () => {
-    const { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER } = await import('../enemy-def');
-    for (const type of ENEMY_TYPES_IN_ORDER) {
-      const affinities = ENEMY_DEFINITIONS[type].elementalAffinities;
-      for (const el of ALL_ELEMENTS) {
-        expect(affinities[el]).toBe('neutral');
-      }
+// Phase 14.4 note: this block originally asserted that every enemy was
+// neutral to all five elements, matching Phase 14.3's scope (combat
+// effects implemented, but no real affinities assigned yet). Phase 14.4
+// has since assigned the confirmed affinity table (see
+// phase-14-4-enemy-affinities.test.ts for the dedicated table-and-
+// damage-integration coverage), so this is updated to check that table
+// instead of the now-superseded blanket-neutral assumption.
+describe('Phase 14.3/14.4: enemy affinities (updated for Phase 14.4)', () => {
+  it('matches the Phase 14.4 confirmed affinity table', async () => {
+    const { ENEMY_DEFINITIONS } = await import('../enemy-def');
+    const expected: Record<string, Record<ElementId, string>> = {
+      bok: { sol: 'weak', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
+      cockatrice: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'weak' },
+      spider: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
+      bat: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
+      mummy: { sol: 'neutral', flame: 'weak', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
+      golem: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'weak', earth: 'neutral' },
+      sword: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
+      axe: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
+      kraken: { sol: 'neutral', flame: 'weak', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
+    };
+    for (const [type, affinities] of Object.entries(expected)) {
+      expect(ENEMY_DEFINITIONS[type as keyof typeof ENEMY_DEFINITIONS].elementalAffinities).toEqual(affinities);
     }
   });
 });

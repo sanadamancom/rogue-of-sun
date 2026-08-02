@@ -372,7 +372,10 @@ describe('Phase 14.2/14.3: other-element combat activation (superseded boundary,
   }
 
   it('sol selection continues to add 10 damage and consume 1 SOL exactly as before', () => {
-    const state = freshState();
+    // Phase 14.4 enemy affinities: bok is now sol-weak; use spider
+    // (still all-neutral) so this keeps testing the plain neutral
+    // result.
+    const state = freshState({ enemies: [createInitialEnemy('spider', { x: 3, y: 1 }, 1000, 1)] });
     faceEastAtEnemy(state);
     const result = processTurn(state, { type: 'action' });
     expect(state.solarEnergy).toBe(4);

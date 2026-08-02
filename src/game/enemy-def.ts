@@ -164,7 +164,11 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     movementType: 'ground',
     stationary: false,
     experienceReward: 1,
-    elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
+    // Phase 14.4 enemy affinities: bok is treated as the same family as
+    // the ghoul enemy from the source material, which carries a sol
+    // weakness there — see docs/history/phase-14-4-enemy-affinities.md
+    // for the full table and basis for every current species.
+    elementalAffinities: { sol: 'weak', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   },
   cockatrice: {
     id: 'cockatrice',
@@ -179,7 +183,9 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     movementType: 'ground',
     stationary: false,
     experienceReward: 1,
-    elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
+    // Phase 14.4 enemy affinities: source-material cockatrice carries an
+    // earth weakness — see docs/history/phase-14-4-enemy-affinities.md.
+    elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'weak' },
   },
   spider: {
     id: 'spider',
@@ -194,6 +200,9 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     movementType: 'ground',
     stationary: false,
     experienceReward: 1,
+    // Phase 14.4 enemy affinities: source material shows no elemental
+    // weakness for spider — kept as all-neutral, not removed from the
+    // roster. See docs/history/phase-14-4-enemy-affinities.md.
     elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   },
   bat: {
@@ -209,6 +218,9 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     movementType: 'flying',
     stationary: false,
     experienceReward: 1,
+    // Phase 14.4 enemy affinities: source material shows no elemental
+    // weakness for bat — all-neutral. See docs/history/phase-14-4-
+    // enemy-affinities.md.
     elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   },
   mummy: {
@@ -224,7 +236,10 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     movementType: 'ground',
     stationary: false,
     experienceReward: 1,
-    elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
+    // Phase 14.4 enemy affinities: follows the original-title mummy's
+    // flame weakness (not the sequel's sol weakness — see docs/history/
+    // phase-14-4-enemy-affinities.md for the basis).
+    elementalAffinities: { sol: 'neutral', flame: 'weak', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   },
   golem: {
     id: 'golem',
@@ -239,7 +254,10 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     movementType: 'ground',
     stationary: false,
     experienceReward: 1,
-    elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
+    // Phase 14.4 enemy affinities: golem corresponds to the source
+    // material's clay golem, which carries a cloud weakness — see
+    // docs/history/phase-14-4-enemy-affinities.md.
+    elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'weak', earth: 'neutral' },
   },
   sword: {
     id: 'sword',
@@ -254,6 +272,10 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     movementType: 'ground',
     stationary: false,
     experienceReward: 1,
+    // Phase 14.4 enemy affinities: source material's weakness for sword
+    // is a weapon-category weakness, not an elemental one — deliberately
+    // not replaced with an elemental weakness. See docs/history/
+    // phase-14-4-enemy-affinities.md.
     elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   },
   axe: {
@@ -269,6 +291,10 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     movementType: 'ground',
     stationary: false,
     experienceReward: 1,
+    // Phase 14.4 enemy affinities: source material's weakness for axe is
+    // a weapon-category/attack-method weakness, not elemental —
+    // deliberately not replaced. See docs/history/phase-14-4-enemy-
+    // affinities.md.
     elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   },
   kraken: {
@@ -284,7 +310,10 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     movementType: 'none',
     stationary: true,
     experienceReward: 1,
-    elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
+    // Phase 14.4 enemy affinities: kraken is treated as the source
+    // material's octopus-equivalent enemy, which carries a flame
+    // weakness — see docs/history/phase-14-4-enemy-affinities.md.
+    elementalAffinities: { sol: 'neutral', flame: 'weak', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   },
 };
 

@@ -137,14 +137,22 @@ describe('Phase 14.1 element foundation: enemy definitions', () => {
     }
   });
 
-  it('every current species is neutral across all five elements this phase', () => {
+  // Phase 14.4 note: originally asserted that every species was neutral
+  // across all five elements, which was true for Phase 14.1 (no real
+  // affinities existed yet). Phase 14.4 has since assigned the confirmed
+  // affinity table (see phase-14-4-enemy-affinities.test.ts for the
+  // dedicated table-and-damage coverage), so this is updated to check
+  // structural validity (every entry is a real ElementalAffinity value)
+  // instead of a specific value that Phase 14.4 legitimately changed.
+  it('every current species has a valid ElementalAffinity value for all five elements', () => {
+    const validAffinities = ['weak', 'neutral', 'resist'];
     for (const type of ENEMY_TYPES_IN_ORDER) {
       const affinities = ENEMY_DEFINITIONS[type].elementalAffinities;
-      expect(affinities.sol).toBe('neutral');
-      expect(affinities.flame).toBe('neutral');
-      expect(affinities.frost).toBe('neutral');
-      expect(affinities.cloud).toBe('neutral');
-      expect(affinities.earth).toBe('neutral');
+      expect(validAffinities).toContain(affinities.sol);
+      expect(validAffinities).toContain(affinities.flame);
+      expect(validAffinities).toContain(affinities.frost);
+      expect(validAffinities).toContain(affinities.cloud);
+      expect(validAffinities).toContain(affinities.earth);
     }
   });
 });
@@ -194,7 +202,10 @@ describe('Phase 14.1 element foundation: sol combat (neutral, unchanged results)
   it('deals physical + 10 elemental damage against a neutral-affinity enemy', () => {
     // combatRngState 304 with this fixture's accuracy/evasion resolves
     // as a hit deterministically (mirrors phase-10-1's fixture setup).
-    const state = freshState();
+    // Phase 14.4 enemy affinities: bok is now sol-weak; use spider
+    // (still all-neutral) so this keeps testing the plain neutral
+    // result.
+    const state = freshState({ enemies: [createInitialEnemy('spider', { x: 3, y: 1 }, 1000, 1)] });
     faceEastAtEnemy(state);
     const result = processTurn(state, { type: 'action' });
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
@@ -263,7 +274,10 @@ describe('Phase 14.1 element foundation: telemetry compatibility', () => {
   });
 
   it('records neutral sol additionalDamage as 10, calculatedDamage as physical+10', () => {
-    const state = freshState();
+    // Phase 14.4 enemy affinities: bok is now sol-weak; use spider
+    // (still all-neutral) so this keeps testing the plain neutral
+    // result.
+    const state = freshState({ enemies: [createInitialEnemy('spider', { x: 3, y: 1 }, 1000, 1)] });
     const telemetry = createRunTelemetry(state);
     faceEastAtEnemy(state);
     step(state, { type: 'action' }, telemetry);

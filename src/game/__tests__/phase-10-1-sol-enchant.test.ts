@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createEmptyInventory } from '../item-def';
 import { createInitialState } from '../state';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
-import { GameMap, GameState, Tile } from '../types';
+import { EnemyType, GameMap, GameState, Tile } from '../types';
 
 const TEST_LAYOUT: string[] = [
   '##########',
@@ -145,7 +145,7 @@ describe('sol enchantment state (Phase 10.1)', () => {
 });
 
 describe('sol enchantment activation (Phase 10.1)', () => {
-  function attackingState(weaponId: 'sword' | 'spear' | 'hammer', solarEnergy = 5): GameState {
+  function attackingState(weaponId: 'sword' | 'spear' | 'hammer', solarEnergy = 5, enemyType: EnemyType = 'bok'): GameState {
     return freshState({
       equippedWeaponId: weaponId,
       inventory: { ...createEmptyInventory(), [weaponId]: 1 },
@@ -153,11 +153,16 @@ describe('sol enchantment activation (Phase 10.1)', () => {
       unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
       selectedEnchantment: 'sol',
       solarEnergy,
+      // Phase 14.4 enemy affinities: bok is sol-weak, so tests that
+      // assert a plain neutral-affinity sol bonus (10) pass an
+      // explicitly-neutral enemy type instead of relying on the
+      // (now weak) default.
+      enemies: [createInitialEnemy(enemyType, { x: 3, y: 1 }, 1000, 1)],
     });
   }
 
   it('sword hit consumes 1 SOL and adds 10 bonus damage (Phase 10.2)', () => {
-    const state = attackingState('sword');
+    const state = attackingState('sword', 5, 'spider');
     faceEastAtEnemy(state);
     const result = processTurn(state, { type: 'action' });
     expect(state.solarEnergy).toBe(4);
@@ -175,7 +180,7 @@ describe('sol enchantment activation (Phase 10.1)', () => {
       unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
       selectedEnchantment: 'sol',
       solarEnergy: 5,
-      enemies: [createInitialEnemy('bok', { x: 4, y: 1 }, 1000, 1)],
+      enemies: [createInitialEnemy('spider', { x: 4, y: 1 }, 1000, 1)],
     });
     faceEastAtEnemy(state);
     const result = processTurn(state, { type: 'action' });
@@ -186,7 +191,7 @@ describe('sol enchantment activation (Phase 10.1)', () => {
   });
 
   it('hammer hit consumes 1 SOL and adds 10 bonus damage (Phase 10.2)', () => {
-    const state = attackingState('hammer');
+    const state = attackingState('hammer', 5, 'spider');
     faceEastAtEnemy(state);
     const result = processTurn(state, { type: 'action' });
     expect(state.solarEnergy).toBe(4);
