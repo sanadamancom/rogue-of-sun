@@ -33,6 +33,37 @@ export const ABILITY_DISPLAY_NAMES: Record<AbilityId, string> = {
 /** Every ability starts at 0 (ability_model.initial_values). */
 export const INITIAL_ABILITY_VALUES: AbilityValues = { body: 0, mind: 0, power: 0, speed: 0 };
 
+/**
+ * Phase 13.3a: the maximum rank any single ability may reach. Chosen
+ * deliberately low (10, not 20) given the current experience economy
+ * grants roughly 1 unspent ability point per full run (see this phase's
+ * history doc and the Phase 13.3 audit) — re-evaluated only alongside a
+ * future change to experience/ability-point supply, per confirmed_spec.
+ */
+export const ABILITY_RANK_CAP = 10;
+
+/** Phase 13.3a: max HP granted per body rank (30 + 4*bodyRank). */
+export const BODY_MAX_HP_PER_RANK = 4;
+
+/** Phase 13.3a: max SOL granted per mind rank (5 + mindRank). */
+export const MIND_MAX_SOL_PER_RANK = 1;
+
+/** Phase 13.3a: flat direct-attack damage bonus granted per power rank (2*powerRank). */
+export const POWER_DAMAGE_PER_RANK = 2;
+
+/**
+ * The player's current direct-attack damage bonus from the power ability
+ * (Phase 13.3a): `POWER_DAMAGE_PER_RANK * powerRank`, 0 at rank 0. Applied
+ * at the single shared player-damage computation point (turn.ts's
+ * applyPlayerAttackToEnemy) so every direct attack — unarmed, sword,
+ * spear, hammer, and the solar gun — receives it exactly once. Never
+ * applied to poison, starvation, or any other non-`applyPlayerAttackToEnemy`
+ * damage source, since those paths simply never call this function.
+ */
+export function getPowerDamageBonus(state: GameState): number {
+  return POWER_DAMAGE_PER_RANK * getAbilityValue(state, 'power');
+}
+
 function isAbilityId(value: unknown): value is AbilityId {
   return value === 'body' || value === 'mind' || value === 'power' || value === 'speed';
 }
@@ -83,14 +114,31 @@ function failedAllocation(state: GameState): AbilityAllocationResult {
  * (ability_model.invariant). Validates both the ability id and the
  * available point count itself — never trusts the caller (UI) to have
  * already checked (allocation_core.requirements's "core側でも未使用ポイ
- * ントと能力IDを検証する") — so an invalid request (bad id, 0 points, or
- * the run already over) leaves `state` completely unchanged and returns
- * `success: false` with no event. Never runs while `state.phase` is not
- * 'playing' (allocation_rules's "player_dead、floor_reachedなど終了確定
- * 後は新たに割り振れない"). This is a pure non-turn state update —
- * unrelated to processTurn/PlayerAction — so it never advances state.turn,
- * never triggers enemy actions, and never touches hunger/poison/
- * regen/activeEffects.
+ * ントと能力IDを検証する") — so an invalid request (bad id, 0 points, the
+ * run already over, or the ability already at ABILITY_RANK_CAP — Phase
+ * 13.3a) leaves `state` completely unchanged and returns `success: false`
+ * with no event. Never runs while `state.phase` is not 'playing'
+ * (allocation_rules's "player_dead、floor_reachedなど終了確定後は新たに
+ * 割り振れない"). This is a pure non-turn state update — unrelated to
+ * processTurn/PlayerAction — so it never advances state.turn, never
+ * triggers enemy actions, and never touches hunger/poison/regen/
+ * activeEffects.
+ *
+ * Phase 13.3a side effects on success: 'body' increases both
+ * state.player.maxHp and state.player.hp by BODY_MAX_HP_PER_RANK (current
+ * HP clamped to the new max, so a already-full-HP player stays exactly
+ * full); 'mind' does the same to state.maxSolarEnergy/state.solarEnergy
+ * by MIND_MAX_SOL_PER_RANK. 'power' has no direct state side effect here
+ * — its bonus is derived on demand by getPowerDamageBonus at the single
+ * shared damage-computation point, never stored redundantly, so there is
+ * no way for it to be double-applied. 'speed' has no numeric effect yet
+ * (Phase 13.3b+). Every one of these side effects only ever fires once
+ * per successful call, in lockstep with the single rank increment above
+ * — never separately recomputed from scratch elsewhere (state.ts's floor-
+ * transition carry-over already preserves the already-updated maxHp/
+ * maxSolarEnergy values as opaque numbers, exactly like every other
+ * player stat), so initialization and allocation can never double-count
+ * the same rank's effect.
  */
 export function allocateAbilityPoint(state: GameState, ability: AbilityId): AbilityAllocationResult {
   if (state.phase !== 'playing') return failedAllocation(state);
@@ -100,10 +148,19 @@ export function allocateAbilityPoint(state: GameState, ability: AbilityId): Abil
 
   const abilities = getAbilities(state);
   const previousValue = abilities[ability];
+  if (previousValue >= ABILITY_RANK_CAP) return failedAllocation(state);
   const newValue = previousValue + 1;
   abilities[ability] = newValue;
   state.abilities = abilities;
   state.unspentAbilityPoints = remaining - 1;
+
+  if (ability === 'body') {
+    state.player.maxHp += BODY_MAX_HP_PER_RANK;
+    state.player.hp = Math.min(state.player.maxHp, state.player.hp + BODY_MAX_HP_PER_RANK);
+  } else if (ability === 'mind') {
+    state.maxSolarEnergy += MIND_MAX_SOL_PER_RANK;
+    state.solarEnergy = Math.min(state.maxSolarEnergy, state.solarEnergy + MIND_MAX_SOL_PER_RANK);
+  }
 
   const abilityDisplayName = ABILITY_DISPLAY_NAMES[ability];
   const event: GameEvent = {

@@ -385,22 +385,29 @@ describe('Phase 13.2 ability point allocation foundation', () => {
   });
 
   describe('no effect on existing combat stats', () => {
-    it('allocating body does not change HP or maxHp', () => {
+    // Phase 13.3a note: body/mind now DO change maxHp/maxSolarEnergy by
+    // design (see ability.ts's allocateAbilityPoint side effects) — these
+    // two cases, which pre-date that phase, are updated to assert the new
+    // confirmed_spec numeric effect instead of "no effect". power/speed
+    // below are unaffected by Phase 13.3a (power's bonus is derived on
+    // demand at the damage-computation point, never stored on
+    // player.attack/defense; speed has no numeric effect yet).
+    it('allocating body increases maxHp by 4 and current HP by 4 (Phase 13.3a)', () => {
       const state = freshState(1);
       const hpBefore = state.player.hp;
       const maxHpBefore = state.player.maxHp;
       allocateAbilityPoint(state, 'body');
-      expect(state.player.hp).toBe(hpBefore);
-      expect(state.player.maxHp).toBe(maxHpBefore);
+      expect(state.player.hp).toBe(hpBefore + 4);
+      expect(state.player.maxHp).toBe(maxHpBefore + 4);
     });
 
-    it('allocating mind does not change SOL or maxSOL', () => {
+    it('allocating mind increases maxSOL by 1 and current SOL by 1 (Phase 13.3a)', () => {
       const state = freshState(1);
       const solBefore = state.solarEnergy;
       const maxSolBefore = state.maxSolarEnergy;
       allocateAbilityPoint(state, 'mind');
-      expect(state.solarEnergy).toBe(solBefore);
-      expect(state.maxSolarEnergy).toBe(maxSolBefore);
+      expect(state.solarEnergy).toBe(solBefore + 1);
+      expect(state.maxSolarEnergy).toBe(maxSolBefore + 1);
     });
 
     it('allocating power does not change attack or defense', () => {

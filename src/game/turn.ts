@@ -23,6 +23,7 @@ import { canPlaceWebNow, expireWebs, placeWeb } from './web';
 import { isSunlitAt } from './sunlight';
 import { GameEvent } from './events';
 import { applyExperienceGain } from './progression';
+import { getPowerDamageBonus } from './ability';
 import {
   Actor,
   ALL_DIRECTIONS,
@@ -187,7 +188,11 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
     return { hit: false, defeated: false };
   }
 
-  const baseDamage = computeAttackDamage(state.player.attack + getPlayerAttackUpBonus(state, weaponId), getPlayerWeaponBonus(state), target.defense);
+  const baseDamage = computeAttackDamage(
+    state.player.attack + getPlayerAttackUpBonus(state, weaponId) + getPowerDamageBonus(state),
+    getPlayerWeaponBonus(state),
+    target.defense,
+  );
   let damage = baseDamage;
 
   // Sol melee enchantment activation (Phase 10.1): only for sword/spear/
