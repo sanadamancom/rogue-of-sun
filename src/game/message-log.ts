@@ -1,5 +1,6 @@
 import { ENEMY_DEFINITIONS } from './enemy-def';
 import { ITEM_DEFINITIONS } from './item-def';
+import { EFFECT_DEFINITIONS } from './effects';
 import { GameEvent } from './events';
 
 /**
@@ -176,6 +177,20 @@ export function formatEvent(event: GameEvent): string {
       return event.selected === 'sol' ? 'エンチャントをソルに切り替えた。' : 'エンチャントを解除した。';
     case 'sol_enchantment_used':
       return 'ソルの力が攻撃に宿った。';
+    case 'effect_granted': {
+      const name = EFFECT_DEFINITIONS[event.effectId].displayName;
+      return `バナナを食べ、${name}が${event.strength}上がった。`;
+    }
+    case 'effect_refreshed': {
+      const name = EFFECT_DEFINITIONS[event.effectId].displayName;
+      return `バナナを食べ、${name}の効果が残り${event.remainingTurns}ターンに更新された。`;
+    }
+    case 'effect_expired': {
+      const name = EFFECT_DEFINITIONS[event.effectId].displayName;
+      return `${name}の効果が切れた。`;
+    }
+    case 'banana_use_failed':
+      return '攻撃力上昇はすでに最大時間有効で、バナナは使えない。';
     default: {
       const exhaustiveCheck: never = event;
       throw new Error(`Unhandled game event: ${JSON.stringify(exhaustiveCheck)}`);

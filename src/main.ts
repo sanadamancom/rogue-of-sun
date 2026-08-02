@@ -31,6 +31,7 @@ import {
 } from './game/telemetry';
 import { getCockatriceTelegraph, getKrakenTelegraph } from './game/telegraph';
 import { getHunger, HUNGER_MAX } from './game/hunger';
+import { EFFECT_DEFINITIONS, getActiveEffects } from './game/effects';
 import { processTurn, TurnResult } from './game/turn';
 import { DIRECTION_VECTORS, EnemyType, GameState } from './game/types';
 
@@ -271,6 +272,29 @@ class MainScene extends Phaser.Scene {
     if (this.state.selectedEnchantment === 'none') return 'ENCHANT：なし';
     if (this.state.solarEnergy <= 0) return 'ENCHANT：ソル（SOL不足）';
     return 'ENCHANT：ソル';
+  }
+
+  /**
+   * HUD text for currently active temporary status effects (Phase 12.1
+   * common status-effect foundation): '' when none are active (no segment
+   * shown at all, per fixed_specification.hud.required's "有効時のみ状態
+   * 効果表示を出す"), otherwise a leading-space-padded "効果: 攻撃↑ +5
+   * (20)"-style segment for each active effect, joined together. Only
+   * 'attack_up' exists this phase, so this only ever emits at most one
+   * segment; the arrow glyph is a display-only shorthand distinct from
+   * EFFECT_DEFINITIONS.displayName (never the internal id itself, per
+   * "内部IDのattack_upをそのまま表示しない").
+   */
+  private effectsHudLabel(): string {
+    const effects = getActiveEffects(this.state);
+    if (effects.length === 0) return '';
+    return effects
+      .map((effect) => {
+        const def = EFFECT_DEFINITIONS[effect.id];
+        const arrow = effect.id === 'attack_up' ? '攻撃↑' : def.displayName;
+        return `   効果: ${arrow} +${effect.strength} (${effect.remainingTurns})`;
+      })
+      .join('');
   }
 
   private readonly LOG_PANEL_PADDING = 6;
@@ -1313,7 +1337,7 @@ class MainScene extends Phaser.Scene {
     // change; the number itself already conveys "low" against /100.
     const hungerLabel = hunger <= 0 ? `${hunger} / ${HUNGER_MAX} (空腹)` : `${hunger} / ${HUNGER_MAX}`;
     this.hudText.setText(
-      `FLOOR ${this.state.floor}/${this.state.totalFloors}   HP: ${player.hp}/${player.maxHp}   SOL ${this.state.solarEnergy} / ${this.state.maxSolarEnergy}   満腹度 ${hungerLabel}   ${this.enchantHudLabel()}   Turn: ${this.state.turn}\n` +
+      `FLOOR ${this.state.floor}/${this.state.totalFloors}   HP: ${player.hp}/${player.maxHp}   SOL ${this.state.solarEnergy} / ${this.state.maxSolarEnergy}   満腹度 ${hungerLabel}   ${this.enchantHudLabel()}${this.effectsHudLabel()}   Turn: ${this.state.turn}\n` +
         `Run Seed: ${this.state.runSeed}   Floor Seed: ${this.state.seed}\n` +
         `移動:方向キー  Shift+方向:向き変更  X:攻撃  Space：待機／日向でチャージ  F:エンチャント切替  Tab:インベントリ`,
     );

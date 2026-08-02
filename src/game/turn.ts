@@ -17,6 +17,7 @@ import {
 import { WEAPON_DEFINITIONS } from './weapon-def';
 import { ARMOR_DEFINITIONS } from './armor-def';
 import { computeAttackDamage, computeIncomingDamage, computeHitChance, resolvesAsHit } from './combat';
+import { advanceEffectDurations, EFFECT_DEFINITIONS, getEffectStrength, grantOrRefreshEffect, isEffectAtMaxDuration } from './effects';
 import { rollPercent } from './rng';
 import { canPlaceWebNow, expireWebs, placeWeb } from './web';
 import { isSunlitAt } from './sunlight';
@@ -71,6 +72,21 @@ function getPlayerWeaponBonus(state: GameState): number {
     return WEAPON_DEFINITIONS[state.equippedWeaponId].attackPower;
   }
   return 0;
+}
+
+/**
+ * The player's current attack_up bonus (Phase 12.1 temporary-effect
+ * foundation), applied to physical damage from bare hands, sword, spear,
+ * and hammer only — never the solar gun or the sol enchantment's bonus
+ * damage (fixed_specification.attack_up_effect.excluded). `weaponId` is
+ * the attacking weapon (or null for unarmed), passed in explicitly rather
+ * than re-read from state so the caller's already-resolved weaponId
+ * (captured before any mid-resolution state change) is always what gets
+ * checked.
+ */
+function getPlayerAttackUpBonus(state: GameState, weaponId: WeaponId | null): number {
+  if (weaponId === 'solar_gun') return 0;
+  return getEffectStrength(state, 'attack_up');
 }
 
 /**
@@ -170,7 +186,7 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
     return { hit: false, defeated: false };
   }
 
-  const baseDamage = computeAttackDamage(state.player.attack, getPlayerWeaponBonus(state), target.defense);
+  const baseDamage = computeAttackDamage(state.player.attack + getPlayerAttackUpBonus(state, weaponId), getPlayerWeaponBonus(state), target.defense);
   let damage = baseDamage;
 
   // Sol melee enchantment activation (Phase 10.1): only for sword/spear/
@@ -684,6 +700,15 @@ function applyItemUse(
     return { consumed: false, attacked: false, defeated: false };
   }
 
+  // Banana (Phase 12.1 temporary-effect foundation): grants/refreshes
+  // attack_up, handled by its own function since it reads/writes
+  // effects.ts state rather than player.hp/solarEnergy/hunger. Checked
+  // before the hungerAmount/healAmount/solarAmount branches below since
+  // banana has none of those set.
+  if (itemId === 'banana') {
+    return applyBananaUse(state, itemId, events);
+  }
+
   // Chocolate (Phase 11.3): restores hunger, handled by its own function
   // since it reads/writes hunger.ts state rather than player.hp/solarEnergy.
   if ((def.hungerAmount ?? 0) > 0) {
@@ -761,6 +786,48 @@ function applyChocolateUse(
   const recovered = state.hunger - before;
   state.inventory[itemId] = owned - 1;
   events.push({ type: 'chocolate_used', itemId, recovered });
+  state.inventoryOpen = false;
+  return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
+ * Banana use (Phase 12.1 temporary-effect foundation): grants or
+ * refreshes the 'attack_up' status effect (see effects.ts), never
+ * touching HP/SOL/hunger. Rejected (no consumption, no turn, no state
+ * change at all) when attack_up is already at its maximum (full)
+ * duration — fixed_specification.banana.use_failure: "attack_upの残り
+ * ターンがすでに20の場合は使用失敗" / "失敗時は...乱数状態を変更しない".
+ * On success, this only grants/refreshes the effect and decrements the
+ * banana count; it deliberately does NOT advance any effect's remaining
+ * duration itself (fixed_specification.banana.use_success's "バナナ使用
+ * ターン自体ではattack_upの残りターンを減らさない") — that decrement is
+ * processTurn's job, once per turn, and processTurn skips it entirely on
+ * a turn where this function just granted/refreshed the effect (see
+ * processTurn's isBananaGrant check).
+ */
+function applyBananaUse(
+  state: GameState,
+  itemId: import('./types').ItemId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const owned = state.inventory[itemId] ?? 0;
+  if (owned <= 0) {
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  if (isEffectAtMaxDuration(state, 'attack_up')) {
+    events.push({ type: 'banana_use_failed', itemId, reason: 'effect_at_max' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  const result = grantOrRefreshEffect(state, 'attack_up');
+  state.inventory[itemId] = owned - 1;
+  const def = EFFECT_DEFINITIONS.attack_up;
+  events.push(
+    result === 'granted'
+      ? { type: 'effect_granted', effectId: 'attack_up', strength: def.strength, remainingTurns: def.duration }
+      : { type: 'effect_refreshed', effectId: 'attack_up', strength: def.strength, remainingTurns: def.duration },
+  );
   state.inventoryOpen = false;
   return { consumed: true, attacked: false, defeated: false };
 }
@@ -1938,6 +2005,27 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
     // natural_regeneration_interaction's "満腹度0への遷移でregenProgress
     // を失わない" / "保持したregenProgressから再開する") — neither
     // incremented nor reset while starving.
+  }
+
+  // Phase 12.1 temporary-effect foundation: advances every active effect's
+  // remaining duration by exactly 1, once per consumed turn
+  // (fixed_specification.duration_and_turn_boundary.progression), after
+  // enemy actions/hunger/regen have already run (order.progression) but
+  // skipped entirely on the exact turn a banana use just granted or
+  // refreshed attack_up — a fresh/refreshed effect must still read as its
+  // full duration for this turn's HUD/next reads
+  // (fixed_specification.banana.use_success's "バナナ使用ターン自体では
+  // attack_upの残りターンを減らさない"). Detecting that case from the
+  // already-computed `consumed` flag (rather than adding a return field to
+  // applyPlayerAction/applyBananaUse) is safe here: applyBananaUse only
+  // ever returns consumed: true on a successful grant/refresh, never on
+  // any other outcome, so this check is unambiguous.
+  const isBananaGrant = action.type === 'use_item' && action.itemId === 'banana' && consumed;
+  if (!isBananaGrant) {
+    const expiredEffects = advanceEffectDurations(state);
+    for (const effectId of expiredEffects) {
+      events.push({ type: 'effect_expired', effectId });
+    }
   }
 
   const reachedExit = state.player.pos.x === state.exit.x && state.player.pos.y === state.exit.y;

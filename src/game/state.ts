@@ -5,7 +5,7 @@ import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from '.
 import { createEmptyInventory } from './item-def';
 import { generateSunlightLayer } from './sunlight';
 import { HUNGER_MAX } from './hunger';
-import { Actor, EnchantmentId, EnemyActor, EnemyType, GameState, GroundItem, Inventory, Vec2, WeaponId, ArmorId, Direction8 } from './types';
+import { Actor, ActiveEffect, EnchantmentId, EnemyActor, EnemyType, GameState, GroundItem, Inventory, Vec2, WeaponId, ArmorId, Direction8 } from './types';
 
 /** Generates a random run seed without relying on Math.random's implicit global state at call sites. */
 export function randomSeed(): number {
@@ -34,6 +34,7 @@ interface CarryOverStats {
   starvationProgress: number;
   hungerLowWarned: boolean;
   hungerZeroWarned: boolean;
+  activeEffects: ActiveEffect[];
 }
 
 /** Fixed initial/maximum solar energy for a brand new run (Phase 09.1; provisional value, see history doc). */
@@ -290,6 +291,26 @@ function buildFloorState(
     groundItems.push({ id: groundItems.length, itemId: 'chocolate', pos: chocolatePos });
   }
 
+  // Banana placement (Phase 12.1 temporary-effect foundation): every
+  // floor gets exactly one, using its own distinct independent RNG stream
+  // (a twelfth XOR constant) placed after every other existing ground
+  // item on that floor, so it never perturbs any prior RNG sequence/
+  // consumption order and excludes every tile already used by another
+  // ground item in addition to start/exit/every enemy position — same
+  // pattern as chocolate above (fixed_specification.banana.placement's
+  // "各フロアへ必ず1個配置する" / "既存のgroundItem配置処理を利用する").
+  {
+    const bananaExclusions = [
+      placement.start,
+      placement.exit,
+      ...placement.enemies,
+      ...groundItems.map((item) => item.pos),
+    ];
+    const bananaRng = createRng(floorSeed ^ 0x4c8d29f6);
+    const bananaPos = chooseGroundItemPosition(map, placement.start, bananaExclusions, bananaRng);
+    groundItems.push({ id: groundItems.length, itemId: 'banana', pos: bananaPos });
+  }
+
   return {
     map,
     player,
@@ -349,6 +370,16 @@ function buildFloorState(
     starvationProgress: carry ? carry.starvationProgress : 0,
     hungerLowWarned: carry ? carry.hungerLowWarned : false,
     hungerZeroWarned: carry ? carry.hungerZeroWarned : false,
+    // Active temporary status effects (Phase 12.1): carried over across
+    // floor transitions like inventory/equippedWeaponId (fixed_
+    // specification.lifecycle.floor_transition's "attack_upと残りターン
+    // を次フロアへ維持する"); a brand new run or a post-death retry always
+    // starts with none (fixed_specification.lifecycle.new_run/
+    // retry_after_death's "active effectなしで開始する"). A fresh array
+    // per call (never the same reference as `carry.activeEffects`) so a
+    // later mutation on this floor's state never reaches back into the
+    // CarryOverStats object built from the previous floor.
+    activeEffects: carry ? carry.activeEffects.map((effect) => ({ ...effect })) : [],
     // Sunlight layer (Phase 09.3): always regenerated fresh per floor from
     // the finished map/start, using its own independent RNG stream (see
     // sunlight.ts) — never carried over across floor transitions, like
@@ -390,6 +421,7 @@ export function advanceToNextFloor(state: GameState): GameState {
     starvationProgress: state.starvationProgress ?? 0,
     hungerLowWarned: state.hungerLowWarned ?? false,
     hungerZeroWarned: state.hungerZeroWarned ?? false,
+    activeEffects: state.activeEffects ?? [],
   };
   return buildFloorState(state.runSeed, state.floor + 1, state.turn, carry);
 }

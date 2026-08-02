@@ -131,10 +131,29 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     stackable: true,
     hungerAmount: 30,
   },
+  // Banana (Phase 12.1 temporary-effect foundation): grants/refreshes the
+  // 'attack_up' status effect (see effects.ts's EFFECT_DEFINITIONS) rather
+  // than restoring HP/SOL/hunger directly, so it has none of
+  // healAmount/solarAmount/hungerAmount set — turn.ts's applyItemUse
+  // special-cases itemId === 'banana' explicitly (mirroring how chocolate
+  // is special-cased via hungerAmount) rather than adding a fourth
+  // ItemDefinition amount field for a single-use effect grant.
+  banana: {
+    id: 'banana',
+    displayName: 'バナナ',
+    // Phase 12.1: no processed sprite asset yet; a plain emoji glyph is
+    // used, following the same substitution precedent as sun_fruit/
+    // chocolate (see this file's `glyph` doc comment) rather than
+    // introducing any new asset-loading mechanism, per user instruction.
+    glyph: '🍌',
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+  },
 };
 
 /** Fixed display/iteration order for items (Phase 08.2: apple; Phase 08.3 adds sword; Phase 08.4 adds armor; Phase 08.5 adds spear; Phase 08.7 adds hammer; Phase 09.1 adds sun_fruit; Phase 09.2 adds solar_gun). */
-export const ITEM_IDS_IN_ORDER: ItemId[] = ['apple', 'sword', 'armor', 'spear', 'hammer', 'sun_fruit', 'solar_gun', 'chocolate'];
+export const ITEM_IDS_IN_ORDER: ItemId[] = ['apple', 'sword', 'armor', 'spear', 'hammer', 'sun_fruit', 'solar_gun', 'chocolate', 'banana'];
 
 /** An inventory with every registered item at count 0 (used for new-run initialization). */
 export function createEmptyInventory(): Inventory {

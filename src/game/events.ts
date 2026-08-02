@@ -1,4 +1,4 @@
-import { Direction8, EnchantmentId, EnemyType, ItemId, WeaponId, ArmorId, Vec2 } from './types';
+import { Direction8, EffectId, EnchantmentId, EnemyType, ItemId, WeaponId, ArmorId, Vec2 } from './types';
 
 /**
  * Typed, display-agnostic record of a notable action that happened during
@@ -116,4 +116,16 @@ export type GameEvent =
       solAfter: number;
       baseDamage: number;
       bonusDamage: number;
-    };
+    }
+  // Phase 12.1 common temporary-effect foundation. 'effect_granted' fires
+  // when banana grants attack_up with no prior instance active;
+  // 'effect_refreshed' fires when banana renews an already-active
+  // instance back to full duration (never both in the same use — see
+  // effects.ts's grantOrRefreshEffect). 'effect_expired' fires once, the
+  // turn an active effect's remainingTurns reaches 0 via
+  // advanceEffectDurations. 'banana_use_failed' fires when a banana is
+  // used while attack_up is already at its maximum (full) duration.
+  | { type: 'effect_granted'; effectId: EffectId; strength: number; remainingTurns: number }
+  | { type: 'effect_refreshed'; effectId: EffectId; strength: number; remainingTurns: number }
+  | { type: 'effect_expired'; effectId: EffectId }
+  | { type: 'banana_use_failed'; itemId: ItemId; reason: 'effect_at_max' };

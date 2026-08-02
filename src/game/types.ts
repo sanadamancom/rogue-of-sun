@@ -439,6 +439,43 @@ export interface GameState {
    * as everything else derived from runSeed.
    */
   combatRngState: number;
+  /**
+   * Active temporary status effects (Phase 12.1 common status-effect
+   * foundation), currently only ever containing 'attack_up' (see
+   * effects.ts's EFFECT_DEFINITIONS/ActiveEffect). Run-wide player state —
+   * persists across floor transitions like inventory/equippedWeaponId,
+   * resets to [] on a brand new run or a post-death retry. Optional (like
+   * discardConfirmItemId) so existing GameState object literals across the
+   * test suite remain valid without every one of them being updated;
+   * treated as an empty array whenever absent (see effects.ts's
+   * getActiveEffects). Deliberately a generic array rather than a
+   * dedicated boolean field, so future effects (Phase 12.2+) can reuse it
+   * without another GameState field per effect. Never used for slowed or
+   * petrified, which stay as their own dedicated Actor fields.
+   */
+  activeEffects?: ActiveEffect[];
+}
+
+/**
+ * One species of temporary status effect's identifier (Phase 12.1 common
+ * status-effect foundation) — see effects.ts's EFFECT_DEFINITIONS, the
+ * single source of truth for id/displayName/strength/duration so no call
+ * site (item use, combat, HUD) repeats these numbers itself.
+ */
+export type EffectId = 'attack_up';
+
+/**
+ * One currently-active instance of a temporary status effect (Phase 12.1),
+ * held in GameState.activeEffects. `strength`/`remainingTurns` are copied
+ * from EFFECT_DEFINITIONS at grant/refresh time rather than looked up
+ * fresh each read, so a definition change would only affect newly
+ * granted/refreshed effects — not required by this phase (values never
+ * change mid-run) but keeps the record self-contained.
+ */
+export interface ActiveEffect {
+  id: EffectId;
+  strength: number;
+  remainingTurns: number;
 }
 
 /**
@@ -450,7 +487,7 @@ export interface GameState {
  * item's shared display data, src/game/weapon-def.ts for weapon combat
  * data, and src/game/armor-def.ts for armor combat data).
  */
-export type ItemId = 'apple' | 'sword' | 'armor' | 'spear' | 'hammer' | 'sun_fruit' | 'solar_gun' | 'sol_enchantment' | 'chocolate';
+export type ItemId = 'apple' | 'sword' | 'armor' | 'spear' | 'hammer' | 'sun_fruit' | 'solar_gun' | 'sol_enchantment' | 'chocolate' | 'banana';
 
 /**
  * Selectable melee enchantment (Phase 10.1 sol enchant foundation). 'none'
