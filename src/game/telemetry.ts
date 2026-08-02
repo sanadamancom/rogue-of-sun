@@ -51,10 +51,11 @@
  */
 
 import { GameEvent } from './events';
-import { EnemyType, GameState, PlayerAction, WeaponId, ArmorId, ItemId } from './types';
+import { EnemyType, GameState, PlayerAction, WeaponId, ArmorId, ItemId, AbilityId, AbilityValues } from './types';
 import type { TurnResult } from './turn';
 import { ITEM_DEFINITIONS } from './item-def';
 import { getExperience, getLevel, getUnspentAbilityPoints } from './progression';
+import { getAbilities } from './ability';
 
 // ---------------------------------------------------------------------
 // Event schema (event_model / event_types / event_requirements)
@@ -159,7 +160,9 @@ export type RunEventPayload =
   | { type: 'exit_reached'; floor: number }
   // Phase 13.1 experience/level/ability-point progression foundation.
   | { type: 'experience_gained'; amount: number; enemyId: number; enemyType: EnemyType; level: number; experience: number }
-  | { type: 'player_leveled_up'; previousLevel: number; newLevel: number; abilityPointsGained: number; unspentAbilityPoints: number };
+  | { type: 'player_leveled_up'; previousLevel: number; newLevel: number; abilityPointsGained: number; unspentAbilityPoints: number }
+  // Phase 13.2 ability point allocation foundation.
+  | { type: 'ability_point_spent'; ability: AbilityId; previousValue: number; newValue: number; remainingAbilityPoints: number };
 
 export type RunEvent = RunEventCommon & RunEventPayload;
 
@@ -168,14 +171,13 @@ export type RunEvent = RunEventCommon & RunEventPayload;
 // ---------------------------------------------------------------------
 
 export interface RunTelemetry {
-  // Phase 13.1: bumped from 4 to 5 — experience/level/ability-point
-  // progression introduces new RunEvent categories (experience_gained,
-  // player_leveled_up) and new RunSummary.progression fields
-  // (experienceGained, levelsGained, endingLevel, endingExperience,
-  // unspentAbilityPoints), per telemetry.schema_version's "from: 4" /
-  // "to: 5". No v1-v4 read-compatibility shim is provided — this is an
+  // Phase 13.2: bumped from 5 to 6 — ability point allocation introduces
+  // a new RunEvent category (ability_point_spent) and new
+  // RunSummary.progression fields (abilityPointsSpent,
+  // endingAbilityRanks), per telemetry.schema_version's "from: 5" /
+  // "to: 6". No v1-v5 read-compatibility shim is provided — this is an
   // export-only format.
-  schemaVersion: 5;
+  schemaVersion: 6;
   seed: number;
   result: 'in_progress' | 'clear' | 'death';
   endCause: string | null;
@@ -191,7 +193,7 @@ export interface RunTelemetry {
  */
 export function createRunTelemetry(state: GameState): RunTelemetry {
   const telemetry: RunTelemetry = {
-    schemaVersion: 5,
+    schemaVersion: 6,
     seed: state.runSeed,
     result: 'in_progress',
     endCause: null,
@@ -717,6 +719,36 @@ export function recordFloorStarted(telemetry: RunTelemetry, state: GameState): v
 }
 
 /**
+ * Records one successful ability point allocation (Phase 13.2): called
+ * by main.ts right after ability.ts's allocateAbilityPoint (via
+ * resolveAbilityConfirm) returns `success: true`. Ability allocation is
+ * a non-turn state update — never routed through processTurn — so this
+ * exists as its own dedicated recorder (mirroring recordFloorStarted's
+ * direct-push pattern) rather than going through recordTurn/
+ * translateGameEvent, which only ever see events produced inside a
+ * processTurn call. Never called for a rejected/cancelled allocation
+ * (events_and_messages requirements's "確認キャンセルや無効操作を記録
+ * しない"), and always pushed with turnConsumed: false (this never
+ * advances state.turn).
+ */
+export function recordAbilityAllocation(
+  telemetry: RunTelemetry,
+  state: GameState,
+  ability: AbilityId,
+  previousValue: number,
+  newValue: number,
+  remainingAbilityPoints: number,
+): void {
+  pushEvent(telemetry, state, false, {
+    type: 'ability_point_spent',
+    ability,
+    previousValue,
+    newValue,
+    remainingAbilityPoints,
+  });
+}
+
+/**
  * Finalizes a run (Phase 10.3.1 terminal.rules): called once, the first
  * time `state.phase` becomes 'gameover' or 'victory' after a processed
  * turn. A no-op if already finalized.
@@ -808,6 +840,9 @@ export interface RunSummary {
     endingLevel: number;
     endingExperience: number;
     unspentAbilityPoints: number;
+    // Phase 13.2 ability point allocation foundation.
+    abilityPointsSpent: number;
+    endingAbilityRanks: AbilityValues;
   };
   perFloor: PerFloorStats[];
   finalState: {
@@ -858,6 +893,7 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
   let changeCount = 0;
   let experienceGained = 0;
   let levelsGained = 0;
+  let abilityPointsSpent = 0;
 
   const getFloorStats = (floor: number): PerFloorStats => {
     let s = perFloorMap.get(floor);
@@ -1013,6 +1049,9 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
       case 'player_leveled_up':
         levelsGained++;
         break;
+      case 'ability_point_spent':
+        abilityPointsSpent++;
+        break;
       default:
         break;
     }
@@ -1068,6 +1107,8 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
       endingLevel: getLevel(finalState),
       endingExperience: getExperience(finalState),
       unspentAbilityPoints: getUnspentAbilityPoints(finalState),
+      abilityPointsSpent,
+      endingAbilityRanks: getAbilities(finalState),
     },
     perFloor: Array.from(perFloorMap.values()).sort((a, b) => a.floor - b.floor),
     finalState: {
@@ -1091,15 +1132,15 @@ function sanitizeForFilename(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, '');
 }
 
-/** Phase 13.1: schemaVersion 4 -> 5 (experience/level/ability-point progression), "v4" -> "v5" filenames, so old exports are never confused with the new progression-aware ones. */
+/** Phase 13.2: schemaVersion 5 -> 6 (ability point allocation), "v5" -> "v6" filenames, so old exports are never confused with the new ability-aware ones. */
 export function buildExportFilename(telemetry: RunTelemetry): string {
   const seedPart = sanitizeForFilename(String(telemetry.seed));
   const resultPart = telemetry.result === 'clear' ? 'clear' : 'death';
-  return `rogue-of-sun-run-v5-${seedPart}-${resultPart}.json`;
+  return `rogue-of-sun-run-v6-${seedPart}-${resultPart}.json`;
 }
 
 export interface TelemetryDocument {
-  schemaVersion: 5;
+  schemaVersion: 6;
   gameVersion: string;
   run: {
     seed: number;
@@ -1125,7 +1166,7 @@ export interface TelemetryDocument {
 export function buildTelemetryDocument(telemetry: RunTelemetry, finalState: GameState): TelemetryDocument {
   const summary = computeRunSummary(telemetry, finalState);
   return {
-    schemaVersion: 5,
+    schemaVersion: 6,
     gameVersion: 'phase-12.3',
     run: {
       seed: telemetry.seed,

@@ -1,4 +1,4 @@
-import { Direction8, EffectId, EnchantmentId, EnemyType, ItemId, StatusAilmentId, TrapType, WeaponId, ArmorId, Vec2 } from './types';
+import { AbilityId, Direction8, EffectId, EnchantmentId, EnemyType, ItemId, StatusAilmentId, TrapType, WeaponId, ArmorId, Vec2 } from './types';
 
 /**
  * Typed, display-agnostic record of a notable action that happened during
@@ -193,4 +193,10 @@ export type GameEvent =
   // multi-level gain) — never fired for a defeat that doesn't cross a
   // level threshold.
   | { type: 'experience_gained'; amount: number; enemyId: number; enemyType: EnemyType; level: number; experience: number }
-  | { type: 'player_leveled_up'; previousLevel: number; newLevel: number; abilityPointsGained: number; unspentAbilityPoints: number };
+  | { type: 'player_leveled_up'; previousLevel: number; newLevel: number; abilityPointsGained: number; unspentAbilityPoints: number }
+  // Phase 13.2 ability point allocation foundation. Pushed exactly once
+  // per successful 1-point allocation (see ability.ts's
+  // allocateAbilityPoint, the sole place this event is constructed) —
+  // never for a cancelled confirmation or a rejected (0-point/invalid-id)
+  // request.
+  | { type: 'ability_point_spent'; ability: AbilityId; abilityDisplayName: string; previousValue: number; newValue: number; remainingAbilityPoints: number };

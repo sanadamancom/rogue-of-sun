@@ -10,7 +10,8 @@ import {
   PROGRESSION_INITIAL_LEVEL,
   PROGRESSION_INITIAL_UNSPENT_ABILITY_POINTS,
 } from './progression';
-import { Actor, ActiveEffect, EnchantmentId, EnemyActor, EnemyType, GameState, GroundItem, Inventory, TrapTile, Vec2, WeaponId, ArmorId, Direction8 } from './types';
+import { INITIAL_ABILITY_VALUES } from './ability';
+import { Actor, ActiveEffect, AbilityValues, EnchantmentId, EnemyActor, EnemyType, GameState, GroundItem, Inventory, TrapTile, Vec2, WeaponId, ArmorId, Direction8 } from './types';
 
 /** Generates a random run seed without relying on Math.random's implicit global state at call sites. */
 export function randomSeed(): number {
@@ -43,6 +44,7 @@ interface CarryOverStats {
   level: number;
   experience: number;
   unspentAbilityPoints: number;
+  abilities: AbilityValues;
 }
 
 /** Fixed initial/maximum solar energy for a brand new run (Phase 09.1; provisional value, see history doc). */
@@ -524,6 +526,22 @@ function buildFloorState(
     level: carry ? carry.level : PROGRESSION_INITIAL_LEVEL,
     experience: carry ? carry.experience : PROGRESSION_INITIAL_EXPERIENCE,
     unspentAbilityPoints: carry ? carry.unspentAbilityPoints : PROGRESSION_INITIAL_UNSPENT_ABILITY_POINTS,
+    // Ability values (Phase 13.2): carried over across floor transitions
+    // like level/experience/unspentAbilityPoints; a brand new run or a
+    // post-death retry (both go through createInitialState/restart,
+    // which never pass a carry) always starts all 4 at 0
+    // (fixed_specification.lifecycle.new_run/retry_after_death). A fresh
+    // object per call (never the same reference as `carry.abilities`),
+    // matching activeEffects's own per-call-copy reasoning above.
+    abilities: carry ? { ...carry.abilities } : { ...INITIAL_ABILITY_VALUES },
+    // Ability overlay state (Phase 13.2): never carried over across
+    // floor transitions or restarts — always closed with no pending
+    // confirmation at the start of a floor/run, like inventoryOpen/
+    // discardConfirmItemId above.
+    abilityOverlayOpen: false,
+    selectedAbilityIndex: 0,
+    abilityConfirmPending: null,
+    abilityConfirmChoice: 'no',
     // Sunlight layer (Phase 09.3): always regenerated fresh per floor from
     // the finished map/start, using its own independent RNG stream (see
     // sunlight.ts) — never carried over across floor transitions, like
@@ -569,6 +587,7 @@ export function advanceToNextFloor(state: GameState): GameState {
     level: state.level ?? PROGRESSION_INITIAL_LEVEL,
     experience: state.experience ?? PROGRESSION_INITIAL_EXPERIENCE,
     unspentAbilityPoints: state.unspentAbilityPoints ?? PROGRESSION_INITIAL_UNSPENT_ABILITY_POINTS,
+    abilities: state.abilities ? { ...state.abilities } : { ...INITIAL_ABILITY_VALUES },
   };
   return buildFloorState(state.runSeed, state.floor + 1, state.turn, carry);
 }

@@ -529,6 +529,39 @@ export interface GameState {
    * brand new run or a post-death retry.
    */
   unspentAbilityPoints?: number;
+  /**
+   * Phase 13.2 ability point allocation foundation. The 4 abilities'
+   * current values (カラダ/ココロ/チカラ/ハヤサ). Optional, defaulting to
+   * all-zero when absent (see ability.ts's getAbilities) — like
+   * level/experience/unspentAbilityPoints, so existing GameState object
+   * literals across the test suite remain valid without every one of
+   * them being updated. Persists across floor transitions like
+   * inventory/equippedWeaponId; resets to all-zero on a brand new run or
+   * a post-death retry. Deliberately never read by any existing combat
+   * calculation this phase (see ability.ts's module doc comment) — Phase
+   * 13.3 wires in real effects.
+   */
+  abilities?: AbilityValues;
+  /**
+   * Whether the ability allocation overlay (P) is currently open. Mutual
+   * exclusion with `inventoryOpen` — opening either closes the other (see
+   * ability.ts's toggleAbilityOverlay / inventory.ts's toggleInventory).
+   * Never persisted across floor transitions or restarts (always false at
+   * the start of a floor/run, like inventoryOpen).
+   */
+  abilityOverlayOpen?: boolean;
+  /** Index into ABILITY_IDS for the ability overlay's current selection (Phase 13.2). Resets to 0 whenever the overlay opens. */
+  selectedAbilityIndex?: number;
+  /**
+   * The ability a confirmation prompt is currently pending for, or
+   * null/undefined when no confirmation is showing (Phase 13.2, mirrors
+   * discardConfirmItemId's optional-field pattern). Cleared whenever the
+   * overlay closes, a confirmation is cancelled, or a confirmation is
+   * resolved (either choice).
+   */
+  abilityConfirmPending?: AbilityId | null;
+  /** The ability confirmation's current はい/いいえ choice; always reset to 'no' when a new confirmation opens (Phase 13.2). */
+  abilityConfirmChoice?: 'yes' | 'no';
 }
 
 /**
@@ -538,6 +571,23 @@ export interface GameState {
  * site (item use, combat, HUD) repeats these numbers itself.
  */
 export type EffectId = 'attack_up' | 'movement_slow' | 'poison';
+
+/**
+ * Phase 13.2 ability point allocation foundation: the 4 fixed-key ability
+ * identifiers (see ability.ts for the display-name mapping and
+ * allocation logic; defined here, not in ability.ts, for the same reason
+ * EffectId lives here rather than in effects.ts — GameState needs the
+ * type without creating a circular import).
+ */
+export type AbilityId = 'body' | 'mind' | 'power' | 'speed';
+
+/** The 4 abilities' current values, held as one type-safe fixed-key structure. */
+export interface AbilityValues {
+  body: number;
+  mind: number;
+  power: number;
+  speed: number;
+}
 
 /**
  * Every currently-implemented status ailment id (Phase 12.4 status-

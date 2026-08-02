@@ -243,6 +243,8 @@ export function formatEvent(event: GameEvent): string {
       return `経験値を${event.amount}得た。`;
     case 'player_leveled_up':
       return `レベルが${event.newLevel}に上がった。\n能力ポイントを1得た。`;
+    case 'ability_point_spent':
+      return `${event.abilityDisplayName}に1ポイント割り振った。`;
     default: {
       const exhaustiveCheck: never = event;
       throw new Error(`Unhandled game event: ${JSON.stringify(exhaustiveCheck)}`);

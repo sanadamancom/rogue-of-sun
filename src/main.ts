@@ -24,6 +24,7 @@ import {
   computeRunSummary,
   createRunTelemetry,
   finalizeRun,
+  recordAbilityAllocation,
   recordFloorStarted,
   recordTurn,
   snapshotForTurn,
@@ -32,6 +33,18 @@ import {
 import { getCockatriceTelegraph, getKrakenTelegraph } from './game/telegraph';
 import { getHunger, HUNGER_MAX } from './game/hunger';
 import { getExperience, getExperienceRequirement, getLevel, getUnspentAbilityPoints, LEVEL_CAP } from './game/progression';
+import {
+  ABILITY_DISPLAY_NAMES,
+  ABILITY_IDS,
+  cancelAbilityConfirm,
+  closeAbilityOverlay,
+  getAbilities,
+  moveAbilitySelection,
+  openAbilityConfirm,
+  resolveAbilityConfirm,
+  toggleAbilityConfirmChoice,
+  toggleAbilityOverlay,
+} from './game/ability';
 import { EFFECT_DEFINITIONS, getActiveEffects } from './game/effects';
 import { processTurn, TurnResult } from './game/turn';
 import { DIRECTION_VECTORS, EnemyType, GameState } from './game/types';
@@ -161,6 +174,13 @@ class MainScene extends Phaser.Scene {
   private facingMarker!: Phaser.GameObjects.Graphics;
   private inventoryOverlayBg!: Phaser.GameObjects.Graphics;
   private inventoryOverlayText!: Phaser.GameObjects.Text;
+  // Phase 13.2 ability point allocation overlay (P): same screen-fixed
+  // Graphics+Text pattern as the inventory overlay above, its own layer
+  // so the two never visually collide (mutual_exclusion means they never
+  // show at the same time anyway, but each still owns independent
+  // GameObjects, matching every other overlay in this file).
+  private abilityOverlayBg!: Phaser.GameObjects.Graphics;
+  private abilityOverlayText!: Phaser.GameObjects.Text;
 
   constructor() {
     super('main');
@@ -243,6 +263,7 @@ class MainScene extends Phaser.Scene {
 
     this.createLogPanel();
     this.createInventoryOverlay();
+    this.createAbilityOverlay();
     this.createEndScreenOverlay();
 
     this.input.keyboard!.on('keydown', (event: KeyboardEvent) => {
@@ -720,6 +741,30 @@ class MainScene extends Phaser.Scene {
   private readonly INVENTORY_OVERLAY_WIDTH = 300;
   private readonly INVENTORY_OVERLAY_PADDING = 14;
 
+  /**
+   * Creates the P-toggled ability allocation overlay's graphics/text
+   * objects (Phase 13.2), following createInventoryOverlay's exact
+   * pattern: a screen-fixed panel, hidden until opened, depth just above
+   * the inventory overlay's own layer (never shown simultaneously per
+   * overlay.mutual_exclusion, but kept on a distinct depth regardless).
+   */
+  private createAbilityOverlay(): void {
+    this.abilityOverlayBg = this.add.graphics().setScrollFactor(0).setDepth(210).setVisible(false);
+    this.abilityOverlayText = this.add
+      .text(0, 0, '', {
+        fontFamily: 'monospace',
+        fontSize: '16px',
+        color: '#ffffff',
+        lineSpacing: 6,
+      })
+      .setScrollFactor(0)
+      .setDepth(211)
+      .setVisible(false);
+  }
+
+  private readonly ABILITY_OVERLAY_WIDTH = 300;
+  private readonly ABILITY_OVERLAY_PADDING = 14;
+
   // -----------------------------------------------------------------
   // End-screen report and JSON export (Phase 10.3.1)
   // -----------------------------------------------------------------
@@ -948,6 +993,67 @@ class MainScene extends Phaser.Scene {
   }
 
   /**
+   * Redraws the ability allocation overlay from the current state (Phase
+   * 13.2): hidden entirely when closed; when open, shows the current
+   * unspent ability point count, all 4 abilities with their current
+   * values (a ">" marker on the selected row, a disabled marker on every
+   * row when there are 0 points, per overlay.disabled_state), the
+   * "Phase 13.3で実装予定" notice, and either the normal control legend or
+   * the confirmation prompt/choice when a confirmation is pending. Called
+   * after every state change that could affect it (open/close, selection
+   * move, confirm open/cancel/resolve, floor/restart).
+   */
+  private refreshAbilityOverlay(): void {
+    const open = this.state.abilityOverlayOpen ?? false;
+    this.abilityOverlayBg.setVisible(open);
+    this.abilityOverlayText.setVisible(open);
+    if (!open) return;
+
+    const points = getUnspentAbilityPoints(this.state);
+    const abilities = getAbilities(this.state);
+    const selectedIndex = this.state.selectedAbilityIndex ?? 0;
+    const pending = this.state.abilityConfirmPending;
+
+    const lines: string[] = ['能力割り振り', `能力ポイント：${points}`, ''];
+
+    ABILITY_IDS.forEach((id, i) => {
+      const marker = !pending && i === selectedIndex ? '> ' : '  ';
+      const disabledNote = points < 1 ? '（割り振り不可）' : '';
+      lines.push(`${marker}${ABILITY_DISPLAY_NAMES[id]}　${abilities[id]}${disabledNote}`);
+    });
+    lines.push('');
+    lines.push('能力の効果は次のフェーズで実装予定');
+    lines.push('');
+
+    if (pending) {
+      const abilityName = ABILITY_DISPLAY_NAMES[pending];
+      const previousValue = abilities[pending];
+      const newValue = previousValue + 1;
+      lines.push(`${abilityName}を${previousValue}から${newValue}へ上げますか？`);
+      const choice = this.state.abilityConfirmChoice ?? 'no';
+      lines.push(choice === 'yes' ? '  いいえ　>はい' : '>いいえ　  はい');
+      lines.push('←→/A D：選択　Enter：確定　Esc：戻る');
+    } else {
+      lines.push('↑↓/W S：選択　Enter：1ポイント割り振る　P/Esc：閉じる');
+    }
+
+    const width = this.ABILITY_OVERLAY_WIDTH;
+    const lineHeight = 22;
+    const height = lines.length * lineHeight + this.ABILITY_OVERLAY_PADDING * 2;
+    const x = (this.scale.width - width) / 2;
+    const y = (this.scale.height - height) / 2;
+
+    this.abilityOverlayBg.clear();
+    this.abilityOverlayBg.fillStyle(0x000000, 0.85);
+    this.abilityOverlayBg.fillRect(x, y, width, height);
+    this.abilityOverlayBg.lineStyle(2, 0xffffff, 0.6);
+    this.abilityOverlayBg.strokeRect(x, y, width, height);
+
+    this.abilityOverlayText.setPosition(x + this.ABILITY_OVERLAY_PADDING, y + this.ABILITY_OVERLAY_PADDING);
+    this.abilityOverlayText.setText(lines.join('\n'));
+  }
+
+  /**
    * Tints the player sprite while slowed (enemy-behavior-02) as the
    * minimal on-screen indicator required by the design — no new HUD text,
    * no numeric duration display. Cleared as soon as state.player.slowed
@@ -987,11 +1093,32 @@ class MainScene extends Phaser.Scene {
     if (key === 'Tab') {
       toggleInventory(this.state);
       this.refreshInventoryOverlay();
+      this.refreshAbilityOverlay();
       return;
     }
 
     if (this.state.inventoryOpen) {
       this.handleInventoryKey(key);
+      return;
+    }
+
+    // P toggles the ability allocation overlay (Phase 13.2) from anywhere
+    // in normal play (inventoryOpen is already false by this point, so
+    // there is no ambiguity with the inventory overlay's own P binding
+    // for "place item"). Handled uniformly here whether the overlay is
+    // currently closed (opens it), open with no confirmation pending
+    // (closes it), or open with a confirmation pending (closes the whole
+    // overlay without allocating, per overlay.controls.confirmation's
+    // "確認中にPを押した場合は割り振らずoverlay全体を閉じる" — toggling
+    // the open flag off here does exactly that). Never consumes a turn.
+    if (key === 'p' || key === 'P') {
+      toggleAbilityOverlay(this.state);
+      this.refreshAbilityOverlay();
+      return;
+    }
+
+    if (this.state.abilityOverlayOpen) {
+      this.handleAbilityKey(key);
       return;
     }
 
@@ -1122,6 +1249,83 @@ class MainScene extends Phaser.Scene {
   }
 
   /**
+   * Handles a keypress while the ability allocation overlay is open
+   * (Phase 13.2). P is intercepted earlier in handleKey (uniformly
+   * opens/closes regardless of confirmation state), so it never reaches
+   * here. While a confirmation is pending, only Escape (cancel),
+   * ArrowLeft/ArrowRight/A/D (toggle choice), and Enter (resolve) are
+   * handled — every other key is swallowed so nothing else can fire
+   * mid-confirmation, mirroring handleInventoryKey's own discard-
+   * confirmation branch. Selection movement (ArrowUp/ArrowDown/W/S) and
+   * opening a confirmation (Enter) only apply when nothing is pending.
+   * None of these consume a turn — ability allocation is a pure state
+   * update, never routed through processTurn (see ability.ts's module
+   * doc comment).
+   */
+  private handleAbilityKey(key: string): void {
+    const state = this.state;
+
+    if (state.abilityConfirmPending) {
+      if (key === 'Escape') {
+        cancelAbilityConfirm(state);
+        this.refreshAbilityOverlay();
+        return;
+      }
+      if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'a' || key === 'A' || key === 'd' || key === 'D') {
+        toggleAbilityConfirmChoice(state);
+        this.refreshAbilityOverlay();
+        return;
+      }
+      if (key === 'Enter') {
+        const resolution = resolveAbilityConfirm(state);
+        if (resolution.attempted && resolution.allocation && resolution.allocation.success) {
+          const allocation = resolution.allocation;
+          this.messageLog.pushMany(formatEvents(allocation.events));
+          recordAbilityAllocation(
+            this.telemetry,
+            state,
+            allocation.ability!,
+            allocation.previousValue,
+            allocation.newValue,
+            allocation.remainingAbilityPoints,
+          );
+          // Refreshes the normal HUD (能力P must drop immediately) and
+          // the message log panel, exactly like a normal turn's
+          // applyTurnResult would — but without touching turn/phase/
+          // enemy state, since no turn was consumed.
+          this.refreshStaticView();
+        }
+        this.refreshAbilityOverlay();
+        return;
+      }
+      return;
+    }
+
+    if (key === 'Escape') {
+      closeAbilityOverlay(state);
+      this.refreshAbilityOverlay();
+      return;
+    }
+    if (key === 'ArrowUp' || key === 'w' || key === 'W') {
+      moveAbilitySelection(state, -1);
+      this.refreshAbilityOverlay();
+      return;
+    }
+    if (key === 'ArrowDown' || key === 's' || key === 'S') {
+      moveAbilitySelection(state, 1);
+      this.refreshAbilityOverlay();
+      return;
+    }
+    if (key === 'Enter') {
+      openAbilityConfirm(state);
+      this.refreshAbilityOverlay();
+      return;
+    }
+    // Every other key (movement, wait, etc.) is ignored while the overlay
+    // is open.
+  }
+
+  /**
    * Shared post-action pipeline for both normal move/wait/attack input and
    * a successful/failed item use: logs events, handles the immediate
    * floor-cleared regeneration, and animates/snaps every actor sprite to
@@ -1243,6 +1447,7 @@ class MainScene extends Phaser.Scene {
     // is always freshly false from buildFloorState), but keep the on-screen
     // overlay in sync regardless.
     this.refreshInventoryOverlay();
+    this.refreshAbilityOverlay();
   }
 
   /**
@@ -1394,6 +1599,7 @@ class MainScene extends Phaser.Scene {
     this.updatePlayerSlowedTint();
     this.refreshLogPanel();
     this.refreshInventoryOverlay();
+    this.refreshAbilityOverlay();
     this.updateFacingMarker();
 
     const hunger = getHunger(this.state);

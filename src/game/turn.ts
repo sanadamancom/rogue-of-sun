@@ -2169,6 +2169,27 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
     };
   }
 
+  // Ability allocation overlay open (Phase 13.2): normal move/wait/attack/
+  // item input is rejected outright (no turn consumed) while the overlay
+  // is shown. Unlike the inventory overlay above, ability allocation
+  // never routes through processTurn/PlayerAction at all (see
+  // ability.ts's allocateAbilityPoint) — there is no exempted action type
+  // here, since this guard exists purely as a defensive second line
+  // behind main.ts's own routing (allocation_core.requirements's "同じ
+  // Enter入力がUIとゲーム処理へ二重伝播しない").
+  if (state.abilityOverlayOpen) {
+    return {
+      consumed: false,
+      playerAttacked: false,
+      enemyDefeated: false,
+      enemyActed: false,
+      enemyAttacked: false,
+      playerDefeated: false,
+      playerRegenerated: false,
+      events: [],
+    };
+  }
+
   const events: GameEvent[] = [];
   // Phase 12.2 additional-enemy-phase detection: captured before
   // applyPlayerAction runs (rather than adding new return fields to it)

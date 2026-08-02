@@ -60,6 +60,12 @@ export function toggleInventory(state: GameState): void {
   state.inventoryOpen = !state.inventoryOpen;
   if (state.inventoryOpen) {
     state.selectedItemIndex = 0;
+    // Mutual exclusion with the ability allocation overlay (P) — Phase
+    // 13.2's overlay.mutual_exclusion's "inventory overlayを開くと能力
+    // overlayは閉じる". See ability.ts's toggleAbilityOverlay for the
+    // symmetric close on its side.
+    state.abilityOverlayOpen = false;
+    state.abilityConfirmPending = null;
   }
   // Phase 11.2: a pending discard confirmation never survives the
   // overlay being toggled (open or closed) — see discard_action.
