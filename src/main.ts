@@ -38,6 +38,7 @@ import {
   ABILITY_IDS,
   cancelAbilityConfirm,
   closeAbilityOverlay,
+  formatAbilityEffectLine,
   getAbilities,
   moveAbilitySelection,
   openAbilityConfirm,
@@ -762,7 +763,7 @@ class MainScene extends Phaser.Scene {
       .setVisible(false);
   }
 
-  private readonly ABILITY_OVERLAY_WIDTH = 300;
+  private readonly ABILITY_OVERLAY_WIDTH = 320;
   private readonly ABILITY_OVERLAY_PADDING = 14;
 
   // -----------------------------------------------------------------
@@ -1020,9 +1021,14 @@ class MainScene extends Phaser.Scene {
       const marker = !pending && i === selectedIndex ? '> ' : '  ';
       const disabledNote = points < 1 ? '（割り振り不可）' : '';
       lines.push(`${marker}${ABILITY_DISPLAY_NAMES[id]}　${abilities[id]}${disabledNote}`);
+      // Phase 13.3c: each ability's actual effect and its value after the
+      // next rank (or "（上限）" once ABILITY_RANK_CAP is reached),
+      // available regardless of unspentAbilityPoints — only the ability
+      // to *allocate* is gated, never the ability to see the current
+      // effect (ability_overlay.formatting.no_points's "現在の効果値は
+      // 確認できる").
+      lines.push(`　　${formatAbilityEffectLine(this.state, id)}`);
     });
-    lines.push('');
-    lines.push('能力の効果は次のフェーズで実装予定');
     lines.push('');
 
     if (pending) {

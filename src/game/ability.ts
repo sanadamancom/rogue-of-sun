@@ -343,3 +343,81 @@ export function resolveAbilityConfirm(state: GameState): AbilityConfirmResolutio
   const allocation = allocateAbilityPoint(state, pending);
   return { attempted: true, allocation };
 }
+
+// ---------------------------------------------------------------------
+// Ability effect display (Phase 13.3c) — pure, PhaserやDOMに依存しない
+// formatters so the overlay can show each ability's actual effect and
+// its value after the next rank, without ever re-implementing the
+// effect formulas themselves. Every current value below reads the same
+// already-authoritative source allocateAbilityPoint itself writes to
+// (state.player.maxHp / state.maxSolarEnergy) or the same shared getter
+// turn.ts's combat code calls (getPowerDamageBonus / getPlayerSpeed) —
+// no duplicate formula exists anywhere in this section.
+// ---------------------------------------------------------------------
+
+/** One ability's current effect value and its value after spending one more point (null once ABILITY_RANK_CAP is reached). */
+export interface AbilityEffectDisplay {
+  ability: AbilityId;
+  atRankCap: boolean;
+  currentValue: number;
+  nextValue: number | null;
+}
+
+/**
+ * Computes `ability`'s current effect value and, unless already at
+ * ABILITY_RANK_CAP, the value it would become after one more successful
+ * allocation — both derived from the exact same per-rank constants
+ * allocateAbilityPoint itself applies (BODY_MAX_HP_PER_RANK/
+ * MIND_MAX_SOL_PER_RANK/POWER_DAMAGE_PER_RANK/SPEED_PER_RANK), so the
+ * overlay can never drift out of sync with the real effect. Pure — never
+ * mutates `state`.
+ */
+export function getAbilityEffectDisplay(state: GameState, ability: AbilityId): AbilityEffectDisplay {
+  const rank = getAbilityValue(state, ability);
+  const atRankCap = rank >= ABILITY_RANK_CAP;
+  switch (ability) {
+    case 'body': {
+      const currentValue = state.player.maxHp;
+      return { ability, atRankCap, currentValue, nextValue: atRankCap ? null : currentValue + BODY_MAX_HP_PER_RANK };
+    }
+    case 'mind': {
+      const currentValue = state.maxSolarEnergy;
+      return { ability, atRankCap, currentValue, nextValue: atRankCap ? null : currentValue + MIND_MAX_SOL_PER_RANK };
+    }
+    case 'power': {
+      const currentValue = getPowerDamageBonus(state);
+      return { ability, atRankCap, currentValue, nextValue: atRankCap ? null : currentValue + POWER_DAMAGE_PER_RANK };
+    }
+    case 'speed': {
+      const currentValue = getPlayerSpeed(state);
+      return { ability, atRankCap, currentValue, nextValue: atRankCap ? null : currentValue + SPEED_PER_RANK };
+    }
+  }
+}
+
+/**
+ * Formats `ability`'s effect line for the overlay (Phase 13.3c): one
+ * short Japanese line showing the current value and — unless at
+ * ABILITY_RANK_CAP — the value after the next allocation. speed's
+ * wording is deliberately "敵の行動頻度低下" (lower enemy action
+ * frequency), never anything implying the player acts more often or
+ * moves faster (ability_overlay.display_requirements.speed's "「プレイ
+ * ヤーの行動回数増加」と誤解させる表現を使用しない" / implementation_
+ * constraints's "移動距離を増やす効果ではない"). power's wording names
+ * every weapon category the bonus applies to, including the solar gun.
+ * Available even at 0 unspent ability points (overlay.disabled_state
+ * only disables *allocating*, never viewing current effect values).
+ */
+export function formatAbilityEffectLine(state: GameState, ability: AbilityId): string {
+  const d = getAbilityEffectDisplay(state, ability);
+  switch (ability) {
+    case 'body':
+      return d.atRankCap ? `HP${d.currentValue}（上限）` : `HP${d.currentValue}→${d.nextValue}（+${BODY_MAX_HP_PER_RANK}回復）`;
+    case 'mind':
+      return d.atRankCap ? `SOL${d.currentValue}（上限）` : `SOL${d.currentValue}→${d.nextValue}（+${MIND_MAX_SOL_PER_RANK}回復）`;
+    case 'power':
+      return d.atRankCap ? `攻撃+${d.currentValue}（上限）` : `攻撃+${d.currentValue}→+${d.nextValue}（全武器・太陽銃）`;
+    case 'speed':
+      return d.atRankCap ? `速度${d.currentValue}（上限）` : `速度${d.currentValue}→${d.nextValue}（敵の頻度低下）`;
+  }
+}

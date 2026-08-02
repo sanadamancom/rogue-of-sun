@@ -171,13 +171,16 @@ export type RunEvent = RunEventCommon & RunEventPayload;
 // ---------------------------------------------------------------------
 
 export interface RunTelemetry {
-  // Phase 13.2: bumped from 5 to 6 — ability point allocation introduces
-  // a new RunEvent category (ability_point_spent) and new
-  // RunSummary.progression fields (abilityPointsSpent,
-  // endingAbilityRanks), per telemetry.schema_version's "from: 5" /
-  // "to: 6". No v1-v5 read-compatibility shim is provided — this is an
-  // export-only format.
-  schemaVersion: 6;
+  // Phase 13.3c: bumped from 6 to 7 — this phase adds no new RunEvent
+  // category and no new RunSummary field (the ability-rank snapshot this
+  // phase needed, endingAbilityRanks, was already added in Phase 13.2
+  // below — see RunSummary.progression's doc comment); the bump itself
+  // is purely a version marker so any Phase 13.3c-adjacent tooling can
+  // distinguish exports produced before vs after the ability numeric
+  // effects (Phase 13.3a) and speed/action-gauge scheduler (Phase 13.3b)
+  // were wired in, per telemetry.schema's "from: 6" / "to: 7". No v1-v6
+  // read-compatibility shim is provided — this is an export-only format.
+  schemaVersion: 7;
   seed: number;
   result: 'in_progress' | 'clear' | 'death';
   endCause: string | null;
@@ -193,7 +196,7 @@ export interface RunTelemetry {
  */
 export function createRunTelemetry(state: GameState): RunTelemetry {
   const telemetry: RunTelemetry = {
-    schemaVersion: 6,
+    schemaVersion: 7,
     seed: state.runSeed,
     result: 'in_progress',
     endCause: null,
@@ -1132,15 +1135,15 @@ function sanitizeForFilename(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, '');
 }
 
-/** Phase 13.2: schemaVersion 5 -> 6 (ability point allocation), "v5" -> "v6" filenames, so old exports are never confused with the new ability-aware ones. */
+/** Phase 13.3c: schemaVersion 6 -> 7 (ability numeric effects + speed/action-gauge scheduler now shipped), "v6" -> "v7" filenames, so old exports are never confused with the new ones. */
 export function buildExportFilename(telemetry: RunTelemetry): string {
   const seedPart = sanitizeForFilename(String(telemetry.seed));
   const resultPart = telemetry.result === 'clear' ? 'clear' : 'death';
-  return `rogue-of-sun-run-v6-${seedPart}-${resultPart}.json`;
+  return `rogue-of-sun-run-v7-${seedPart}-${resultPart}.json`;
 }
 
 export interface TelemetryDocument {
-  schemaVersion: 6;
+  schemaVersion: 7;
   gameVersion: string;
   run: {
     seed: number;
@@ -1166,7 +1169,7 @@ export interface TelemetryDocument {
 export function buildTelemetryDocument(telemetry: RunTelemetry, finalState: GameState): TelemetryDocument {
   const summary = computeRunSummary(telemetry, finalState);
   return {
-    schemaVersion: 6,
+    schemaVersion: 7,
     gameVersion: 'phase-12.3',
     run: {
       seed: telemetry.seed,
