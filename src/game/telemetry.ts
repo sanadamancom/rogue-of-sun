@@ -615,6 +615,19 @@ function translateGameEvent(
       }
       break;
     }
+    case 'antidote_used': {
+      // Phase 12.4: reuses item_used's existing extensible effect:string/
+      // amount:number shape (telemetry.schema.requirements's "既存
+      // item_usedの拡張可能なeffect:string構造を再利用する") rather than
+      // a new event type. `amount` is fixed at 1 per
+      // telemetry.success_record's "amountは解除した効果レコード数では
+      // なく、解除成功を表す1とする" — not a count of removed records
+      // (removeEffect could in principle remove more than one duplicate,
+      // but that's an implementation-defensive detail, not something
+      // telemetry should surface as a damage-like quantity).
+      pushEvent(telemetry, after, consumed, { type: 'item_used', itemId: event.itemId, effect: 'poison_cure', amount: 1 });
+      break;
+    }
     default:
       // Every other GameEvent category (facing/AI-behavior-flavor events
       // like sword_dash, web_placed, bat_retreat, mummy_shamble_rest,

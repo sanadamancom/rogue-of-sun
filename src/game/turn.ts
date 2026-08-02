@@ -17,7 +17,7 @@ import {
 import { WEAPON_DEFINITIONS } from './weapon-def';
 import { ARMOR_DEFINITIONS } from './armor-def';
 import { computeAttackDamage, computeIncomingDamage, computeHitChance, resolvesAsHit } from './combat';
-import { advanceEffectDurations, EFFECT_DEFINITIONS, getEffectStrength, grantOrRefreshEffect, isEffectAtMaxDuration } from './effects';
+import { advanceEffectDurations, EFFECT_DEFINITIONS, getActiveEffect, getEffectStrength, grantOrRefreshEffect, isEffectAtMaxDuration, removeEffect } from './effects';
 import { rollPercent } from './rng';
 import { canPlaceWebNow, expireWebs, placeWeb } from './web';
 import { isSunlitAt } from './sunlight';
@@ -733,6 +733,15 @@ function applyItemUse(
     return { consumed: false, attacked: false, defeated: false };
   }
 
+  // Antidote (Phase 12.4 effect-removal foundation): removes poison,
+  // handled by its own function since it reads/writes effects.ts state
+  // rather than player.hp/solarEnergy/hunger. Checked before the
+  // hungerAmount/healAmount/solarAmount branches below since antidote
+  // has none of those set (same reasoning as banana's check above).
+  if (itemId === 'antidote') {
+    return applyAntidoteUse(state, itemId, events);
+  }
+
   // Banana (Phase 12.1 temporary-effect foundation): grants/refreshes
   // attack_up, handled by its own function since it reads/writes
   // effects.ts state rather than player.hp/solarEnergy/hunger. Checked
@@ -861,6 +870,55 @@ function applyBananaUse(
       ? { type: 'effect_granted', effectId: 'attack_up', strength: def.strength, remainingTurns: def.duration }
       : { type: 'effect_refreshed', effectId: 'attack_up', strength: def.strength, remainingTurns: def.duration },
   );
+  state.inventoryOpen = false;
+  return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
+ * Antidote use (Phase 12.4 effect-removal foundation): removes the
+ * 'poison' status effect entirely and immediately, never touching HP/
+ * SOL/hunger/attack_up/movement_slow. Rejected (no consumption, no turn,
+ * no state change at all, inventory overlay stays open) when poison is
+ * not currently active — fixed_specification.use_rules.failure.
+ * not_poisoned's "antidoteを消費しない" / "ターンを消費しない" /
+ * "inventory overlayを閉じない" / "状態を変更しない". On success, this
+ * only removes poison (via effects.ts's removeEffect — never splices
+ * state.activeEffects directly) and decrements the antidote count; it
+ * pushes both 'antidote_used' (the item-use-level event, mirroring
+ * banana/chocolate's own "*_used" events) and 'effect_removed' (the
+ * effect-level event, distinct from a natural 'effect_expired' — see
+ * removeEffect's doc comment) exactly once each. Deliberately does NOT
+ * touch attack_up/movement_slow, natural regen, hunger, or enemy
+ * actions — those all remain processTurn's job downstream, unchanged
+ * from any other successful item use (fixed_specification.turn_order.
+ * successful_antidote_use's "使用ターンの敵行動を省略しない" / "attack_up
+ * とmovement_slowは使用ターンに通常どおり減算する"). Poison simply no
+ * longer exists in state.activeEffects by the time processTurn's later
+ * applyPoisonTick call runs this same turn, which is what naturally
+ * prevents "毒消し草を使った成功ターンには毒ダメージを受けない" without
+ * needing any special-cased skip flag (unlike slow_trap/poison_trap's
+ * grant-turn skips, which do need one since the effect DOES exist that
+ * turn).
+ */
+function applyAntidoteUse(
+  state: GameState,
+  itemId: import('./types').ItemId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const owned = state.inventory[itemId] ?? 0;
+  if (owned <= 0) {
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  if (!getActiveEffect(state, 'poison')) {
+    events.push({ type: 'antidote_use_failed', itemId, reason: 'not_poisoned' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  removeEffect(state, 'poison');
+  state.inventory[itemId] = owned - 1;
+  events.push({ type: 'antidote_used', itemId, removedEffectId: 'poison' });
+  events.push({ type: 'effect_removed', effectId: 'poison', reason: 'antidote' });
   state.inventoryOpen = false;
   return { consumed: true, attacked: false, defeated: false };
 }

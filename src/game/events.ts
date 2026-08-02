@@ -156,4 +156,19 @@ export type GameEvent =
   // clamped at 0, so a near-death player takes less than 3), matching
   // the same "record what actually happened, not the nominal amount"
   // convention as player_attack's/enemy_attack's own damage fields.
-  | { type: 'poison_damage'; actualDamage: number; hpBefore: number; hpAfter: number };
+  | { type: 'poison_damage'; actualDamage: number; hpBefore: number; hpAfter: number }
+  // Phase 12.4 antidote / effect-removal foundation. 'antidote_used'
+  // fires on a successful use (poison was active, now removed);
+  // 'antidote_use_failed' fires when used while not poisoned (the only
+  // failure reason this phase defines — reason is a literal union rather
+  // than a bare string so future failure reasons, if any, stay
+  // type-checked). 'effect_removed' is the generic explicit-removal
+  // counterpart to 'effect_expired' (natural 0-duration end) — see
+  // effects.ts's removeEffect doc comment for why these two are kept
+  // distinct rather than one event covering both. `reason` on
+  // 'effect_removed' is a literal union (currently only 'antidote') so
+  // future removal sources stay distinguishable without a payload shape
+  // change.
+  | { type: 'antidote_used'; itemId: ItemId; removedEffectId: EffectId }
+  | { type: 'antidote_use_failed'; itemId: ItemId; reason: 'not_poisoned' }
+  | { type: 'effect_removed'; effectId: EffectId; reason: 'antidote' };

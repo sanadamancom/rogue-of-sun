@@ -67,7 +67,7 @@ describe('INVENTORY_CAPACITY / totalInventoryCount (Phase 11.1)', () => {
 
   it('sums all item counts, including non-stackable weapon/armor entries', () => {
     const state = freshState({
-      inventory: { apple: 3, sword: 1, armor: 1, spear: 0, hammer: 0, sun_fruit: 2, solar_gun: 0, sol_enchantment: 0, chocolate: 0, banana: 0 },
+      inventory: { apple: 3, sword: 1, armor: 1, spear: 0, hammer: 0, sun_fruit: 2, solar_gun: 0, sol_enchantment: 0, chocolate: 0, banana: 0, antidote: 0 },
     });
     expect(totalInventoryCount(state)).toBe(7);
   });
@@ -81,7 +81,7 @@ describe('INVENTORY_CAPACITY / totalInventoryCount (Phase 11.1)', () => {
 describe('capacity boundary (Phase 11.1)', () => {
   it('can pick up items while below capacity (0 up to 19)', () => {
     const state = freshState({
-      inventory: { apple: 19, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, chocolate: 0, banana: 0 },
+      inventory: { apple: 19, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, chocolate: 0, banana: 0, antidote: 0 },
       groundItems: [{ id: 0, itemId: 'apple', pos: { x: 3, y: 1 } }],
     });
     expect(hasInventoryCapacity(state)).toBe(true);
@@ -94,7 +94,7 @@ describe('capacity boundary (Phase 11.1)', () => {
 
   it('a pickup that brings the total exactly to 20 succeeds (no off-by-one)', () => {
     const state = freshState({
-      inventory: { apple: 19, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, chocolate: 0, banana: 0 },
+      inventory: { apple: 19, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, chocolate: 0, banana: 0, antidote: 0 },
       groundItems: [{ id: 0, itemId: 'apple', pos: { x: 3, y: 1 } }],
     });
     processTurn(state, { type: 'move', direction: 'E' });
@@ -103,7 +103,7 @@ describe('capacity boundary (Phase 11.1)', () => {
 
   it('at exactly capacity (20), a further pickup is rejected', () => {
     const state = freshState({
-      inventory: { apple: 20, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, chocolate: 0, banana: 0 },
+      inventory: { apple: 20, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, chocolate: 0, banana: 0, antidote: 0 },
       groundItems: [{ id: 0, itemId: 'sun_fruit', pos: { x: 3, y: 1 } }],
     });
     expect(hasInventoryCapacity(state)).toBe(false);
@@ -114,7 +114,7 @@ describe('capacity boundary (Phase 11.1)', () => {
 
   it('total inventory count never exceeds capacity after repeated pickup attempts', () => {
     const state = freshState({
-      inventory: { apple: 20, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, chocolate: 0, banana: 0 },
+      inventory: { apple: 20, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, chocolate: 0, banana: 0, antidote: 0 },
       groundItems: [{ id: 0, itemId: 'apple', pos: { x: 3, y: 1 } }],
     });
     processTurn(state, { type: 'move', direction: 'E' });
@@ -125,7 +125,7 @@ describe('capacity boundary (Phase 11.1)', () => {
 
   it('defensively rejects pickup even if inventory total is somehow already above capacity', () => {
     const state = freshState({
-      inventory: { apple: 21, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, chocolate: 0, banana: 0 },
+      inventory: { apple: 21, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, chocolate: 0, banana: 0, antidote: 0 },
       groundItems: [{ id: 0, itemId: 'sword', pos: { x: 3, y: 1 } }],
     });
     processTurn(state, { type: 'move', direction: 'E' });
@@ -136,7 +136,7 @@ describe('capacity boundary (Phase 11.1)', () => {
 describe('failed pickup on full inventory (Phase 11.1)', () => {
   function fullState(overrides?: Partial<GameState>): GameState {
     return freshState({
-      inventory: { apple: 20, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, chocolate: 0, banana: 0 },
+      inventory: { apple: 20, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, chocolate: 0, banana: 0, antidote: 0 },
       groundItems: [{ id: 0, itemId: 'sword', pos: { x: 3, y: 1 } }],
       ...overrides,
     });
@@ -208,7 +208,7 @@ describe('failed pickup on full inventory (Phase 11.1)', () => {
 describe('sol_enchantment is excluded from capacity (Phase 11.1)', () => {
   it('sol_enchantment pickup succeeds even when regular inventory is at capacity, and does not touch state.inventory', () => {
     const state = freshState({
-      inventory: { apple: 20, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, chocolate: 0, banana: 0 },
+      inventory: { apple: 20, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, chocolate: 0, banana: 0, antidote: 0 },
       groundItems: [{ id: 0, itemId: 'sol_enchantment', pos: { x: 3, y: 1 } }],
     });
     const result = processTurn(state, { type: 'move', direction: 'E' });
@@ -227,7 +227,7 @@ describe('sol_enchantment is excluded from capacity (Phase 11.1)', () => {
 describe('lifecycle: capacity and inventory survive floor transitions and initialization (Phase 11.1)', () => {
   it('inventory contents (and thus current capacity usage) are carried over across a floor transition', () => {
     let state = freshState({
-      inventory: { apple: 5, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, chocolate: 0, banana: 0 },
+      inventory: { apple: 5, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, chocolate: 0, banana: 0, antidote: 0 },
     });
     state.enemies.forEach((e) => (e.alive = false));
     state.player.pos = { x: 99, y: 99 };
@@ -257,7 +257,7 @@ describe('regression: existing pickup/weapon/consumable behavior below capacity 
 
   it('moving onto a tile with no ground item is unaffected by capacity logic', () => {
     const state = freshState({
-      inventory: { apple: 20, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, chocolate: 0, banana: 0 },
+      inventory: { apple: 20, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, chocolate: 0, banana: 0, antidote: 0 },
     });
     const result = processTurn(state, { type: 'move', direction: 'E' });
     expect(result.consumed).toBe(true);

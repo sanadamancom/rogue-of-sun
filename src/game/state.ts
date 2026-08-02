@@ -1,4 +1,4 @@
-import { choosePlacement, chooseGroundItemPosition, chooseTrapPosition, roomIndexContaining, createRng, generateMap, MAP_GEN_PARAMS } from './mapgen';
+import { choosePlacement, chooseGroundItemPosition, chooseTrapPosition, chooseRoomFloorPosition, roomIndexContaining, createRng, generateMap, MAP_GEN_PARAMS } from './mapgen';
 import { createInitialActor, createInitialEnemy } from './turn';
 import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
 import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
@@ -389,6 +389,35 @@ function buildFloorState(
   }
   if (poisonTrapPos) {
     traps.push({ id: traps.length, pos: poisonTrapPos, triggered: false, trapType: 'poison_trap' });
+  }
+
+  // Antidote placement (Phase 12.4): every floor gets at most one,
+  // restricted to ordinary room-interior floor tiles via
+  // chooseRoomFloorPosition (never corridors/doorways/walls/the exit —
+  // see that function's doc comment for why chooseGroundItemPosition/
+  // chooseTrapPosition were each not quite the right fit here). Uses its
+  // own distinct independent RNG stream (a fifteenth XOR constant) so it
+  // never perturbs any prior RNG sequence/consumption order, and
+  // excludes every already-placed ground item's tile plus both trap
+  // positions (fixed_specification.placement.requirements's "既存ground
+  // item、slow_trap、poison_trapと重複させない") in addition to start/
+  // exit/every enemy position. Deliberately does NOT anchor its position
+  // relative to poison_trap in any way (placement.restrictions's
+  // "poison_trapの位置を基準にantidoteの位置を固定しない" / "poison_trap
+  // より手前に必ず配置する保証を追加しない") — it's just another
+  // independent ground item. Returns null (never throws) when no
+  // candidate qualifies — that floor simply gets no antidote.
+  const antidoteExclusions = [
+    placement.start,
+    placement.exit,
+    ...placement.enemies,
+    ...groundItems.map((item) => item.pos),
+    ...traps.map((t) => t.pos),
+  ];
+  const antidoteRng = createRng(floorSeed ^ 0x6d5a91e7);
+  const antidotePos = chooseRoomFloorPosition(map, map.rooms, antidoteExclusions, antidoteRng);
+  if (antidotePos) {
+    groundItems.push({ id: groundItems.length, itemId: 'antidote', pos: antidotePos });
   }
 
   return {

@@ -98,7 +98,7 @@ describe('solar gun definition and inventory (Phase 09.2)', () => {
 
   it('equipping the solar gun replaces any other equipped weapon exclusively', () => {
     const state = freshState({
-      inventory: { ...createEmptyInventory(), sword: 1, solar_gun: 1, sol_enchantment: 0, chocolate: 0, banana: 0 },
+      inventory: { ...createEmptyInventory(), sword: 1, solar_gun: 1, sol_enchantment: 0, chocolate: 0, banana: 0, antidote: 0 },
       equippedWeaponId: 'sword',
     });
     const result = processTurn(state, { type: 'equip_weapon', weaponId: 'solar_gun' });
@@ -117,7 +117,7 @@ describe('solar gun definition and inventory (Phase 09.2)', () => {
 
   it('solar gun possession and equip state carry over across a floor transition', () => {
     let state = freshState({
-      inventory: { ...createEmptyInventory(), solar_gun: 1, sol_enchantment: 0, chocolate: 0, banana: 0 },
+      inventory: { ...createEmptyInventory(), solar_gun: 1, sol_enchantment: 0, chocolate: 0, banana: 0, antidote: 0 },
       equippedWeaponId: 'solar_gun',
     });
     state.enemies = [];
@@ -129,7 +129,7 @@ describe('solar gun definition and inventory (Phase 09.2)', () => {
 
   it('firing the solar gun never decrements its own inventory count', () => {
     const state = freshState({
-      inventory: { ...createEmptyInventory(), solar_gun: 1, sol_enchantment: 0, chocolate: 0, banana: 0 },
+      inventory: { ...createEmptyInventory(), solar_gun: 1, sol_enchantment: 0, chocolate: 0, banana: 0, antidote: 0 },
       equippedWeaponId: 'solar_gun',
     });
     processTurn(state, { type: 'action' });
@@ -449,7 +449,7 @@ describe('solar gun and hammerRecovery interaction (Phase 09.2)', () => {
     const state = freshState({
       equippedWeaponId: 'hammer',
       hammerRecovery: true,
-      inventory: { ...createEmptyInventory(), solar_gun: 1, sol_enchantment: 0, chocolate: 0, banana: 0 },
+      inventory: { ...createEmptyInventory(), solar_gun: 1, sol_enchantment: 0, chocolate: 0, banana: 0, antidote: 0 },
     });
     processTurn(state, { type: 'equip_weapon', weaponId: 'solar_gun' });
     expect(state.hammerRecovery).toBe(true);
