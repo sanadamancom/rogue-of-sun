@@ -306,6 +306,13 @@ class MainScene extends Phaser.Scene {
         if (effect.id === 'movement_slow') {
           return `   効果: ${def.displayName} (${effect.remainingTurns})`;
         }
+        // Phase 12.3: poison's strength (3) IS a displayable per-tick HP
+        // loss, shown with a minus sign (fixed_specification.hud's
+        // example "効果: 毒 -3 (10)") — distinct from attack_up's "+N"
+        // gain notation, since poison is a drain rather than a bonus.
+        if (effect.id === 'poison') {
+          return `   効果: ${def.displayName} -${effect.strength} (${effect.remainingTurns})`;
+        }
         const arrow = effect.id === 'attack_up' ? '攻撃↑' : def.displayName;
         return `   効果: ${arrow} +${effect.strength} (${effect.remainingTurns})`;
       })
@@ -599,16 +606,20 @@ class MainScene extends Phaser.Scene {
   }
 
   /**
-   * Draws only revealed (triggered) slow traps as a simple asset-free
-   * warning mark: a dull-orange circle with an X through it, in the same
-   * plain-Graphics style as drawWebs (no new image asset, per
-   * fixed_specification.trap.rendering's "発動後は新規外部画像を使わず、
-   * 既存描画方式に合う簡素な罠記号を表示する"). Untriggered traps are
-   * deliberately skipped entirely — they render identically to plain
-   * floor (fixed_specification.trap.rendering's "未発動時は通常床と同じ
-   * 表示にする"), so there is nothing to draw for them. Redrawn every
-   * turn/reset like drawWebs (a trap can flip from hidden to revealed at
-   * most once per run, so this is cheap either way).
+   * Draws only revealed (triggered) traps as a simple asset-free warning
+   * mark, in the same plain-Graphics style as drawWebs (no new image
+   * asset, per fixed_specification.trap.rendering's "発動後は新規外部
+   * 画像を使わず、既存描画方式に合う簡素な罠記号を表示する"):
+   * slow_trap keeps its existing Phase 12.2 dull-orange circle-with-X
+   * (unchanged, per Phase 12.3's "既存slow_trapのオレンジ色の円＋X字を
+   * 変更しない"); poison_trap (Phase 12.3) is a purple diamond outline
+   * with a center dot, visually distinct from slow_trap's circle so the
+   * two are never confused at a glance. Untriggered traps of either type
+   * are deliberately skipped entirely — they render identically to plain
+   * floor (fixed_specification.trap.rendering's "未発動時は通常床と完全
+   * に同じ表示にする"), so there is nothing to draw for them. Redrawn
+   * every turn/reset like drawWebs (a trap can flip from hidden to
+   * revealed at most once per run, so this is cheap either way).
    */
   private drawTraps(): void {
     this.trapGraphics.clear();
@@ -617,6 +628,22 @@ class MainScene extends Phaser.Scene {
       const cx = trap.pos.x * TILE_SIZE + TILE_SIZE / 2;
       const cy = trap.pos.y * TILE_SIZE + TILE_SIZE / 2;
       const r = TILE_SIZE * 0.28;
+
+      if (trap.trapType === 'poison_trap') {
+        this.trapGraphics.lineStyle(2, 0x9b4dca, 0.85);
+        // Diamond outline.
+        this.trapGraphics.beginPath();
+        this.trapGraphics.moveTo(cx, cy - r);
+        this.trapGraphics.lineTo(cx + r, cy);
+        this.trapGraphics.lineTo(cx, cy + r);
+        this.trapGraphics.lineTo(cx - r, cy);
+        this.trapGraphics.closePath();
+        this.trapGraphics.strokePath();
+        // Center dot.
+        this.trapGraphics.fillStyle(0x9b4dca, 0.9);
+        this.trapGraphics.fillCircle(cx, cy, r * 0.22);
+        continue;
+      }
 
       this.trapGraphics.lineStyle(2, 0xc97a3a, 0.85);
       this.trapGraphics.strokeCircle(cx, cy, r);

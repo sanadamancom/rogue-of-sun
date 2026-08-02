@@ -41,6 +41,18 @@ export const EFFECT_DEFINITIONS: Record<EffectId, EffectDefinition> = {
     strength: 1,
     duration: 10,
   },
+  // Phase 12.3 poison trap: `strength` here means "HP damage applied per
+  // successful player turn while this effect is active" (fixed_
+  // specification.effect.meaning_of_strength). turn.ts's poison-tick
+  // logic (applyPoisonTick) reads it with that meaning; effects.ts
+  // itself stays a generic id/strength/duration container and does not
+  // interpret it, exactly like movement_slow's strength above.
+  poison: {
+    id: 'poison',
+    displayName: '毒',
+    strength: 3,
+    duration: 10,
+  },
 };
 
 /**

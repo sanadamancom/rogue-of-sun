@@ -120,7 +120,15 @@ export type RunEventPayload =
     }
   | { type: 'attack_invalid'; actor: 'player'; weaponOrAttackType: WeaponId | 'unarmed'; reason: string }
   | { type: 'enemy_defeated'; targetType: EnemyType; targetId: number }
-  | { type: 'player_damaged'; amount: number; source: EnemyType }
+  // Phase 12.3: `source` is widened from EnemyType-only to also allow
+  // 'poison' — poison is the first non-enemy damage source, so this
+  // player_damaged event (and everything downstream that reads its
+  // `source`, i.e. deriveDeathCauseFromTail's endCause derivation and
+  // computeRunSummary's damageTaken aggregation) now needs to represent
+  // "damaged by poison" without inventing a fake EnemyType. This is a
+  // schema-meaning change, hence schemaVersion 3 -> 4 (see this file's
+  // schemaVersion doc comment below).
+  | { type: 'player_damaged'; amount: number; source: EnemyType | 'poison' }
   | { type: 'player_defeated'; cause: string }
   | { type: 'equipment_acquired'; slot: 'weapon' | 'armor'; id: WeaponId | ArmorId }
   | { type: 'equipment_changed'; slot: 'weapon' | 'armor'; from: WeaponId | ArmorId | null; to: WeaponId | ArmorId; reason: string }
@@ -137,6 +145,16 @@ export type RunEventPayload =
   // ('natural_regeneration', 'item', ...) — itemId (when applicable) is
   // kept as a separate, optional detail field instead.
   | { type: 'player_healed'; source: 'natural_regeneration' | 'item'; itemId?: ItemId; requestedAmount: number; actualHealing: number; hpBefore: number; hpAfter: number }
+  // Phase 12.3 poison trap: the detailed per-tick record (actualDamage/
+  // hpBefore/hpAfter, per telemetry.required's "poison_damageにはactualDamage、
+  // hpBefore、hpAfterを含める"). Pushed alongside a generic
+  // 'player_damaged' (source: 'poison') for the same tick — see
+  // translateGameEvent's 'poison_damage' case — so existing damageTaken/
+  // endCause aggregation (which already generically consumes
+  // player_damaged events) picks up poison damage for free, while this
+  // event exists for anyone wanting poison-specific detail without
+  // re-deriving it from player_damaged + a source filter.
+  | { type: 'poison_damage'; actualDamage: number; hpBefore: number; hpAfter: number }
   | { type: 'exit_reached'; floor: number };
 
 export type RunEvent = RunEventCommon & RunEventPayload;
@@ -146,7 +164,15 @@ export type RunEvent = RunEventCommon & RunEventPayload;
 // ---------------------------------------------------------------------
 
 export interface RunTelemetry {
-  schemaVersion: 3;
+  // Phase 12.3: bumped from 3 to 4 — poison introduces a non-enemy
+  // player_damaged.source ('poison') and a new poison_damage event,
+  // which changes the meaning of existing fields (player_damaged.source,
+  // computeRunSummary's damageTaken aggregation) rather than only adding
+  // new ones, so schemaVersion must change per telemetry.policy's "毒
+  // ダメージを無視したままschemaVersion 3を維持してはならない". No v1-v3
+  // read-compatibility shim is provided (telemetry.forbidden's "v1〜v3の
+  // 読み込み互換機能は追加しない") — this is an export-only format.
+  schemaVersion: 4;
   seed: number;
   result: 'in_progress' | 'clear' | 'death';
   endCause: string | null;
@@ -162,7 +188,7 @@ export interface RunTelemetry {
  */
 export function createRunTelemetry(state: GameState): RunTelemetry {
   const telemetry: RunTelemetry = {
-    schemaVersion: 3,
+    schemaVersion: 4,
     seed: state.runSeed,
     result: 'in_progress',
     endCause: null,
@@ -571,6 +597,24 @@ function translateGameEvent(
       });
       break;
     }
+    case 'poison_damage': {
+      // Phase 12.3 poison trap: pushes the detailed per-tick record
+      // first, then the generic 'player_damaged' (source: 'poison') that
+      // feeds the existing damageTaken/endCause aggregation machinery
+      // (computeRunSummary's player_damaged case, deriveDeathCauseFromTail)
+      // without duplicating that logic here — see this file's
+      // 'poison_damage' RunEventPayload doc comment.
+      pushEvent(telemetry, after, consumed, {
+        type: 'poison_damage',
+        actualDamage: event.actualDamage,
+        hpBefore: event.hpBefore,
+        hpAfter: event.hpAfter,
+      });
+      if (event.actualDamage > 0) {
+        pushEvent(telemetry, after, consumed, { type: 'player_damaged', amount: event.actualDamage, source: 'poison' });
+      }
+      break;
+    }
     default:
       // Every other GameEvent category (facing/AI-behavior-flavor events
       // like sword_dash, web_placed, bat_retreat, mummy_shamble_rest,
@@ -704,7 +748,14 @@ export interface PerFloorStats {
 
 export interface RunSummary {
   movement: { successfulMoves: number; blockedMoves: number; waits: number };
-  combatOverall: { validAttacks: number; hits: number; misses: number; hitRate: number | null; damageDealt: number; kills: number };
+  // Phase 12.3: `damageTaken` is the sum of every player_damaged event's
+  // amount regardless of source (enemy attacks and poison alike) — the
+  // "総damageTaken" telemetry.required asks for, distinct from
+  // damageTakenByEnemy (per-enemy-only, poison excluded — see this
+  // file's player_damaged case in computeRunSummary) and from each
+  // PerFloorStats.damageTaken (which already summed all sources per
+  // floor even before this phase, since it never filtered by source).
+  combatOverall: { validAttacks: number; hits: number; misses: number; hitRate: number | null; damageDealt: number; damageTaken: number; kills: number };
   combatByWeapon: Record<string, WeaponCombatStats>;
   damageTakenByEnemy: Record<string, EnemyDamageStats>;
   equipment: { acquiredCount: number; changeCount: number; endingEquipment: { weapon: WeaponId | null; armor: ArmorId | null } };
@@ -749,6 +800,7 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
   const damageTakenByEnemy: Record<string, EnemyDamageStats> = {};
   const perFloorMap = new Map<number, PerFloorStats>();
   let solGained = 0;
+  let totalDamageTaken = 0;
   let solConsumed = 0;
   let solarChargeActions = 0;
   const healingBySource: Record<string, number> = {};
@@ -855,8 +907,16 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
         break;
       }
       case 'player_damaged': {
-        const stats = getEnemyStats(event.source);
-        stats.damage += event.amount;
+        // Phase 12.3: poison is excluded from damageTakenByEnemy (it has
+        // no attacking enemy — telemetry.forbidden's "仮の敵種を追加して
+        // damageTakenByEnemyへ記録する"), but still counts toward the
+        // overall and per-floor totals (telemetry.required's "総damageTaken
+        // とフロア別damageTakenへactualDamageを加算する").
+        if (event.source !== 'poison') {
+          const stats = getEnemyStats(event.source);
+          stats.damage += event.amount;
+        }
+        totalDamageTaken += event.amount;
         getFloorStats(event.floor).damageTaken += event.amount;
         break;
       }
@@ -933,6 +993,7 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
       misses: overallMisses,
       hitRate: overallValid > 0 ? overallHits / overallValid : null,
       damageDealt: overallDamage,
+      damageTaken: totalDamageTaken,
       kills: killedKeys.size,
     },
     combatByWeapon,
@@ -966,15 +1027,15 @@ function sanitizeForFilename(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, '');
 }
 
-/** Phase 10.3.2: schemaVersion 2 -> "v2" filenames, so old (buggy) v1 exports are never confused with corrected v2 ones. */
+/** Phase 12.3: schemaVersion 3 -> 4 (poison), "v3" -> "v4" filenames, so old exports are never confused with the new poison-aware ones. */
 export function buildExportFilename(telemetry: RunTelemetry): string {
   const seedPart = sanitizeForFilename(String(telemetry.seed));
   const resultPart = telemetry.result === 'clear' ? 'clear' : 'death';
-  return `rogue-of-sun-run-v3-${seedPart}-${resultPart}.json`;
+  return `rogue-of-sun-run-v4-${seedPart}-${resultPart}.json`;
 }
 
 export interface TelemetryDocument {
-  schemaVersion: 3;
+  schemaVersion: 4;
   gameVersion: string;
   run: {
     seed: number;
@@ -1000,8 +1061,8 @@ export interface TelemetryDocument {
 export function buildTelemetryDocument(telemetry: RunTelemetry, finalState: GameState): TelemetryDocument {
   const summary = computeRunSummary(telemetry, finalState);
   return {
-    schemaVersion: 3,
-    gameVersion: 'phase-10.3.3',
+    schemaVersion: 4,
+    gameVersion: 'phase-12.3',
     run: {
       seed: telemetry.seed,
       result: telemetry.result,

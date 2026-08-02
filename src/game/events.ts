@@ -1,4 +1,4 @@
-import { Direction8, EffectId, EnchantmentId, EnemyType, ItemId, WeaponId, ArmorId, Vec2 } from './types';
+import { Direction8, EffectId, EnchantmentId, EnemyType, ItemId, TrapType, WeaponId, ArmorId, Vec2 } from './types';
 
 /**
  * Typed, display-agnostic record of a notable action that happened during
@@ -137,4 +137,23 @@ export type GameEvent =
   // generic 'effect_granted'/'effect_refreshed' events above (no payload
   // duplication) — this event exists purely to identify the trigger
   // moment itself for messaging/telemetry.
-  | { type: 'trap_triggered' };
+  // Phase 12.2 slow_trap, extended in Phase 12.3 with `trapType` so
+  // multiple trap kinds sharing one event shape can still be told apart
+  // (poison_trap_triggered's distinct message text depends on this).
+  // Fired the instant the player's own successful move lands on a
+  // previously-untriggered trap tile. One-shot per trap (that trap
+  // object's `triggered` flips to true and never fires again), so this
+  // event can only occur at most once per trap per run. The resulting
+  // effect grant/refresh is reported separately via the generic
+  // 'effect_granted'/'effect_refreshed' events above (no payload
+  // duplication) — this event exists purely to identify the trigger
+  // moment (and which trap type) itself for messaging/telemetry.
+  | { type: 'trap_triggered'; trapType: TrapType }
+  // Phase 12.3 poison trap: fired once per successful player turn while
+  // poison is active (after the turn the trap that granted it was
+  // triggered), applying poison's fixed per-tick damage. `actualDamage`
+  // is the real HP loss (never the theoretical strength value — HP is
+  // clamped at 0, so a near-death player takes less than 3), matching
+  // the same "record what actually happened, not the nominal amount"
+  // convention as player_attack's/enemy_attack's own damage fields.
+  | { type: 'poison_damage'; actualDamage: number; hpBefore: number; hpAfter: number };

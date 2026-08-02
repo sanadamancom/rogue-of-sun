@@ -1,4 +1,4 @@
-import { choosePlacement, chooseGroundItemPosition, chooseTrapPosition, createRng, generateMap, MAP_GEN_PARAMS } from './mapgen';
+import { choosePlacement, chooseGroundItemPosition, chooseTrapPosition, roomIndexContaining, createRng, generateMap, MAP_GEN_PARAMS } from './mapgen';
 import { createInitialActor, createInitialEnemy } from './turn';
 import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
 import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
@@ -324,15 +324,72 @@ function buildFloorState(
   // だけ配置なしを許可し、理由を記録する"; see chooseTrapPosition's doc
   // comment for why a code comment is this codebase's equivalent of a
   // "recorded reason").
-  const trapExclusions = [
+  const traps: TrapTile[] = [];
+  const slowTrapExclusions = [
     placement.start,
     placement.exit,
     ...placement.enemies,
     ...groundItems.map((item) => item.pos),
   ];
-  const trapRng = createRng(floorSeed ^ 0x1a6f83c5);
-  const trapPos = chooseTrapPosition(map, map.rooms, placement.start, placement.exit, trapExclusions, trapRng);
-  const traps: TrapTile[] = trapPos ? [{ id: 0, pos: trapPos, triggered: false }] : [];
+  const slowTrapRng = createRng(floorSeed ^ 0x1a6f83c5);
+  const slowTrapPos = chooseTrapPosition(map, map.rooms, placement.start, placement.exit, slowTrapExclusions, slowTrapRng);
+  if (slowTrapPos) {
+    traps.push({ id: traps.length, pos: slowTrapPos, triggered: false, trapType: 'slow_trap' });
+  }
+
+  // Poison trap placement (Phase 12.3): at most one per floor, using its
+  // own distinct independent RNG stream (a fourteenth XOR constant), added
+  // to the same `traps` array as slow_trap (fixed_specification/
+  // implementation_policy's "鈍足罠と毒罠で別々のGameState配列を作る"
+  // 禁止) rather than a separate GameState field. Prefers a different
+  // room from slow_trap's (fixed_specification.poison_trap.placement's
+  // "可能ならslow_trapとは別の部屋へ配置する"): the first attempt below
+  // restricts chooseTrapPosition's room list to every room except the one
+  // slow_trap landed in (found via roomIndexContaining). Only if that
+  // attempt finds zero candidates (meaning no *other* room has any valid
+  // tile at all, given the exclusions/distance rules) does the second
+  // attempt fall back to searching every room again — since the first
+  // attempt already proved every other room empty, in practice this
+  // second attempt can only ever succeed inside slow_trap's own room, so
+  // it also adds `minDistanceFrom: { pos: slowTrapPos, distance: 3 }` to
+  // satisfy "同じ部屋の場合はslow_trapからマンハッタン距離3以上離す".
+  // Both attempts share one continuous rng stream: chooseTrapPosition
+  // only ever consumes an rng() draw when it finds at least one
+  // candidate (see its doc comment), so a null first attempt costs zero
+  // draws and doesn't desynchronize the second attempt's result from what
+  // a single-attempt call would have drawn.
+  const poisonTrapExclusions = [
+    placement.start,
+    placement.exit,
+    ...placement.enemies,
+    ...groundItems.map((item) => item.pos),
+    ...traps.map((t) => t.pos),
+  ];
+  const poisonTrapRng = createRng(floorSeed ^ 0x3f9c5e82);
+  const slowTrapRoomIndex = slowTrapPos ? roomIndexContaining(map.rooms, slowTrapPos) : -1;
+  const otherRooms = slowTrapRoomIndex === -1 ? map.rooms : map.rooms.filter((_, i) => i !== slowTrapRoomIndex);
+  let poisonTrapPos = chooseTrapPosition(
+    map,
+    otherRooms,
+    placement.start,
+    placement.exit,
+    poisonTrapExclusions,
+    poisonTrapRng,
+  );
+  if (!poisonTrapPos && slowTrapPos) {
+    poisonTrapPos = chooseTrapPosition(
+      map,
+      map.rooms,
+      placement.start,
+      placement.exit,
+      poisonTrapExclusions,
+      poisonTrapRng,
+      { pos: slowTrapPos, distance: 3 },
+    );
+  }
+  if (poisonTrapPos) {
+    traps.push({ id: traps.length, pos: poisonTrapPos, triggered: false, trapType: 'poison_trap' });
+  }
 
   return {
     map,

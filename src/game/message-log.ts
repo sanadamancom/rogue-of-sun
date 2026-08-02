@@ -178,15 +178,18 @@ export function formatEvent(event: GameEvent): string {
     case 'sol_enchantment_used':
       return 'ソルの力が攻撃に宿った。';
     case 'effect_granted': {
-      // Phase 12.2: movement_slow's grant message is fixed wording (the
-      // slow trap's fixed_specification.messages.applied), distinct from
-      // attack_up's banana-flavored line — both branches of this case
-      // already hardcode their triggering item/source in the message
-      // text (the existing attack_up line names "バナナ" explicitly), so
-      // branching by effectId here is consistent with that existing
-      // precedent rather than a new pattern.
+      // Phase 12.2/12.3: movement_slow's and poison's grant messages are
+      // fixed wording (fixed_specification.messages.applied for each
+      // trap), distinct from attack_up's banana-flavored line — both
+      // branches of this case already hardcode their triggering item/
+      // source in the message text (the existing attack_up line names
+      // "バナナ" explicitly), so branching by effectId here is consistent
+      // with that existing precedent rather than a new pattern.
       if (event.effectId === 'movement_slow') {
         return '体が重くなった。';
+      }
+      if (event.effectId === 'poison') {
+        return '毒に侵された。';
       }
       const name = EFFECT_DEFINITIONS[event.effectId].displayName;
       return `バナナを食べ、${name}が${event.strength}上がった。`;
@@ -195,6 +198,9 @@ export function formatEvent(event: GameEvent): string {
       if (event.effectId === 'movement_slow') {
         return '体が重くなった。';
       }
+      if (event.effectId === 'poison') {
+        return '毒がさらに体を巡った。';
+      }
       const name = EFFECT_DEFINITIONS[event.effectId].displayName;
       return `バナナを食べ、${name}の効果が残り${event.remainingTurns}ターンに更新された。`;
     }
@@ -202,13 +208,18 @@ export function formatEvent(event: GameEvent): string {
       if (event.effectId === 'movement_slow') {
         return '体の重さがなくなった。';
       }
+      if (event.effectId === 'poison') {
+        return '毒が抜けた。';
+      }
       const name = EFFECT_DEFINITIONS[event.effectId].displayName;
       return `${name}の効果が切れた。`;
     }
     case 'banana_use_failed':
       return '攻撃力上昇はすでに最大時間有効で、バナナは使えない。';
     case 'trap_triggered':
-      return '鈍足の罠を踏んだ！';
+      return event.trapType === 'poison_trap' ? '毒の罠を踏んだ！' : '鈍足の罠を踏んだ！';
+    case 'poison_damage':
+      return `毒で${event.actualDamage}ダメージを受けた。`;
     default: {
       const exhaustiveCheck: never = event;
       throw new Error(`Unhandled game event: ${JSON.stringify(exhaustiveCheck)}`);

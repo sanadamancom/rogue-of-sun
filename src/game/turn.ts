@@ -435,28 +435,37 @@ function applyPlayerAction(
       player.slowed = true;
       events.push({ type: 'player_webbed' });
     }
-    // Slow trap (Phase 12.2): stepping onto an untriggered trap tile
-    // fires it — hidden until this moment, permanently revealed and
-    // inert afterward (one_shot). Grants/refreshes movement_slow via the
-    // same generic effects.ts helper banana uses; processTurn detects
-    // that this happened (by diffing each trap's `triggered` flag before
-    // vs. after applyPlayerAction, rather than adding a new return field)
-    // so it can skip movement_slow's decrement and the additional enemy
-    // phase for this specific turn (fixed_specification.effect.lifecycle's
-    // "罠発動ターン自体では敵の追加行動を発生させない" / "残り10を9へ減ら
-    // さない").
-    const trap = (state.traps ?? []).find(
+    // Traps (Phase 12.2 slow_trap, extended in Phase 12.3 with
+    // poison_trap sharing this same array/branch): stepping onto an
+    // untriggered trap tile fires it — hidden until this moment,
+    // permanently revealed and inert afterward (one_shot). Each trap's
+    // `trapType` selects which single effect it grants/refreshes
+    // (slow_trap -> movement_slow, poison_trap -> poison) via the same
+    // generic effects.ts helper banana uses; multiple untriggered traps
+    // can share a tile in principle (placement never actually produces
+    // this, but nothing here assumes at most one), so every untriggered
+    // trap at this destination fires this same move, not just the first
+    // found. processTurn detects which trap type(s) fired (by diffing
+    // each trap's `triggered` flag before vs. after applyPlayerAction,
+    // rather than adding a new return field) so it can skip that
+    // specific effect's decrement and — for slow_trap only — the
+    // additional enemy phase for this specific turn (fixed_
+    // specification.effect.lifecycle's "罠発動ターン自体では敵の追加
+    // 行動を発生させない" / "残り10を9へ減らさない"; Phase 12.3 confirms
+    // this additional-enemy-phase suppression applies to slow_trap only,
+    // never poison_trap).
+    for (const trap of (state.traps ?? []).filter(
       (t) => !t.triggered && t.pos.x === destination.x && t.pos.y === destination.y,
-    );
-    if (trap) {
+    )) {
       trap.triggered = true;
-      events.push({ type: 'trap_triggered' });
-      const def = EFFECT_DEFINITIONS.movement_slow;
-      const result = grantOrRefreshEffect(state, 'movement_slow');
+      events.push({ type: 'trap_triggered', trapType: trap.trapType });
+      const effectId = trap.trapType === 'slow_trap' ? 'movement_slow' : 'poison';
+      const def = EFFECT_DEFINITIONS[effectId];
+      const result = grantOrRefreshEffect(state, effectId);
       events.push(
         result === 'granted'
-          ? { type: 'effect_granted', effectId: 'movement_slow', strength: def.strength, remainingTurns: def.duration }
-          : { type: 'effect_refreshed', effectId: 'movement_slow', strength: def.strength, remainingTurns: def.duration },
+          ? { type: 'effect_granted', effectId, strength: def.strength, remainingTurns: def.duration }
+          : { type: 'effect_refreshed', effectId, strength: def.strength, remainingTurns: def.duration },
       );
     }
     // Auto-pickup (Phase 08.2): stepping onto a ground item tile collects
@@ -1920,6 +1929,43 @@ function updateHungerWarnings(state: GameState, events: GameEvent[]): void {
   }
 }
 
+/**
+ * Applies poison's per-tick damage (Phase 12.3 poison trap), once per
+ * successful player turn while poison is active. `skipThisTurn` is true
+ * on the exact turn a poison_trap was triggered by this action
+ * (trap_trigger_interactions.poison_trap's "poison_trapを踏んだターンに
+ * 新規poisonダメージを発生させない") — covers both a fresh grant and a
+ * refresh of already-carried-over poison, since either way the trigger
+ * turn itself deals no damage, matching slow_trap/movement_slow's
+ * analogous no-damage-on-grant-turn rule.
+ *
+ * Runs after hunger/starvation (poison_tick.processing_order's "飢餓処理
+ * 後もHPが1以上の場合だけpoisonダメージを1回適用する") and only if the
+ * player is currently alive with HP >= 1 — an already-fatal enemy attack
+ * or starvation this same turn is never topped up with an extra poison
+ * tick (poison_tick.processing_order's "敵攻撃または飢餓でHPが0になって
+ * いる場合、poisonダメージを重ねない"). Ignores Actor.defense/armor
+ * entirely and draws no RNG (poison_tick.damage_rules's "防御力、防具、
+ * 命中率、回避率を参照しない" / "乱数を使わない"). `actualDamage` is
+ * clamped to the player's actual remaining HP — never over-reports the
+ * nominal strength (3) when less HP remains (poison_tick.damage_rules's
+ * "記録するdamageは理論値3ではなく実際に減少したHP量とする").
+ */
+function applyPoisonTick(state: GameState, events: GameEvent[], skipThisTurn: boolean): void {
+  if (skipThisTurn) return;
+  if (!state.player.alive || state.player.hp <= 0) return;
+  const strength = getEffectStrength(state, 'poison');
+  if (strength <= 0) return;
+
+  const hpBefore = state.player.hp;
+  const actualDamage = Math.min(strength, hpBefore);
+  state.player.hp = Math.max(0, hpBefore - actualDamage);
+  events.push({ type: 'poison_damage', actualDamage, hpBefore, hpAfter: state.player.hp });
+  if (state.player.hp <= 0) {
+    state.player.alive = false;
+  }
+}
+
 export function processTurn(state: GameState, action: PlayerAction): TurnResult {
   if (state.phase !== 'playing') {
     return {
@@ -2006,13 +2052,19 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
   //     them without needing to check player.slowed/petrified directly)
   //   - that move did not land on the exit tile (movement_rules.
   //     not_affected's "出口によるフロア遷移")
-  //   - this exact move did not itself trigger the slow trap (fixed_
+  //   - this exact move did not itself trigger a slow_trap (fixed_
   //     specification.effect.lifecycle's "罠発動ターン自体では敵の追加
-  //     行動を発生させない" — detected by diffing each trap's `triggered`
-  //     flag against the pre-action snapshot, so this also correctly
-  //     covers the rare case where movement_slow was already active from
-  //     a previous floor's trap and this move simultaneously refreshes it
-  //     via a second trap)
+  //     行動を発生させない" — detected by diffing each slow_trap's
+  //     `triggered` flag against the pre-action snapshot, so this also
+  //     correctly covers the rare case where movement_slow was already
+  //     active from a previous floor's trap and this move simultaneously
+  //     refreshes it via a second slow_trap). Phase 12.3 narrows this
+  //     check from "any trap of any type" to "a slow_trap specifically"
+  //     (trap_trigger_interactions.movement_slow's "現在のany trap
+  //     triggered判定になっている場合、slow_trap triggered判定へ限定修正
+  //     する") — triggering a poison_trap on this same move must NOT
+  //     suppress the additional enemy phase when movement_slow was
+  //     already independently active going into this action.
   //   - movement_slow was already active BEFORE this action started
   //     (movementSlowActiveBeforeAction) — a fresh grant this same turn
   //     never qualifies, per the same rule above
@@ -2026,13 +2078,15 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
     (state.player.pos.x !== posBeforeAction.x || state.player.pos.y !== posBeforeAction.y);
   const reachedExitThisMove =
     actualMoveHappened && state.player.pos.x === state.exit.x && state.player.pos.y === state.exit.y;
-  const trapTriggeredThisAction = (state.traps ?? []).some(
+  const trapsTriggeredThisAction = (state.traps ?? []).filter(
     (t) => t.triggered && !trapsTriggeredBeforeAction.has(t.id),
   );
+  const slowTrapTriggeredThisAction = trapsTriggeredThisAction.some((t) => t.trapType === 'slow_trap');
+  const poisonTrapTriggeredThisAction = trapsTriggeredThisAction.some((t) => t.trapType === 'poison_trap');
   const shouldRunAdditionalEnemyPhase =
     actualMoveHappened &&
     !reachedExitThisMove &&
-    !trapTriggeredThisAction &&
+    !slowTrapTriggeredThisAction &&
     movementSlowActiveBeforeAction &&
     state.player.alive;
 
@@ -2057,6 +2111,13 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
   if (state.player.alive) {
     applyHungerProgression(state, events);
   }
+
+  // Phase 12.3 poison trap: applies poison's per-tick damage once per
+  // successful player turn (poison_tick.processing_order's "飢餓処理後も
+  // HPが1以上の場合だけpoisonダメージを1回適用する"), after hunger/
+  // starvation above but before playerDefeated is confirmed below — see
+  // applyPoisonTick's own doc comment for the full ordering rationale.
+  applyPoisonTick(state, events, poisonTrapTriggeredThisAction);
 
   const playerDefeated = !state.player.alive;
   if (playerDefeated) {
@@ -2116,7 +2177,8 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
   const isBananaGrant = action.type === 'use_item' && action.itemId === 'banana' && consumed;
   const effectSkipIds: import('./types').EffectId[] = [];
   if (isBananaGrant) effectSkipIds.push('attack_up');
-  if (trapTriggeredThisAction) effectSkipIds.push('movement_slow');
+  if (slowTrapTriggeredThisAction) effectSkipIds.push('movement_slow');
+  if (poisonTrapTriggeredThisAction) effectSkipIds.push('poison');
   const expiredEffects = advanceEffectDurations(state, effectSkipIds);
   for (const effectId of expiredEffects) {
     events.push({ type: 'effect_expired', effectId });

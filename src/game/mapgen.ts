@@ -691,27 +691,56 @@ export function chooseGroundItemPosition(
 }
 
 /**
- * Chooses a single deterministic room-interior floor tile for the slow
- * trap (Phase 12.2), or `null` if no candidate satisfies every
- * constraint (fixed_specification.trap.placement's "条件を満たす候補が
- * ない場合だけ配置なしを許可し、理由を記録する" — this doc comment is
- * that record: this codebase has no runtime logging path for generation
- * decisions, so the "reason" a floor ends up with no trap is simply
- * "the constraints below left zero candidates on this particular
- * generated map", which the caller (state.ts's buildFloorState) accepts
- * by placing no trap that floor rather than retrying or throwing).
+ * The index into `rooms` whose rectangle contains `pos`, or -1 if `pos`
+ * lies outside every room (e.g. a corridor/doorway tile). Used by
+ * state.ts's poison_trap placement (Phase 12.3) to determine which room
+ * an already-placed slow_trap sits in, so poison_trap's "別の部屋を優先
+ * する" rule can exclude that one room from its first placement attempt.
+ */
+export function roomIndexContaining(rooms: Room[], pos: Vec2): number {
+  return rooms.findIndex(
+    (room) => pos.x >= room.x && pos.x < room.x + room.width && pos.y >= room.y && pos.y < room.y + room.height,
+  );
+}
+
+/**
+ * Chooses a single deterministic room-interior floor tile for a trap
+ * (Phase 12.2 slow_trap, reused by Phase 12.3 poison_trap), or `null` if
+ * no candidate satisfies every constraint (fixed_specification.trap.
+ * placement's "条件を満たす候補がない場合だけ配置なしを許可し、理由を記録
+ * する" — this doc comment is that record: this codebase has no runtime
+ * logging path for generation decisions, so the "reason" a floor ends up
+ * with no trap is simply "the constraints below left zero candidates on
+ * this particular generated map", which the caller (state.ts's
+ * buildFloorState) accepts by placing no trap that floor rather than
+ * retrying or throwing).
  *
  * Restricted to `rooms` rectangles only (never corridors/doorways — see
  * doorway-rule.test.ts's finding that doorway tiles always lie strictly
  * outside a room's own rectangle, so scanning only room interiors
  * automatically excludes every corridor and doorway tile without needing
  * a separate corridor-detection pass), excluding every tile in `exclude`
- * (start/exit/every enemy position/every already-placed ground item, by
- * convention matching chooseGroundItemPosition's caller), at least 4
- * tiles (Manhattan) from `start` and at least 2 tiles (Manhattan) from
- * `exit`. Candidates are gathered in a fixed order (rooms in `rooms`'
- * existing deterministic order, then row-major within each room) so the
- * single rng() draw among them stays reproducible for a given seed.
+ * (start/exit/every enemy position/every already-placed ground item/every
+ * already-placed trap, by convention matching chooseGroundItemPosition's
+ * caller), at least 4 tiles (Manhattan) from `start` and at least 2 tiles
+ * (Manhattan) from `exit`.
+ *
+ * `minDistanceFrom` (Phase 12.3 addition, optional): when given, also
+ * requires each candidate be at least `minDistanceFrom.distance` tiles
+ * (Manhattan) from `minDistanceFrom.pos` — used by poison_trap's same-
+ * room fallback ("同じ部屋の場合はslow_trapからマンハッタン距離3以上離
+ * す") when placing it in the same room as an already-placed slow_trap.
+ * Omitted entirely for slow_trap's own placement and for poison_trap's
+ * separate-room attempt, where it's meaningless.
+ *
+ * Candidates are gathered in a fixed order (rooms in `rooms`' existing
+ * deterministic order, then row-major within each room) so the single
+ * rng() draw among them stays reproducible for a given seed. rng() is
+ * called at most once, and only when at least one candidate exists — a
+ * null result never consumes an rng draw, so callers making multiple
+ * attempts against the same rng stream (poison_trap's separate-room
+ * attempt followed by a same-room fallback) stay deterministic based
+ * purely on candidate availability.
  */
 export function chooseTrapPosition(
   map: GameMap,
@@ -720,6 +749,7 @@ export function chooseTrapPosition(
   exit: Vec2,
   exclude: Vec2[],
   rng: () => number,
+  minDistanceFrom?: { pos: Vec2; distance: number },
 ): Vec2 | null {
   const key = (p: Vec2) => `${p.x},${p.y}`;
   const excluded = new Set(exclude.map(key));
@@ -735,6 +765,11 @@ export function chooseTrapPosition(
         if (manhattanFromStart < 4) continue;
         const manhattanFromExit = Math.abs(x - exit.x) + Math.abs(y - exit.y);
         if (manhattanFromExit < 2) continue;
+        if (minDistanceFrom) {
+          const manhattanFromOther =
+            Math.abs(x - minDistanceFrom.pos.x) + Math.abs(y - minDistanceFrom.pos.y);
+          if (manhattanFromOther < minDistanceFrom.distance) continue;
+        }
         candidates.push(pos);
       }
     }
