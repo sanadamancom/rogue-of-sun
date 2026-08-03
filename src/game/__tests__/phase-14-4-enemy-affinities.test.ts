@@ -404,12 +404,16 @@ describe('Phase 14.4: events, log, and telemetry integration', () => {
   });
 
   it('message log renders a weak hit using the existing shared wording', async () => {
+    // Phase 14.5 note: weak hits now get dedicated wording (message-log's
+    // weak/neutral/resist differentiation, deferred since Phase 14.1/
+    // 14.3); this asserts that updated text instead of the older shared
+    // "宿った" phrasing every affinity used before Phase 14.5.
     const { formatEvent } = await import('../message-log');
     const { result } = attack({}, 'sword', 'flame', 'mummy');
     const ev = result.events.find((e) => e.type === 'element_enchantment_used');
     expect(ev).toBeDefined();
     if (ev) {
-      expect(formatEvent(ev)).toBe('フレイムの力が攻撃に宿った。');
+      expect(formatEvent(ev)).toBe('フレイムの力が弱点を突いた！');
     }
   });
 

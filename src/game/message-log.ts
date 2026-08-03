@@ -181,14 +181,24 @@ export function formatEvent(event: GameEvent): string {
         ? 'エンチャントを解除した。'
         : `エンチャントを${ELEMENT_DISPLAY_NAMES[event.selected]}に切り替えた。`;
     case 'sol_enchantment_used':
+      // Phase 14.5: differentiates weak/neutral/resist so a player can
+      // tell a weak hit from a plain neutral one during playtesting —
+      // deferred from Phase 14.1/14.3 (event.affinity has existed on
+      // this payload since Phase 14.1, this just finally reads it here).
+      if (event.affinity === 'weak') return 'ソルの力が弱点を突いた！';
+      if (event.affinity === 'resist') return 'ソルの力が軽減された。';
       return 'ソルの力が攻撃に宿った。';
-    case 'element_enchantment_used':
-      // Phase 14.3: minimal shared display for flame/frost/cloud/earth,
-      // matching sol's existing wording pattern. weak/resist-specific
-      // phrasing and damage-breakdown display are deferred to Phase
-      // 14.5 (message_log's "weak、resistの専用文言はPhase 14.5へ持ち越
-      // す").
-      return `${ELEMENT_DISPLAY_NAMES[event.element]}の力が攻撃に宿った。`;
+    case 'element_enchantment_used': {
+      // Phase 14.5: same weak/neutral/resist differentiation as sol
+      // above, generalized to the other four elements via
+      // ELEMENT_DISPLAY_NAMES. Detailed numeric damage-breakdown display
+      // remains deferred (fixed_specification's "ダメージ内訳の詳細表示
+      // はPhase 14.5へ持ち越す" — this is wording only, no numbers).
+      const name = ELEMENT_DISPLAY_NAMES[event.element];
+      if (event.affinity === 'weak') return `${name}の力が弱点を突いた！`;
+      if (event.affinity === 'resist') return `${name}の力が軽減された。`;
+      return `${name}の力が攻撃に宿った。`;
+    }
     case 'effect_granted': {
       // Phase 12.2/12.3: movement_slow's and poison's grant messages are
       // fixed wording (fixed_specification.messages.applied for each

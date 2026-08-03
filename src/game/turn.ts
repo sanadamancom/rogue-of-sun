@@ -61,7 +61,7 @@ const ELEMENT_ENCHANT_ELIGIBLE_WEAPONS: WeaponId[] = ['sword', 'spear', 'hammer'
  * relative costs, per confirmed_combat_spec.sol_cost. Single source of
  * truth: no per-element cost is hardcoded anywhere else.
  */
-const ELEMENT_ENCHANTMENT_SOL_COST: Record<ElementId, number> = {
+export const ELEMENT_ENCHANTMENT_SOL_COST: Record<ElementId, number> = {
   sol: 1,
   flame: 2,
   frost: 2,

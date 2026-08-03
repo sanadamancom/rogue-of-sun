@@ -34,3 +34,12 @@ export const ELEMENT_GLYPHS: Record<ElementId, string> = {
   cloud: '☁️',
   earth: '🪨',
 };
+
+/**
+ * All five ElementIds in a fixed, stable order (Phase 14.5 playtest
+ * readiness). Single source of truth for any UI code that needs to
+ * iterate every element (e.g. main.ts's unlocked-elements HUD list) —
+ * matches turn.ts's ENCHANTMENT_CYCLE_ORDER's element ordering (minus
+ * 'none').
+ */
+export const ALL_ELEMENT_IDS: ElementId[] = ['sol', 'flame', 'frost', 'cloud', 'earth'];

@@ -3,7 +3,7 @@ import { toDirection4 } from './game/direction';
 import { actionForKey } from './game/input';
 import { ENEMY_DEFINITIONS } from './game/enemy-def';
 import { ITEM_DEFINITIONS } from './game/item-def';
-import { ELEMENT_DISPLAY_NAMES } from './game/element-def';
+import { ELEMENT_DISPLAY_NAMES, ALL_ELEMENT_IDS } from './game/element-def';
 import { ARMOR_DEFINITIONS } from './game/armor-def';
 import { WEAPON_DEFINITIONS } from './game/weapon-def';
 import {
@@ -48,7 +48,7 @@ import {
   toggleAbilityOverlay,
 } from './game/ability';
 import { EFFECT_DEFINITIONS, getActiveEffects } from './game/effects';
-import { processTurn, TurnResult } from './game/turn';
+import { processTurn, TurnResult, ELEMENT_ENCHANTMENT_SOL_COST } from './game/turn';
 import { DIRECTION_VECTORS, EnemyType, GameState } from './game/types';
 
 // Latest 3 lines only, per message_lifecycle: newest at the bottom, oldest
@@ -293,27 +293,44 @@ class MainScene extends Phaser.Scene {
    * scroll, expand button, icons, or color-coding per ui.requirements.
    */
   /**
-   * HUD text for the current enchantment state (Phase 10.1). Distinguishes
-   * "not yet unlocked" from "unlocked but off" from "sol active" from "sol
-   * selected but SOL currently empty" per ui.hud.required — the selection
-   * itself is never hidden or reset just because SOL happens to be 0.
-   */
-  /**
    * HUD text for the current enchantment state (Phase 10.1 sol-only;
-   * Phase 14.2 extends to all five elements). Distinguishes "not yet
-   * unlocked" from "unlocked but off" from "an element is active" from
-   * "sol selected but SOL currently empty" per ui.hud.required — the
+   * Phase 14.2 extends to all five elements; Phase 14.5 generalizes the
+   * insufficient-SOL indicator from sol-only to whichever element is
+   * selected, using ELEMENT_ENCHANTMENT_SOL_COST — turn.ts's single
+   * source of truth for per-element SOL cost — so the check never
+   * repeats or hardcodes a cost). Distinguishes "not yet unlocked" from
+   * "unlocked but off" from "an element is active" from "selected but
+   * SOL currently too low to activate" per ui.hud.required — the
    * selection itself is never hidden or reset just because SOL happens
-   * to be 0. "not yet unlocked" now checks every element (Phase 14.2),
-   * not just solUnlocked, since flame/frost/cloud/earth can each be
-   * unlocked (and selected) independently of sol.
+   * to be insufficient. "not yet unlocked" checks every element (Phase
+   * 14.2), not just solUnlocked, since flame/frost/cloud/earth can each
+   * be unlocked (and selected) independently of sol.
    */
   private enchantHudLabel(): string {
     const anyUnlocked = Object.values(this.state.unlockedEnchantments).some((u) => u);
     if (!anyUnlocked) return 'ENCHANT：未取得';
     if (this.state.selectedEnchantment === 'none') return 'ENCHANT：なし';
-    if (this.state.selectedEnchantment === 'sol' && this.state.solarEnergy <= 0) return 'ENCHANT：ソル（SOL不足）';
+    if (this.state.solarEnergy < ELEMENT_ENCHANTMENT_SOL_COST[this.state.selectedEnchantment]) {
+      return `ENCHANT：${ELEMENT_DISPLAY_NAMES[this.state.selectedEnchantment]}（SOL不足）`;
+    }
     return `ENCHANT：${ELEMENT_DISPLAY_NAMES[this.state.selectedEnchantment]}`;
+  }
+
+  /**
+   * Compact list of which elements are currently unlocked (Phase 14.5:
+   * ui.visible_information's "各属性の未解禁と解禁済みを判別できる" —
+   * enchantHudLabel above only ever shows the one currently *selected*
+   * element, so without this a player has no way to see which other
+   * elements they've already unlocked and could switch to with 'F').
+   * Deliberately minimal: a plain name list, no icons/highlighting,
+   * matching the rest of the text HUD's style. Returns '未解禁' with
+   * none listed rather than an empty string, so the HUD line never goes
+   * silently blank.
+   */
+  private unlockedElementsHudLabel(): string {
+    const unlocked = ALL_ELEMENT_IDS.filter((id) => this.state.unlockedEnchantments[id]);
+    if (unlocked.length === 0) return '解禁：未解禁';
+    return `解禁：${unlocked.map((id) => ELEMENT_DISPLAY_NAMES[id]).join('・')}`;
   }
 
   /**
@@ -1635,9 +1652,10 @@ class MainScene extends Phaser.Scene {
     const expLabel = level >= LEVEL_CAP ? 'MAX' : `${getExperience(this.state)}/${getExperienceRequirement(level)}`;
     const progressionLabel = `LV ${level}  EXP ${expLabel}  能力P ${getUnspentAbilityPoints(this.state)}`;
     this.hudText.setText(
-      `FLOOR ${this.state.floor}/${this.state.totalFloors}   HP: ${player.hp}/${player.maxHp}   SOL ${this.state.solarEnergy} / ${this.state.maxSolarEnergy}   満腹度 ${hungerLabel}   ${progressionLabel}   ${this.enchantHudLabel()}${this.effectsHudLabel()}   Turn: ${this.state.turn}\n` +
+      `FLOOR ${this.state.floor}/${this.state.totalFloors}   HP: ${player.hp}/${player.maxHp}   SOL ${this.state.solarEnergy} / ${this.state.maxSolarEnergy}   満腹度 ${hungerLabel}   ${progressionLabel}   ${this.enchantHudLabel()}   ${this.unlockedElementsHudLabel()}${this.effectsHudLabel()}   Turn: ${this.state.turn}\n` +
         `Run Seed: ${this.state.runSeed}   Floor Seed: ${this.state.seed}\n` +
-        `移動:方向キー  Shift+方向:向き変更  X:攻撃  Space：待機／日向でチャージ  F:エンチャント切替  Tab:インベントリ`,
+        `移動:方向キー  Shift+方向:向き変更  X:攻撃  Space：待機／日向でチャージ  F:エンチャント切替  Tab:インベントリ\n` +
+        `エンチャントは足元の専用アイテムを踏むと解禁されます。Fで解禁済みの属性を切り替え、命中時にSOLを消費して発動します。`,
     );
 
     if (this.state.phase === 'gameover') {
