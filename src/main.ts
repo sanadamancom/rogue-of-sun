@@ -1,6 +1,5 @@
 import Phaser from 'phaser';
 import { toDirection4 } from './game/direction';
-import { actionForKey } from './game/input';
 import { ENEMY_DEFINITIONS } from './game/enemy-def';
 import { ITEM_DEFINITIONS } from './game/item-def';
 import { ELEMENT_DISPLAY_NAMES, ALL_ELEMENT_IDS } from './game/element-def';
@@ -49,17 +48,72 @@ import {
 } from './game/ability';
 import { EFFECT_DEFINITIONS, getActiveEffects } from './game/effects';
 import { processTurn, TurnResult, ELEMENT_ENCHANTMENT_SOL_COST } from './game/turn';
-import { DIRECTION_VECTORS, EnemyType, GameState } from './game/types';
+import { DIRECTION_VECTORS, EnemyType, GameState, Direction8 } from './game/types';
+import { CAMERA_VIEW_WIDTH, CAMERA_VIEW_HEIGHT, computeCameraWindow, isWithinCameraWindow } from './game/camera';
+import { canTakeDashStep, shouldStopDashAfterStep } from './game/dash';
+import {
+  routeKeyDown,
+  InputContext,
+  isTurnOnlyModifierKey,
+  directionForKey,
+  createRepeatTimer,
+  startRepeat,
+  stopRepeat,
+  tickRepeat,
+  RepeatTimer,
+} from './game/input-router';
+import { roomIndexContaining } from './game/mapgen';
 
-// Latest 3 lines only, per message_lifecycle: newest at the bottom, oldest
-// pushed out once over capacity.
-const MESSAGE_LOG_CAPACITY = 3;
+// Phase 14.5 spec 5.2: 2 lines by default (was 3). Newest at the bottom,
+// oldest pushed out once over capacity; overflow history is available via
+// the new 記録 (records) menu screen instead of being shown inline.
+const MESSAGE_LOG_CAPACITY = 2;
 
 const TILE_SIZE = 48;
-// Fixed viewport smaller than the full 40x30 map so the camera can follow
-// the player instead of shrinking the whole map into view.
-const VIEWPORT_TILES_WIDE = 16;
-const VIEWPORT_TILES_HIGH = 12;
+// Phase 14.5 UI/input overhaul: fixed logical resolution, not dynamically
+// recomputed per window size (per the redesign direction — "TILE_SIZEその
+// ものを画面サイズに応じて動的変更することを前提にしない"). The 9x7 field
+// size is camera.ts's single source of truth (CAMERA_VIEW_WIDTH/HEIGHT);
+// VIEWPORT_TILES_WIDE/HIGH below are aliases so the many existing call
+// sites that already reference these names keep working unchanged.
+const VIEWPORT_TILES_WIDE = CAMERA_VIEW_WIDTH;
+const VIEWPORT_TILES_HIGH = CAMERA_VIEW_HEIGHT;
+const FIELD_PIXEL_WIDTH = VIEWPORT_TILES_WIDE * TILE_SIZE;
+const FIELD_PIXEL_HEIGHT = VIEWPORT_TILES_HIGH * TILE_SIZE;
+// One HUD line (spec 5.1) and two message lines (spec 5.2), each as a
+// fixed-height screen strip outside the field viewport (spec 5's "HUDと
+// メッセージウィンドウは、フィールドを覆わない独立領域とする").
+const HUD_HEIGHT = 30;
+const MESSAGE_HEIGHT = 68;
+const LOGICAL_WIDTH = FIELD_PIXEL_WIDTH;
+const LOGICAL_HEIGHT = HUD_HEIGHT + FIELD_PIXEL_HEIGHT + MESSAGE_HEIGHT;
+
+/**
+ * Phase 14.5 UI/input overhaul color tokens (spec section 8): a single
+ * source of truth so no screen hardcodes a near-duplicate hex value.
+ * Structure follows SFC-Shiren, palette/mood follows Bokura no Taiyou
+ * per the spec's "構造はシレン型、配色はボクタイ型" — these are original
+ * hex values chosen to match the *description* in spec section 8 (ivory
+ * panel / deep red-brown border / ochre-to-pale-orange inner line / dark
+ * brown text / muted red-brown heading / sun-yellow SOL / etc.), not
+ * colors sampled from any reference image (spec 3.3's "参照作品の画像、
+ * 枠、フォント、アイコン、装飾の直接流用" is excluded).
+ */
+const COLORS = {
+  panelBg: 0xf5ecd7,
+  panelBgAlpha: 0.94,
+  borderOuter: 0x7a2e1d,
+  borderInner: 0xd9a441,
+  textNormal: 0x3b2a1a,
+  textHeading: 0x9a4630,
+  textDisabled: 0x8a7a68,
+  selectionBg: 0x7a2e1d,
+  selectionText: 0xf5ecd7,
+  hp: 0x3f9142,
+  sol: 0xf2b705,
+  hunger: 0xd98324,
+  danger: 0xc0392b,
+} as const;
 
 // Sprite sheet layout (shared by player.png and bok_lv1.png):
 // 3 columns (frames) x 4 rows (directions), each cell 24x32 px in the
@@ -164,25 +218,117 @@ class MainScene extends Phaser.Scene {
   private hudText!: Phaser.GameObjects.Text;
   private messageText!: Phaser.GameObjects.Text;
   private readonly messageLog = new MessageLog(MESSAGE_LOG_CAPACITY);
+  /**
+   * Uncapped-in-practice (soft-capped at MESSAGE_HISTORY_LIMIT) scene-local
+   * history of every line ever pushed to messageLog, for the 記録
+   * (records) menu screen's message history (spec 5.2's "一度に表示しき
+   * れない履歴は「記録」から確認可能にする" / 9.7's message history
+   * item). Never part of GameState or telemetry — purely a UI
+   * convenience, reset alongside messageLog.clear() at every floor
+   * change/restart (see pushMessage/pushMessages/clearMessages below,
+   * the only way messageLog is ever touched).
+   */
+  private messageHistory: string[] = [];
+  private readonly MESSAGE_HISTORY_LIMIT = 300;
+
+  private pushMessage(line: string): void {
+    this.messageLog.push(line);
+    this.messageHistory.push(line);
+    if (this.messageHistory.length > this.MESSAGE_HISTORY_LIMIT) {
+      this.messageHistory = this.messageHistory.slice(this.messageHistory.length - this.MESSAGE_HISTORY_LIMIT);
+    }
+  }
+  private pushMessages(lines: string[]): void {
+    for (const line of lines) this.pushMessage(line);
+  }
+  private clearMessages(): void {
+    this.clearMessages();
+    this.messageHistory = [];
+  }
   private logPanelBg!: Phaser.GameObjects.Graphics;
   private logPanelText!: Phaser.GameObjects.Text;
-  // Phase 08.2: ground-item glyphs (plain emoji text, no image asset) and
-  // the Tab-toggled inventory overlay.
+  // Phase 08.2: ground-item glyphs (plain emoji text, no image asset).
   private groundItemTexts: Phaser.GameObjects.Text[] = [];
   // Phase 08.6: minimal 8-direction facing marker (a small dot offset from
   // the player's tile center toward player.facing), since the player
   // sprite itself only distinguishes 4 directions (see toDirection4). No
   // new image asset — plain Graphics, same rule for all 8 directions.
   private facingMarker!: Phaser.GameObjects.Graphics;
-  private inventoryOverlayBg!: Phaser.GameObjects.Graphics;
-  private inventoryOverlayText!: Phaser.GameObjects.Text;
-  // Phase 13.2 ability point allocation overlay (P): same screen-fixed
-  // Graphics+Text pattern as the inventory overlay above, its own layer
-  // so the two never visually collide (mutual_exclusion means they never
-  // show at the same time anyway, but each still owns independent
-  // GameObjects, matching every other overlay in this file).
-  private abilityOverlayBg!: Phaser.GameObjects.Graphics;
-  private abilityOverlayText!: Phaser.GameObjects.Text;
+  // Phase 14.5: the old Tab-toggled inventory overlay and P-toggled
+  // ability overlay (their own dedicated Graphics+Text pairs) are
+  // replaced by the unified small-window menu system below
+  // (menuOverlayBg/Text + menuDetailBg/Text) — see createMenuOverlay.
+
+  // ----- Phase 14.5 UI/input overhaul additions -----
+
+  /**
+   * Second Phaser camera covering the full logical canvas, used for
+   * every screen-fixed UI element (HUD strip, message strip, minimap,
+   * every menu window). `this.cameras.main` ("the world camera") is
+   * instead clipped to just the field sub-rectangle via setViewport and
+   * follows the player with bounds clamping — the existing 9x7-window
+   * behavior the spec asks for. Each camera `.ignore()`s the other's
+   * objects (see ignoreForWorldCamera/ignoreForUiCamera below) so
+   * nothing is drawn twice and UI never scrolls with the world (redesign
+   * direction's "HUDやメニューはworld cameraのscrollに追従させない" /
+   * "二重表示されないようignore設定...で分離する").
+   */
+  private uiCamera!: Phaser.Cameras.Scene2D.Camera;
+
+  private ignoreForUiCamera(obj: Phaser.GameObjects.GameObject | Phaser.GameObjects.GameObject[]): void {
+    this.uiCamera.ignore(obj);
+  }
+  private ignoreForWorldCamera(obj: Phaser.GameObjects.GameObject | Phaser.GameObjects.GameObject[]): void {
+    this.cameras.main.ignore(obj);
+  }
+
+  /**
+   * Per-floor, scene-local "have I ever had this tile inside the 9x7
+   * camera window" record (Phase 14.5 spec section 7's persistent
+   * explored-map). Deliberately NOT part of GameState: it never affects
+   * gameplay, RNG, seeds, or telemetry (redesign direction's
+   * "gameplay、seed、telemetry、GameStateへ影響させない") — purely a
+   * rendering aid, reset whenever the floor changes or the run restarts.
+   * Sized to the current floor's map on each reset.
+   */
+  private exploredTiles: boolean[][] = [];
+  private minimapGraphics!: Phaser.GameObjects.Graphics;
+
+  private resetExploredTiles(): void {
+    const { width, height } = this.state.map;
+    this.exploredTiles = Array.from({ length: height }, () => new Array<boolean>(width).fill(false));
+  }
+
+  /** Marks every tile inside the current camera window as explored. */
+  private markCameraWindowExplored(): void {
+    const window = computeCameraWindow(this.state.player.pos, this.state.map.width, this.state.map.height);
+    for (let y = window.y0; y < window.y0 + window.height; y++) {
+      for (let x = window.x0; x < window.x0 + window.width; x++) {
+        if (this.exploredTiles[y]) this.exploredTiles[y][x] = true;
+      }
+    }
+  }
+
+  // ----- Phase 14.5 input: dash / long-press repeat / F(turn-only) held state -----
+
+  private fHeld = false;
+  private moveRepeat: RepeatTimer = createRepeatTimer();
+  private waitRepeat: RepeatTimer = createRepeatTimer();
+  /** Direction currently being dashed (Shift held), or null when not dashing. */
+  private dashDirection: Direction8 | null = null;
+  private dashRepeat: RepeatTimer = createRepeatTimer();
+
+  // ----- Phase 14.5 SFC-style small-window menu -----
+
+  private menuScreen: 'closed' | 'root' | 'items' | 'item_actions' | 'ability' | 'status' | 'records' | 'other' | 'help' | 'confirm_quit' = 'closed';
+  private menuRootIndex = 0;
+  private itemActionIndex = 0;
+  private otherIndex = 0;
+  private confirmQuitIndex = 0; // 0 = cancel (default), 1 = confirm
+  private menuOverlayBg!: Phaser.GameObjects.Graphics;
+  private menuOverlayText!: Phaser.GameObjects.Text;
+  private menuDetailBg!: Phaser.GameObjects.Graphics;
+  private menuDetailText!: Phaser.GameObjects.Text;
 
   constructor() {
     super('main');
@@ -222,10 +368,6 @@ class MainScene extends Phaser.Scene {
     this.drawTraps();
     this.drawGroundItems();
 
-    const mapPixelWidth = this.state.map.width * TILE_SIZE;
-    const mapPixelHeight = this.state.map.height * TILE_SIZE;
-    this.cameras.main.setBounds(0, 0, mapPixelWidth, mapPixelHeight);
-
     this.playerSprite = this.add.sprite(0, 0, 'player', idleFrame('S'));
     this.facingMarker = this.add.graphics();
     this.playerSprite.setScale(SPRITE_SCALE_X, SPRITE_SCALE_Y);
@@ -243,17 +385,17 @@ class MainScene extends Phaser.Scene {
     this.telegraphMarkerGraphics = this.add.graphics();
 
     this.hudText = this.add
-      .text(8, 8, '', {
+      .text(8, 6, '', {
         fontFamily: 'monospace',
-        fontSize: '16px',
-        color: '#ffffff',
+        fontSize: '15px',
+        color: '#3b2a1a',
       })
       .setScrollFactor(0);
 
     this.messageText = this.add
-      .text(this.scale.width / 2, this.scale.height / 2, '', {
+      .text(LOGICAL_WIDTH / 2, HUD_HEIGHT + FIELD_PIXEL_HEIGHT / 2, '', {
         fontFamily: 'monospace',
-        fontSize: '28px',
+        fontSize: '20px',
         color: '#ffffff',
         backgroundColor: '#000000cc',
         padding: { x: 12, y: 8 },
@@ -264,22 +406,111 @@ class MainScene extends Phaser.Scene {
       .setVisible(false);
 
     this.createLogPanel();
-    this.createInventoryOverlay();
-    this.createAbilityOverlay();
+    this.createMenuOverlay();
     this.createEndScreenOverlay();
 
+    // Phase 14.5 minimap: a screen-fixed (scrollFactor 0) Graphics layer
+    // sized to exactly the field viewport, drawn by the world camera
+    // (see the ignore-partitioning below) so it visually sits inside the
+    // 9x7 field without panning with it.
+    this.minimapGraphics = this.add.graphics().setScrollFactor(0).setDepth(50);
+
+    // ----- Phase 14.5: two-camera split (world vs UI) -----
+    // this.cameras.main ("world camera") is clipped to just the field
+    // sub-rectangle and follows the player with bounds clamping — the
+    // existing Phaser camera-follow system already does exactly the
+    // "center on player, clamp at map edges" behavior spec 6.1 asks for,
+    // so no per-frame manual coordinate math is needed for it (camera.ts's
+    // computeCameraWindow is used only for the explored-map bookkeeping
+    // and stays the single source of truth for what "9x7" means).
+    const mapPixelWidth = this.state.map.width * TILE_SIZE;
+    const mapPixelHeight = this.state.map.height * TILE_SIZE;
+    this.cameras.main.setViewport(0, HUD_HEIGHT, FIELD_PIXEL_WIDTH, FIELD_PIXEL_HEIGHT);
+    this.cameras.main.setBounds(0, 0, mapPixelWidth, mapPixelHeight);
+    this.cameras.main.startFollow(this.playerSprite, true, 1, 1);
+
+    // this.uiCamera covers the whole logical canvas and never scrolls —
+    // every screen-fixed UI element (HUD strip, message strip, minimap,
+    // every menu window) is drawn only by this camera, never by the
+    // (viewport-clipped, panning) world camera, so nothing renders twice
+    // and the UI never scrolls with the world.
+    this.uiCamera = this.cameras.add(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+    this.ignoreForWorldCamera([
+      this.hudText,
+      this.messageText,
+      this.logPanelBg,
+      this.logPanelText,
+      this.menuOverlayBg,
+      this.menuOverlayText,
+      this.menuDetailBg,
+      this.menuDetailText,
+    ]);
+    this.ignoreForUiCamera([
+      this.terrainGraphics,
+      this.exitGraphics,
+      this.webGraphics,
+      this.trapGraphics,
+      this.telegraphReticleGraphics,
+      this.telegraphMarkerGraphics,
+      this.playerSprite,
+      this.facingMarker,
+      this.minimapGraphics,
+      ...this.enemySprites,
+      ...this.groundItemTexts,
+    ]);
+
+    this.resetExploredTiles();
+    this.markCameraWindowExplored();
+
+    // ----- Phase 14.5: input-router-driven keyboard handling -----
+    // Tracks physical key-held state manually only for 'f' (turn-only
+    // modifier — not a real KeyboardEvent modifier flag like shift/ctrl,
+    // which are read directly from the event) and for the currently-
+    // dashing direction (Shift+direction), since both need to persist
+    // across multiple frames/keydown events rather than being decided
+    // once per keydown.
     this.input.keyboard!.on('keydown', (event: KeyboardEvent) => {
-      // Tab must never move browser focus off the canvas, and OS key-repeat
-      // from a held Tab must not toggle the overlay open/closed repeatedly
-      // (inventory_ui.open_close requirements).
+      // Tab/legacy shortcuts are dropped from the documented control
+      // scheme (spec 10.1's "Tabやpなどの画面別ショートカットはPhase
+      // 14.5の正式操作から外す"), but Tab must still never move browser
+      // focus off the canvas.
       if (event.key === 'Tab') {
         event.preventDefault();
-        if (event.repeat) return;
+        return;
       }
-      this.handleKey(event.key, event.shiftKey);
+      if (isTurnOnlyModifierKey(event.key)) {
+        this.fHeld = true;
+        return;
+      }
+      if (event.repeat) return; // OS key-repeat is never used; only our own repeat timers are (spec 11.1).
+      if (event.shiftKey && directionForKey(event.key) && this.state.phase === 'playing' && this.menuScreen === 'closed') {
+        // Starting (or redirecting) a dash — handled directly here rather
+        // than through routeKeyDown, since dash is a held/continuous
+        // action driven by update()'s tickDash, not a single keydown
+        // action. The initial step still comes from routeKeyDown's
+        // ordinary move handling below.
+        const dir = directionForKey(event.key);
+        if (dir) this.dashDirection = dir;
+      }
+      this.handleRoutedKey(event.key, event.shiftKey, event.ctrlKey);
     });
-
-    this.cameras.main.startFollow(this.playerSprite, true, 0.15, 0.15);
+    this.input.keyboard!.on('keyup', (event: KeyboardEvent) => {
+      if (isTurnOnlyModifierKey(event.key)) {
+        this.fHeld = false;
+        return;
+      }
+      if (event.key === 'Shift') {
+        this.dashDirection = null;
+        this.dashRepeat = stopRepeat();
+      }
+      const dir = directionForKey(event.key);
+      if (dir && this.moveRepeat.heldKey === dir) {
+        this.moveRepeat = stopRepeat();
+      }
+      if ((event.key === ' ' || event.key.toLowerCase() === 'space' || event.key === '5') && this.waitRepeat.heldKey === 'wait') {
+        this.waitRepeat = stopRepeat();
+      }
+    });
 
     this.refreshStaticView();
     this.snapActor(this.playerSprite, this.state.player);
@@ -372,24 +603,31 @@ class MainScene extends Phaser.Scene {
   }
 
   private readonly LOG_PANEL_PADDING = 6;
-  private readonly LOG_LINE_HEIGHT = 18;
+  private readonly LOG_LINE_HEIGHT = 20;
 
+  /**
+   * Phase 14.5: the message window is now a fixed bottom strip
+   * (LOGICAL_WIDTH x MESSAGE_HEIGHT, positioned right after the field)
+   * rather than an overlay floating on top of the field itself (spec 5's
+   * "HUDとメッセージウィンドウは、フィールドを覆わない独立領域とする").
+   * Screen-fixed, UI-camera-only (see ignoreForWorldCamera in create()).
+   */
   private createLogPanel(): void {
-    const panelHeight = MESSAGE_LOG_CAPACITY * this.LOG_LINE_HEIGHT + this.LOG_PANEL_PADDING * 2;
-    const panelY = this.scale.height - panelHeight;
+    const panelY = HUD_HEIGHT + FIELD_PIXEL_HEIGHT;
 
     this.logPanelBg = this.add.graphics().setScrollFactor(0);
-    this.logPanelBg.fillStyle(0x000000, 0.55);
-    this.logPanelBg.fillRect(0, panelY, this.scale.width, panelHeight);
-    this.logPanelBg.lineStyle(1, 0xffffff, 0.25);
-    this.logPanelBg.strokeRect(0, panelY, this.scale.width, panelHeight);
+    this.logPanelBg.fillStyle(COLORS.panelBg, COLORS.panelBgAlpha);
+    this.logPanelBg.fillRect(0, panelY, LOGICAL_WIDTH, MESSAGE_HEIGHT);
+    this.logPanelBg.lineStyle(2, COLORS.borderOuter, 1);
+    this.logPanelBg.strokeRect(1, panelY + 1, LOGICAL_WIDTH - 2, MESSAGE_HEIGHT - 2);
 
     this.logPanelText = this.add
       .text(this.LOG_PANEL_PADDING, panelY + this.LOG_PANEL_PADDING, '', {
         fontFamily: 'monospace',
         fontSize: '14px',
-        color: '#e8e8e8',
+        color: '#3b2a1a',
         lineSpacing: this.LOG_LINE_HEIGHT - 14,
+        wordWrap: { width: LOGICAL_WIDTH - this.LOG_PANEL_PADDING * 2 },
       })
       .setScrollFactor(0);
 
@@ -474,6 +712,12 @@ class MainScene extends Phaser.Scene {
       sprite.setScale(SPRITE_SCALE_X, SPRITE_SCALE_Y);
       return sprite;
     });
+    // uiCamera doesn't exist yet the very first time this runs (called
+    // from create() before the camera split is set up); the initial
+    // ignoreForUiCamera batch in create() covers that first roster
+    // instead. Every later call (floor change/restart) re-applies it here
+    // since these are brand-new GameObjects each time.
+    if (this.uiCamera) this.ignoreForUiCamera(this.enemySprites);
   }
 
   private snapAllEnemies(): void {
@@ -721,6 +965,58 @@ class MainScene extends Phaser.Scene {
         .text(cx, cy, glyph, { fontSize: `${Math.round(TILE_SIZE * 0.6)}px` })
         .setOrigin(0.5);
     });
+    if (this.uiCamera) this.ignoreForUiCamera(this.groundItemTexts);
+  }
+
+  /**
+   * Phase 14.5 spec section 7: the always-on, semi-transparent explored
+   * map. Drawn each refresh from this.exploredTiles (per-floor,
+   * scene-local — see resetExploredTiles/markCameraWindowExplored) plus
+   * whatever is *currently* inside the 9x7 camera window for
+   * enemies/items/the exit, since there is no pre-existing memory rule
+   * for those (spec 7.3's documented fallback: "既存ルールが未定義の場合、
+   * 現在見えている対象だけを表示し、画面外へ移動した敵の現在位置を追跡
+   * 表示しない"). Never reads or writes GameState — purely reads it.
+   */
+  private drawMinimap(): void {
+    const { map } = this.state;
+    const tileW = FIELD_PIXEL_WIDTH / map.width;
+    const tileH = FIELD_PIXEL_HEIGHT / map.height;
+    this.minimapGraphics.clear();
+
+    const camWindow = computeCameraWindow(this.state.player.pos, map.width, map.height, CAMERA_VIEW_WIDTH, CAMERA_VIEW_HEIGHT);
+
+    for (let y = 0; y < map.height; y++) {
+      const exploredRow = this.exploredTiles[y];
+      if (!exploredRow) continue;
+      for (let x = 0; x < map.width; x++) {
+        if (!exploredRow[x]) continue;
+        if (map.terrain[y][x] === 'wall') continue;
+        const inRoom = roomIndexContaining(map.rooms, { x, y }) !== -1;
+        this.minimapGraphics.fillStyle(0xffffff, inRoom ? 0.22 : 0.13);
+        this.minimapGraphics.fillRect(x * tileW, y * tileH, Math.ceil(tileW), Math.ceil(tileH));
+      }
+    }
+
+    if (this.exploredTiles[this.state.exit.y]?.[this.state.exit.x]) {
+      this.minimapGraphics.fillStyle(0xffe066, 0.9);
+      this.minimapGraphics.fillRect(this.state.exit.x * tileW, this.state.exit.y * tileH, Math.ceil(tileW), Math.ceil(tileH));
+    }
+
+    for (const enemy of this.state.enemies) {
+      if (!enemy.alive) continue;
+      if (!isWithinCameraWindow(enemy.pos, camWindow)) continue;
+      this.minimapGraphics.fillStyle(0xe05050, 0.95);
+      this.minimapGraphics.fillRect(enemy.pos.x * tileW, enemy.pos.y * tileH, Math.ceil(tileW), Math.ceil(tileH));
+    }
+    for (const item of this.state.groundItems) {
+      if (!isWithinCameraWindow(item.pos, camWindow)) continue;
+      this.minimapGraphics.fillStyle(0x66ccee, 0.95);
+      this.minimapGraphics.fillRect(item.pos.x * tileW, item.pos.y * tileH, Math.ceil(tileW), Math.ceil(tileH));
+    }
+
+    this.minimapGraphics.fillStyle(0xffffff, 1);
+    this.minimapGraphics.fillRect(this.state.player.pos.x * tileW, this.state.player.pos.y * tileH, Math.ceil(tileW), Math.ceil(tileH));
   }
 
   /**
@@ -754,52 +1050,42 @@ class MainScene extends Phaser.Scene {
    * new persistent HUD — this stays invisible except while the overlay is
    * shown.
    */
-  private createInventoryOverlay(): void {
-    this.inventoryOverlayBg = this.add.graphics().setScrollFactor(0).setDepth(200).setVisible(false);
-    this.inventoryOverlayText = this.add
+  // ----- Phase 14.5 SFC-style small-window menu (replaces the old
+  // Tab-toggled full-width inventory overlay and P-toggled ability
+  // overlay with a shared small-window system per spec section 9). The
+  // underlying GameState-backed selection/action functions
+  // (moveInventorySelection, selectedInventoryAction,
+  // useSelectedInventoryItem, moveAbilitySelection,
+  // openAbilityConfirm/resolveAbilityConfirm/etc.) are reused completely
+  // unchanged — only which physical keys reach them, and how the result
+  // is drawn, are new.
+
+  private readonly MENU_LIST_WIDTH = 190;
+  private readonly MENU_DETAIL_WIDTH = FIELD_PIXEL_WIDTH - 190 - 24;
+  private readonly MENU_PADDING = 10;
+  private readonly MENU_LINE_HEIGHT = 20;
+
+  private createMenuOverlay(): void {
+    this.menuOverlayBg = this.add.graphics().setScrollFactor(0).setDepth(220).setVisible(false);
+    this.menuOverlayText = this.add
+      .text(0, 0, '', { fontFamily: 'monospace', fontSize: '14px', color: '#3b2a1a', lineSpacing: this.MENU_LINE_HEIGHT - 14 })
+      .setScrollFactor(0)
+      .setDepth(221)
+      .setVisible(false);
+    this.menuDetailBg = this.add.graphics().setScrollFactor(0).setDepth(220).setVisible(false);
+    this.menuDetailText = this.add
       .text(0, 0, '', {
         fontFamily: 'monospace',
-        fontSize: '16px',
-        color: '#ffffff',
-        lineSpacing: 6,
+        fontSize: '13px',
+        color: '#3b2a1a',
+        lineSpacing: 5,
+        wordWrap: { width: this.MENU_DETAIL_WIDTH - this.MENU_PADDING * 2 },
       })
       .setScrollFactor(0)
-      .setDepth(201)
+      .setDepth(221)
       .setVisible(false);
   }
 
-  private readonly INVENTORY_OVERLAY_WIDTH = 300;
-  private readonly INVENTORY_OVERLAY_PADDING = 14;
-
-  /**
-   * Creates the P-toggled ability allocation overlay's graphics/text
-   * objects (Phase 13.2), following createInventoryOverlay's exact
-   * pattern: a screen-fixed panel, hidden until opened, depth just above
-   * the inventory overlay's own layer (never shown simultaneously per
-   * overlay.mutual_exclusion, but kept on a distinct depth regardless).
-   */
-  private createAbilityOverlay(): void {
-    this.abilityOverlayBg = this.add.graphics().setScrollFactor(0).setDepth(210).setVisible(false);
-    this.abilityOverlayText = this.add
-      .text(0, 0, '', {
-        fontFamily: 'monospace',
-        fontSize: '16px',
-        color: '#ffffff',
-        lineSpacing: 6,
-      })
-      .setScrollFactor(0)
-      .setDepth(211)
-      .setVisible(false);
-  }
-
-  private readonly ABILITY_OVERLAY_WIDTH = 320;
-  private readonly ABILITY_OVERLAY_PADDING = 14;
-
-  // -----------------------------------------------------------------
-  // End-screen report and JSON export (Phase 10.3.1)
-  // -----------------------------------------------------------------
-
-  /** Builds the (initially hidden) DOM overlay once; content is filled in by showEndScreen. */
   private createEndScreenOverlay(): void {
     const overlay = document.createElement('div');
     overlay.style.position = 'fixed';
@@ -942,158 +1228,7 @@ class MainScene extends Phaser.Scene {
     }
   }
 
-  /**
-   * Redraws the inventory overlay from the current state: hidden entirely
-   * when closed; when open, shows the glyph/name/count of every item with
-   * a positive count (inventory_ui.display), a ">" marker on the selected
-   * entry, an empty-inventory message when there is nothing to show, and
-   * the fixed control legend. Called after every state change that could
-   * affect it (open/close, selection move, pickup, use, floor/restart).
-   */
-  private refreshInventoryOverlay(): void {
-    const open = this.state.inventoryOpen;
-    this.inventoryOverlayBg.setVisible(open);
-    this.inventoryOverlayText.setVisible(open);
-    if (!open) return;
 
-    const entries = inventoryEntries(this.state);
-    const current = totalInventoryCount(this.state);
-    const lines: string[] = ['インベントリ', `${current} / ${INVENTORY_CAPACITY}`, ''];
-    if (entries.length === 0) {
-      lines.push('アイテムを持っていない');
-    } else {
-      entries.forEach((entry, i) => {
-        const def = ITEM_DEFINITIONS[entry.itemId];
-        const marker = i === this.state.selectedItemIndex ? '> ' : '  ';
-        // Weapons/armor (Phase 08.3/08.4) show equip status instead of a
-        // stack count (a count would misleadingly imply consumption);
-        // consumables (apple) keep the existing x{count} display.
-        let suffix: string;
-        if (def.category === 'weapon') {
-          const weaponDef = WEAPON_DEFINITIONS[entry.itemId as 'sword' | 'spear' | 'hammer'];
-          const equipped = this.state.equippedWeaponId === entry.itemId;
-          const status = equipped ? '装備中' : '未装備';
-          // Phase 08.7: while the equipped hammer is recovering, surface
-          // that in the same equip-status text rather than a separate
-          // persistent HUD element.
-          const recoilNote = equipped && entry.itemId === 'hammer' && this.state.hammerRecovery ? ' 反動中' : '';
-          suffix = `（${status}${recoilNote} 攻撃${weaponDef.attackPower}・射程${weaponDef.reach}）`;
-        } else if (def.category === 'armor') {
-          const armorValue = ARMOR_DEFINITIONS[entry.itemId as 'armor'].armorValue;
-          const status = this.state.equippedArmorId === entry.itemId ? '装備中' : '未装備';
-          suffix = `（${status} 防御${armorValue}）`;
-        } else {
-          suffix = `x${entry.count}`;
-        }
-        lines.push(`${marker}${def.glyph} ${def.displayName} ${suffix}`);
-      });
-    }
-    lines.push('');
-
-    // Phase 11.2:捨てる confirmation replaces the normal control legend
-    // while pending, and blocks the normal navigate/use/place/discard
-    // keys (see handleInventoryKey) so no other menu action can fire
-    // mid-confirmation.
-    const confirmId = this.state.discardConfirmItemId;
-    if (confirmId) {
-      const name = ITEM_DEFINITIONS[confirmId].displayName;
-      lines.push(`${name}を1個捨てますか？`);
-      lines.push('Y:はい  N/Esc:いいえ');
-    } else {
-      lines.push('Tab/Esc:閉じる  ↑↓:選択  Enter:使用/装備  P:置く  X:捨てる');
-    }
-
-    const width = this.INVENTORY_OVERLAY_WIDTH;
-    const lineHeight = 22;
-    const height = lines.length * lineHeight + this.INVENTORY_OVERLAY_PADDING * 2;
-    const x = (this.scale.width - width) / 2;
-    const y = (this.scale.height - height) / 2;
-
-    this.inventoryOverlayBg.clear();
-    this.inventoryOverlayBg.fillStyle(0x000000, 0.85);
-    this.inventoryOverlayBg.fillRect(x, y, width, height);
-    this.inventoryOverlayBg.lineStyle(2, 0xffffff, 0.6);
-    this.inventoryOverlayBg.strokeRect(x, y, width, height);
-
-    this.inventoryOverlayText.setPosition(
-      x + this.INVENTORY_OVERLAY_PADDING,
-      y + this.INVENTORY_OVERLAY_PADDING,
-    );
-    this.inventoryOverlayText.setText(lines.join('\n'));
-  }
-
-  /**
-   * Redraws the ability allocation overlay from the current state (Phase
-   * 13.2): hidden entirely when closed; when open, shows the current
-   * unspent ability point count, all 4 abilities with their current
-   * values (a ">" marker on the selected row, a disabled marker on every
-   * row when there are 0 points, per overlay.disabled_state), the
-   * "Phase 13.3で実装予定" notice, and either the normal control legend or
-   * the confirmation prompt/choice when a confirmation is pending. Called
-   * after every state change that could affect it (open/close, selection
-   * move, confirm open/cancel/resolve, floor/restart).
-   */
-  private refreshAbilityOverlay(): void {
-    const open = this.state.abilityOverlayOpen ?? false;
-    this.abilityOverlayBg.setVisible(open);
-    this.abilityOverlayText.setVisible(open);
-    if (!open) return;
-
-    const points = getUnspentAbilityPoints(this.state);
-    const abilities = getAbilities(this.state);
-    const selectedIndex = this.state.selectedAbilityIndex ?? 0;
-    const pending = this.state.abilityConfirmPending;
-
-    const lines: string[] = ['能力割り振り', `能力ポイント：${points}`, ''];
-
-    ABILITY_IDS.forEach((id, i) => {
-      const marker = !pending && i === selectedIndex ? '> ' : '  ';
-      const disabledNote = points < 1 ? '（割り振り不可）' : '';
-      lines.push(`${marker}${ABILITY_DISPLAY_NAMES[id]}　${abilities[id]}${disabledNote}`);
-      // Phase 13.3c: each ability's actual effect and its value after the
-      // next rank (or "（上限）" once ABILITY_RANK_CAP is reached),
-      // available regardless of unspentAbilityPoints — only the ability
-      // to *allocate* is gated, never the ability to see the current
-      // effect (ability_overlay.formatting.no_points's "現在の効果値は
-      // 確認できる").
-      lines.push(`　　${formatAbilityEffectLine(this.state, id)}`);
-    });
-    lines.push('');
-
-    if (pending) {
-      const abilityName = ABILITY_DISPLAY_NAMES[pending];
-      const previousValue = abilities[pending];
-      const newValue = previousValue + 1;
-      lines.push(`${abilityName}を${previousValue}から${newValue}へ上げますか？`);
-      const choice = this.state.abilityConfirmChoice ?? 'no';
-      lines.push(choice === 'yes' ? '  いいえ　>はい' : '>いいえ　  はい');
-      lines.push('←→/A D：選択　Enter：確定　Esc：戻る');
-    } else {
-      lines.push('↑↓/W S：選択　Enter：1ポイント割り振る　P/Esc：閉じる');
-    }
-
-    const width = this.ABILITY_OVERLAY_WIDTH;
-    const lineHeight = 22;
-    const height = lines.length * lineHeight + this.ABILITY_OVERLAY_PADDING * 2;
-    const x = (this.scale.width - width) / 2;
-    const y = (this.scale.height - height) / 2;
-
-    this.abilityOverlayBg.clear();
-    this.abilityOverlayBg.fillStyle(0x000000, 0.85);
-    this.abilityOverlayBg.fillRect(x, y, width, height);
-    this.abilityOverlayBg.lineStyle(2, 0xffffff, 0.6);
-    this.abilityOverlayBg.strokeRect(x, y, width, height);
-
-    this.abilityOverlayText.setPosition(x + this.ABILITY_OVERLAY_PADDING, y + this.ABILITY_OVERLAY_PADDING);
-    this.abilityOverlayText.setText(lines.join('\n'));
-  }
-
-  /**
-   * Tints the player sprite while slowed (enemy-behavior-02) as the
-   * minimal on-screen indicator required by the design — no new HUD text,
-   * no numeric duration display. Cleared as soon as state.player.slowed
-   * is false.
-   */
   private readonly SLOWED_TINT = 0x6ec6ff;
 
   private updatePlayerSlowedTint(): void {
@@ -1107,64 +1242,62 @@ class MainScene extends Phaser.Scene {
   private readonly MOVE_DURATION = 220;
   private activeAnimations = 0;
 
-  private handleKey(key: string, shiftKey = false): void {
-    if (this.state.phase !== 'playing') {
-      if (key === 'Enter') {
-        this.restart(this.state.runSeed);
-      } else if (key === 'n' || key === 'N') {
-        this.restart(randomSeed());
-      }
-      return;
+  private rootMenuItems(): string[] {
+    // spec 9.2: 装備/能力 are conditional on an independent feature
+    // existing — this game has no independent equip screen (equip
+    // happens from 道具), so 装備 is correctly omitted; 能力 exists
+    // (Phase 13.2), so it is included.
+    return ['道具', '能力', '状態', '記録', 'その他'];
+  }
+
+  private otherMenuItems(): string[] {
+    // 設定 omitted entirely (spec 9.2: only include it "Phase 14.5で実際
+    // に変更可能な設定がある場合" — none exist).
+    return ['操作説明', '冒険を終了'];
+  }
+
+  /** Available actions for the currently-selected item in the 道具 list (spec 9.3). */
+  private currentItemActions(): string[] {
+    const itemId = selectedItemId(this.state);
+    if (!itemId) return [];
+    const def = ITEM_DEFINITIONS[itemId];
+    const actions: string[] = [];
+    if (def.category === 'weapon') {
+      actions.push(this.state.equippedWeaponId === itemId ? '外す' : '装備する');
+    } else if (def.category === 'armor') {
+      actions.push(this.state.equippedArmorId === itemId ? '外す' : '装備する');
+    } else if (def.consumable) {
+      actions.push('食べる／使う');
     }
+    actions.push('置く');
+    actions.push('捨てる');
+    return actions;
+  }
 
-    // While a move tween is in flight, ignore further input (including OS
-    // key-repeat from a held key) so overlapping tweens can't make a sprite
-    // appear to skip through tiles/walls. Applies to every branch below
-    // (Tab, inventory navigation/use, and normal move/attack/wait).
-    if (this.activeAnimations > 0) return;
+  private wrapIndex(index: number, length: number): number {
+    if (length <= 0) return 0;
+    return ((index % length) + length) % length;
+  }
 
-    // Tab toggles the inventory overlay from anywhere in normal play, and
-    // never consumes a turn either way.
-    if (key === 'Tab') {
-      toggleInventory(this.state);
-      this.refreshInventoryOverlay();
-      this.refreshAbilityOverlay();
-      return;
-    }
+  // ----- context / dispatch -----
 
-    if (this.state.inventoryOpen) {
-      this.handleInventoryKey(key);
-      return;
-    }
+  private determineContext(): InputContext {
+    if (this.state.phase !== 'playing') return 'gameover';
+    if (this.state.discardConfirmItemId) return 'dialog';
+    // abilityConfirmPending only ever becomes true while menuScreen is
+    // already 'ability' (see handleMenuConfirm's 'ability' case), so it
+    // needs no separate context of its own — 'menu' context already
+    // routes every cardinal direction (including E/W, needed for the
+    // yes/no toggle below), unlike 'dialog' context which only ever
+    // handles confirm/cancel.
+    if (this.menuScreen !== 'closed') return 'menu';
+    return 'field';
+  }
 
-    // P toggles the ability allocation overlay (Phase 13.2) from anywhere
-    // in normal play (inventoryOpen is already false by this point, so
-    // there is no ambiguity with the inventory overlay's own P binding
-    // for "place item"). Handled uniformly here whether the overlay is
-    // currently closed (opens it), open with no confirmation pending
-    // (closes it), or open with a confirmation pending (closes the whole
-    // overlay without allocating, per overlay.controls.confirmation's
-    // "確認中にPを押した場合は割り振らずoverlay全体を閉じる" — toggling
-    // the open flag off here does exactly that). Never consumes a turn.
-    if (key === 'p' || key === 'P') {
-      toggleAbilityOverlay(this.state);
-      this.refreshAbilityOverlay();
-      return;
-    }
-
-    if (this.state.abilityOverlayOpen) {
-      this.handleAbilityKey(key);
-      return;
-    }
-
-    const action = actionForKey(key, shiftKey);
-    if (!action) return;
-
+  /** Runs the full existing turn pipeline for one PlayerAction (unchanged from the pre-14.5 handleKey body). */
+  private dispatchGameAction(action: import('./game/types').PlayerAction): void {
     const playerBefore = { ...this.state.player.pos };
     const enemiesBefore = this.state.enemies.map((enemy) => ({ ...enemy.pos }));
-    // Telemetry (Phase 10.3.1): snapshot must be taken before processTurn
-    // mutates state.player/state.enemies in place — see telemetry.ts's
-    // TurnSnapshot doc comment.
     const turnSnapshot = snapshotForTurn(this.state);
     const result = processTurn(this.state, action);
     recordTurn(this.telemetry, action, result, turnSnapshot, this.state);
@@ -1173,192 +1306,469 @@ class MainScene extends Phaser.Scene {
   }
 
   /**
-   * Handles a keypress while the inventory overlay is open
-   * (inventory_ui.navigation): ArrowUp/ArrowDown move the selection,
-   * Escape closes, Enter uses the selected item, and every other key is
-   * swallowed here — normal move/attack/wait input never reaches
-   * processTurn while the overlay is shown (processTurn's own
-   * inventoryOpen guard enforces the same rule at the state level as a
-   * second line of defense). None of open/close/select consume a turn.
+   * Single entry point for every keydown once modifier/repeat bookkeeping
+   * is done (spec 11.1's "入力を単一ルーターへ集約する"). While a move/
+   * attack tween is in flight, all input is ignored (existing
+   * activeAnimations guard, unchanged) so overlapping tweens can't make a
+   * sprite skip through tiles/walls.
    */
-  private handleInventoryKey(key: string): void {
-    // Phase 11.2 discard confirmation: while pending, only Y (confirm) and
-    // N/Escape (cancel) are handled — every other overlay key (navigate,
-    // use, place, re-trigger discard) is swallowed so nothing else can
-    // fire mid-confirmation (menu_behavior: "確認中は通常移動・攻撃など
-    // を実行しない").
+  private handleRoutedKey(key: string, shiftKey: boolean, ctrlKey: boolean): void {
+    if (this.activeAnimations > 0) return;
+    const context = this.determineContext();
+    const routed = routeKeyDown(context, key, { shiftKey, ctrlKey, fHeld: this.fHeld });
+    if (!routed) return;
+
+    switch (routed.kind) {
+      case 'game':
+        this.dashRepeat = stopRepeat(); // any other action (attack/wait/turn-only) interrupts an in-progress dash
+        this.dashDirection = null;
+        this.dispatchGameAction(routed.action);
+        if (routed.action.type === 'move') this.startMoveRepeat(routed.action.direction);
+        if (routed.action.type === 'wait') this.startWaitRepeat();
+        return;
+      case 'menu_open':
+        this.menuScreen = 'root';
+        this.menuRootIndex = 0;
+        this.refreshMenuOverlay();
+        return;
+      case 'menu_close':
+        this.closeMenu();
+        return;
+      case 'menu_cursor':
+        this.handleMenuCursor(routed.direction);
+        return;
+      case 'menu_confirm':
+        this.handleMenuConfirm();
+        return;
+      case 'menu_back':
+        this.handleMenuBack();
+        return;
+      case 'enchant_switch':
+        this.dispatchGameAction({ type: 'toggle_enchantment' });
+        return;
+    }
+  }
+
+  private startMoveRepeat(direction: import('./game/types').Direction8): void {
+    this.moveRepeat = startRepeat(direction, this.time.now);
+  }
+  private startWaitRepeat(): void {
+    this.waitRepeat = startRepeat('wait', this.time.now);
+  }
+
+  private closeMenu(): void {
+    if (this.state.inventoryOpen) closeInventory(this.state);
+    if (this.state.abilityOverlayOpen) closeAbilityOverlay(this.state);
+    this.menuScreen = 'closed';
+    this.refreshMenuOverlay();
+  }
+
+  private handleMenuCursor(direction: import('./game/types').Direction8): void {
+    if (this.menuScreen === 'ability' && this.state.abilityConfirmPending) {
+      if (direction === 'E' || direction === 'W') {
+        toggleAbilityConfirmChoice(this.state);
+        this.refreshMenuOverlay();
+      }
+      return;
+    }
+    if (direction !== 'N' && direction !== 'S') return;
+    const delta = direction === 'N' ? -1 : 1;
+    switch (this.menuScreen) {
+      case 'root':
+        this.menuRootIndex = this.wrapIndex(this.menuRootIndex + delta, this.rootMenuItems().length);
+        break;
+      case 'items':
+        moveInventorySelection(this.state, delta);
+        break;
+      case 'item_actions':
+        this.itemActionIndex = this.wrapIndex(this.itemActionIndex + delta, this.currentItemActions().length);
+        break;
+      case 'ability':
+        moveAbilitySelection(this.state, delta);
+        break;
+      case 'other':
+        this.otherIndex = this.wrapIndex(this.otherIndex + delta, this.otherMenuItems().length);
+        break;
+      case 'confirm_quit':
+        this.confirmQuitIndex = this.confirmQuitIndex === 0 ? 1 : 0;
+        break;
+      default:
+        break; // status/records/help have no selectable list
+    }
+    this.refreshMenuOverlay();
+  }
+
+  private handleMenuConfirm(): void {
     if (this.state.discardConfirmItemId) {
       const itemId = this.state.discardConfirmItemId;
-      if (key === 'y' || key === 'Y') {
-        this.state.discardConfirmItemId = null;
+      this.state.discardConfirmItemId = null;
+      this.dispatchGameAction({ type: 'discard_item', itemId });
+      this.state.inventoryOpen = true;
+      this.menuScreen = 'items';
+      this.refreshMenuOverlay();
+      return;
+    }
+    if (this.state.abilityConfirmPending) {
+      const resolution = resolveAbilityConfirm(this.state);
+      if (resolution.attempted && resolution.allocation && resolution.allocation.success) {
+        const allocation = resolution.allocation;
+        this.pushMessages(formatEvents(allocation.events));
+        recordAbilityAllocation(
+          this.telemetry,
+          this.state,
+          allocation.ability!,
+          allocation.previousValue,
+          allocation.newValue,
+          allocation.remainingAbilityPoints,
+        );
+        this.refreshStaticView();
+      }
+      this.refreshMenuOverlay();
+      return;
+    }
+
+    switch (this.menuScreen) {
+      case 'root': {
+        const item = this.rootMenuItems()[this.menuRootIndex];
+        if (item === '道具') {
+          if (!this.state.inventoryOpen) toggleInventory(this.state);
+          this.menuScreen = 'items';
+        } else if (item === '能力') {
+          if (!this.state.abilityOverlayOpen) toggleAbilityOverlay(this.state);
+          this.menuScreen = 'ability';
+        } else if (item === '状態') {
+          this.menuScreen = 'status';
+        } else if (item === '記録') {
+          this.menuScreen = 'records';
+        } else if (item === 'その他') {
+          this.otherIndex = 0;
+          this.menuScreen = 'other';
+        }
+        break;
+      }
+      case 'items': {
+        const itemId = selectedItemId(this.state);
+        if (!itemId) break;
+        this.itemActionIndex = 0;
+        this.menuScreen = 'item_actions';
+        break;
+      }
+      case 'item_actions': {
+        const actions = this.currentItemActions();
+        const action = actions[this.itemActionIndex];
+        if (action === '捨てる') {
+          const itemId = selectedItemId(this.state);
+          if (itemId) this.state.discardConfirmItemId = itemId;
+          break;
+        }
+        if (action === '置く') {
+          const itemId = selectedItemId(this.state);
+          if (itemId) this.dispatchGameAction({ type: 'place_item', itemId });
+          this.state.inventoryOpen = true;
+          this.menuScreen = 'items';
+          break;
+        }
+        // 食べる／使う, 装備する, 外す all route through the same
+        // selectedInventoryAction-derived action as the old Enter key.
         const playerBefore = { ...this.state.player.pos };
         const enemiesBefore = this.state.enemies.map((enemy) => ({ ...enemy.pos }));
-        const action = { type: 'discard_item' as const, itemId };
+        const gameAction = selectedInventoryAction(this.state);
         const turnSnapshot = snapshotForTurn(this.state);
-        const result = processTurn(this.state, action);
-        recordTurn(this.telemetry, action, result, turnSnapshot, this.state);
-        finalizeRun(this.telemetry, this.state);
+        const result = useSelectedInventoryItem(this.state);
+        if (gameAction) {
+          recordTurn(this.telemetry, gameAction, result, turnSnapshot, this.state);
+          finalizeRun(this.telemetry, this.state);
+        }
         this.applyTurnResult(result, playerBefore, enemiesBefore);
-        this.refreshInventoryOverlay();
-        return;
+        this.state.inventoryOpen = true;
+        this.menuScreen = 'items';
+        break;
       }
-      if (key === 'n' || key === 'N' || key === 'Escape') {
-        // Cancel only clears the pending confirmation (per
-        // discard_action.confirmation: "キャンセルおよび所持品画面を閉じ
-        // た場合は削除しない") — it does not also close the overlay, so
-        // Escape here is a single step back rather than a double-close.
-        this.state.discardConfirmItemId = null;
-        this.refreshInventoryOverlay();
-        return;
+      case 'ability': {
+        openAbilityConfirm(this.state);
+        break;
       }
-      return;
-    }
-
-    if (key === 'Escape') {
-      closeInventory(this.state);
-      this.refreshInventoryOverlay();
-      return;
-    }
-    if (key === 'ArrowUp') {
-      moveInventorySelection(this.state, -1);
-      this.refreshInventoryOverlay();
-      return;
-    }
-    if (key === 'ArrowDown') {
-      moveInventorySelection(this.state, 1);
-      this.refreshInventoryOverlay();
-      return;
-    }
-    if (key === 'Enter') {
-      const playerBefore = { ...this.state.player.pos };
-      const enemiesBefore = this.state.enemies.map((enemy) => ({ ...enemy.pos }));
-      // Telemetry (Phase 10.3.2 fix): this Enter-to-equip/use path
-      // previously never called recordTurn/finalizeRun at all, so every
-      // weapon/armor equip and every apple/sun-fruit use made through
-      // the inventory overlay was silently invisible to telemetry (the
-      // "missing_equipment_changes" root cause). selectedInventoryAction
-      // determines the PlayerAction Enter is about to submit — the same
-      // routing useSelectedInventoryItem itself does internally — purely
-      // so recordTurn can be given a real action instead of guessing.
-      const action = selectedInventoryAction(this.state);
-      const turnSnapshot = snapshotForTurn(this.state);
-      const result = useSelectedInventoryItem(this.state);
-      if (action) {
-        recordTurn(this.telemetry, action, result, turnSnapshot, this.state);
-        finalizeRun(this.telemetry, this.state);
+      case 'other': {
+        const item = this.otherMenuItems()[this.otherIndex];
+        if (item === '操作説明') {
+          this.menuScreen = 'help';
+        } else if (item === '冒険を終了') {
+          this.confirmQuitIndex = 0; // default selection is Cancel (spec 9.8)
+          this.menuScreen = 'confirm_quit';
+        }
+        break;
       }
-      this.applyTurnResult(result, playerBefore, enemiesBefore);
-      this.refreshInventoryOverlay();
-      return;
+      case 'confirm_quit': {
+        if (this.confirmQuitIndex === 1) {
+          this.closeMenu();
+          this.restart(randomSeed());
+          return;
+        }
+        this.menuScreen = 'other';
+        break;
+      }
+      default:
+        break; // status/records/help: confirm does nothing
     }
-    // Phase 11.2: P places the selected item at the player's feet
-    // immediately (no confirmation — matches place_action having no
-    // confirmation_required flag, unlike discard). A no-op (no action
-    // submitted at all) when nothing is selected.
-    if (key === 'p' || key === 'P') {
-      const itemId = selectedItemId(this.state);
-      if (!itemId) return;
-      const playerBefore = { ...this.state.player.pos };
-      const enemiesBefore = this.state.enemies.map((enemy) => ({ ...enemy.pos }));
-      const action = { type: 'place_item' as const, itemId };
-      const turnSnapshot = snapshotForTurn(this.state);
-      const result = processTurn(this.state, action);
-      recordTurn(this.telemetry, action, result, turnSnapshot, this.state);
-      finalizeRun(this.telemetry, this.state);
-      this.applyTurnResult(result, playerBefore, enemiesBefore);
-      this.refreshInventoryOverlay();
-      return;
-    }
-    // Phase 11.2: X opens the discard confirmation for the selected item
-    // (discard_action.confirmation_required) rather than discarding
-    // immediately. A no-op when nothing is selected.
-    if (key === 'x' || key === 'X') {
-      const itemId = selectedItemId(this.state);
-      if (!itemId) return;
-      this.state.discardConfirmItemId = itemId;
-      this.refreshInventoryOverlay();
-      return;
-    }
-    // Every other key (movement, wait, etc.) is ignored while the overlay
-    // is open.
+    this.refreshMenuOverlay();
   }
+
+  private handleMenuBack(): void {
+    if (this.state.discardConfirmItemId) {
+      this.state.discardConfirmItemId = null;
+      this.refreshMenuOverlay();
+      return;
+    }
+    if (this.state.abilityConfirmPending) {
+      cancelAbilityConfirm(this.state);
+      this.refreshMenuOverlay();
+      return;
+    }
+    switch (this.menuScreen) {
+      case 'items':
+        if (this.state.inventoryOpen) closeInventory(this.state);
+        this.menuScreen = 'root';
+        break;
+      case 'ability':
+        if (this.state.abilityOverlayOpen) closeAbilityOverlay(this.state);
+        this.menuScreen = 'root';
+        break;
+      case 'status':
+      case 'records':
+        this.menuScreen = 'root';
+        break;
+      case 'item_actions':
+        this.menuScreen = 'items';
+        break;
+      case 'other':
+        this.menuScreen = 'root';
+        break;
+      case 'help':
+        this.menuScreen = 'other';
+        break;
+      case 'confirm_quit':
+        this.menuScreen = 'other';
+        break;
+      case 'root':
+        this.closeMenu();
+        return;
+      default:
+        break;
+    }
+    this.refreshMenuOverlay();
+  }
+
+  // ----- rendering -----
 
   /**
-   * Handles a keypress while the ability allocation overlay is open
-   * (Phase 13.2). P is intercepted earlier in handleKey (uniformly
-   * opens/closes regardless of confirmation state), so it never reaches
-   * here. While a confirmation is pending, only Escape (cancel),
-   * ArrowLeft/ArrowRight/A/D (toggle choice), and Enter (resolve) are
-   * handled — every other key is swallowed so nothing else can fire
-   * mid-confirmation, mirroring handleInventoryKey's own discard-
-   * confirmation branch. Selection movement (ArrowUp/ArrowDown/W/S) and
-   * opening a confirmation (Enter) only apply when nothing is pending.
-   * None of these consume a turn — ability allocation is a pure state
-   * update, never routed through processTurn (see ability.ts's module
-   * doc comment).
+   * Redraws whichever menu screen is currently active (or hides the menu
+   * entirely when closed) — the single place that turns this.menuScreen
+   * plus the relevant GameState fields into the small command window +
+   * list window + detail window layout (spec 9.1: "最初の小型コマンド窓
+   * を左上へ置く。選択に応じて、一覧窓または行動窓を隣へ追加する。下部の
+   * 横長窓は、通常状態または選択項目の説明へ使う。"). Left column = list
+   * (command root, item list, item actions, ability list, other list,
+   * confirm-quit choice); right column = detail/description; status and
+   * records use the list column alone as a plain info block, since they
+   * have no selectable list (spec 9.6/9.7).
    */
-  private handleAbilityKey(key: string): void {
-    const state = this.state;
+  private refreshMenuOverlay(): void {
+    const open = this.menuScreen !== 'closed';
+    this.menuOverlayBg.setVisible(open);
+    this.menuOverlayText.setVisible(open);
+    this.menuDetailBg.setVisible(open);
+    this.menuDetailText.setVisible(open);
+    if (!open) return;
 
-    if (state.abilityConfirmPending) {
-      if (key === 'Escape') {
-        cancelAbilityConfirm(state);
-        this.refreshAbilityOverlay();
-        return;
+    const listLines: string[] = [];
+    let detailLines: string[] = [];
+
+    switch (this.menuScreen) {
+      case 'root': {
+        listLines.push('コマンド', '');
+        this.rootMenuItems().forEach((item, i) => {
+          listLines.push(`${i === this.menuRootIndex ? '> ' : '  '}${item}`);
+        });
+        detailLines = ['J/Enter：決定　K/Esc：閉じる'];
+        break;
       }
-      if (key === 'ArrowLeft' || key === 'ArrowRight' || key === 'a' || key === 'A' || key === 'd' || key === 'D') {
-        toggleAbilityConfirmChoice(state);
-        this.refreshAbilityOverlay();
-        return;
-      }
-      if (key === 'Enter') {
-        const resolution = resolveAbilityConfirm(state);
-        if (resolution.attempted && resolution.allocation && resolution.allocation.success) {
-          const allocation = resolution.allocation;
-          this.messageLog.pushMany(formatEvents(allocation.events));
-          recordAbilityAllocation(
-            this.telemetry,
-            state,
-            allocation.ability!,
-            allocation.previousValue,
-            allocation.newValue,
-            allocation.remainingAbilityPoints,
-          );
-          // Refreshes the normal HUD (能力P must drop immediately) and
-          // the message log panel, exactly like a normal turn's
-          // applyTurnResult would — but without touching turn/phase/
-          // enemy state, since no turn was consumed.
-          this.refreshStaticView();
+      case 'items': {
+        const entries = inventoryEntries(this.state);
+        const current = totalInventoryCount(this.state);
+        listLines.push('道具', `${current} / ${INVENTORY_CAPACITY}`, '');
+        if (entries.length === 0) {
+          listLines.push('なし');
+        } else {
+          entries.forEach((entry, i) => {
+            const def = ITEM_DEFINITIONS[entry.itemId];
+            const marker = i === this.state.selectedItemIndex ? '> ' : '  ';
+            const equipMark = entry.itemId === this.state.equippedWeaponId || entry.itemId === this.state.equippedArmorId ? 'E ' : '  ';
+            const count = def.category === 'consumable' ? `x${entry.count}` : '';
+            listLines.push(`${marker}${equipMark}${def.glyph}${def.displayName} ${count}`);
+          });
         }
-        this.refreshAbilityOverlay();
-        return;
+        const selected = selectedItemId(this.state);
+        if (selected) {
+          const def = ITEM_DEFINITIONS[selected];
+          detailLines.push(def.displayName);
+          if (def.category === 'weapon') {
+            const w = WEAPON_DEFINITIONS[selected as 'sword' | 'spear' | 'hammer'];
+            detailLines.push(`攻撃${w.attackPower}・射程${w.reach}`);
+            detailLines.push(this.state.equippedWeaponId === selected ? '装備中' : '未装備');
+          } else if (def.category === 'armor') {
+            const a = ARMOR_DEFINITIONS[selected as 'armor'];
+            detailLines.push(`防御${a.armorValue}`);
+            detailLines.push(this.state.equippedArmorId === selected ? '装備中' : '未装備');
+          }
+          detailLines.push('', 'J/Enter：行動を選ぶ　K/Esc：戻る');
+        } else {
+          detailLines.push('K/Esc：戻る');
+        }
+        break;
       }
-      return;
+      case 'item_actions': {
+        const selected = selectedItemId(this.state);
+        const def = selected ? ITEM_DEFINITIONS[selected] : null;
+        listLines.push(def ? def.displayName : '行動', '');
+        this.currentItemActions().forEach((action, i) => {
+          listLines.push(`${i === this.itemActionIndex ? '> ' : '  '}${action}`);
+        });
+        detailLines = ['J/Enter：決定　K/Esc：戻る'];
+        break;
+      }
+      case 'ability': {
+        const points = getUnspentAbilityPoints(this.state);
+        const abilities = getAbilities(this.state);
+        const selectedIndex = this.state.selectedAbilityIndex ?? 0;
+        const pending = this.state.abilityConfirmPending;
+        listLines.push('能力', `能力P：${points}`, '');
+        ABILITY_IDS.forEach((id, i) => {
+          const marker = !pending && i === selectedIndex ? '> ' : '  ';
+          listLines.push(`${marker}${ABILITY_DISPLAY_NAMES[id]} ${abilities[id]}`);
+        });
+        if (pending) {
+          const abilityName = ABILITY_DISPLAY_NAMES[pending];
+          const previousValue = abilities[pending];
+          detailLines.push(`${abilityName}を${previousValue}から${previousValue + 1}へ`);
+          const choice = this.state.abilityConfirmChoice ?? 'no';
+          detailLines.push(choice === 'yes' ? '  いいえ　>はい' : '>いいえ　  はい');
+          detailLines.push('', '←→：選択　J/Enter：決定　K/Esc：戻る');
+        } else {
+          const id = ABILITY_IDS[selectedIndex];
+          detailLines.push(formatAbilityEffectLine(this.state, id));
+          if (points < 1) detailLines.push('（割り振り不可）');
+          detailLines.push('', 'J/Enter：割り振る　K/Esc：戻る');
+        }
+        break;
+      }
+      case 'status': {
+        const player = this.state.player;
+        const hunger = getHunger(this.state);
+        const level = getLevel(this.state);
+        const expLabel = level >= LEVEL_CAP ? 'MAX' : `${getExperience(this.state)}/${getExperienceRequirement(level)}`;
+        listLines.push(
+          '状態',
+          '',
+          `HP: ${player.hp}/${player.maxHp}`,
+          `SOL: ${this.state.solarEnergy}/${this.state.maxSolarEnergy}`,
+          `満腹度: ${hunger}/${HUNGER_MAX}`,
+          `LV ${level}  EXP ${expLabel}`,
+          `攻撃 ${player.attack}  防御 ${player.defense}`,
+          `エンチャント: ${this.enchantHudLabel().replace('ENCHANT：', '')}`,
+          this.unlockedElementsHudLabel(),
+        );
+        const effects = getActiveEffects(this.state);
+        if (effects.length > 0) {
+          listLines.push('状態異常:');
+          for (const e of effects) listLines.push(`  ${EFFECT_DEFINITIONS[e.id].displayName}`);
+        }
+        detailLines = ['K/Esc：戻る'];
+        break;
+      }
+      case 'records': {
+        listLines.push(
+          '記録',
+          '',
+          `階層: ${this.state.floor}/${this.state.totalFloors}`,
+          `ターン数: ${this.state.turn}`,
+          `Run Seed: ${this.state.runSeed}`,
+          `Floor Seed: ${this.state.seed}`,
+          '',
+          'メッセージ履歴:',
+        );
+        const history = this.messageHistory.slice(-10);
+        for (const line of history) listLines.push(`  ${line}`);
+        detailLines = ['K/Esc：戻る'];
+        break;
+      }
+      case 'other': {
+        listLines.push('その他', '');
+        this.otherMenuItems().forEach((item, i) => {
+          listLines.push(`${i === this.otherIndex ? '> ' : '  '}${item}`);
+        });
+        detailLines = ['J/Enter：決定　K/Esc：戻る'];
+        break;
+      }
+      case 'help': {
+        listLines.push(
+          '操作説明',
+          '',
+          '移動: WASD/矢印/テンキー8246',
+          '斜め移動: QEZC/テンキー7913',
+          '攻撃・決定: J / Enter',
+          '待機: Space / テンキー5',
+          'ダッシュ: Shift+方向',
+          '斜め固定: Ctrl+方向',
+          '方向転換のみ: F+方向',
+          'メインメニュー: I / Esc',
+          'エンチャント切替: R',
+        );
+        detailLines = ['K/Esc：戻る'];
+        break;
+      }
+      case 'confirm_quit': {
+        listLines.push('冒険を終了しますか？', '');
+        listLines.push(`${this.confirmQuitIndex === 0 ? '> ' : '  '}キャンセル`);
+        listLines.push(`${this.confirmQuitIndex === 1 ? '> ' : '  '}終了する`);
+        detailLines = ['↑↓：選択　J/Enter：決定　K/Esc：戻る'];
+        break;
+      }
     }
 
-    if (key === 'Escape') {
-      closeAbilityOverlay(state);
-      this.refreshAbilityOverlay();
-      return;
-    }
-    if (key === 'ArrowUp' || key === 'w' || key === 'W') {
-      moveAbilitySelection(state, -1);
-      this.refreshAbilityOverlay();
-      return;
-    }
-    if (key === 'ArrowDown' || key === 's' || key === 'S') {
-      moveAbilitySelection(state, 1);
-      this.refreshAbilityOverlay();
-      return;
-    }
-    if (key === 'Enter') {
-      openAbilityConfirm(state);
-      this.refreshAbilityOverlay();
-      return;
-    }
-    // Every other key (movement, wait, etc.) is ignored while the overlay
-    // is open.
+    this.drawMenuWindows(listLines, detailLines);
   }
+
+  /** Shared small-window chrome (spec 8's panel/border colors) for whichever list+detail content refreshMenuOverlay built. */
+  private drawMenuWindows(listLines: string[], detailLines: string[]): void {
+    const listWidth = this.MENU_LIST_WIDTH;
+    const listHeight = Math.min(FIELD_PIXEL_HEIGHT - 16, listLines.length * this.MENU_LINE_HEIGHT + this.MENU_PADDING * 2 + 8);
+    const listX = 12;
+    const listY = HUD_HEIGHT + 8;
+
+    this.menuOverlayBg.clear();
+    this.menuOverlayBg.fillStyle(COLORS.panelBg, COLORS.panelBgAlpha);
+    this.menuOverlayBg.fillRect(listX, listY, listWidth, listHeight);
+    this.menuOverlayBg.lineStyle(2, COLORS.borderOuter, 1);
+    this.menuOverlayBg.strokeRect(listX + 1, listY + 1, listWidth - 2, listHeight - 2);
+    this.menuOverlayBg.lineStyle(1, COLORS.borderInner, 0.8);
+    this.menuOverlayBg.strokeRect(listX + 4, listY + 4, listWidth - 8, listHeight - 8);
+    this.menuOverlayText.setPosition(listX + this.MENU_PADDING, listY + this.MENU_PADDING);
+    this.menuOverlayText.setText(listLines.slice(0, Math.floor((listHeight - this.MENU_PADDING * 2) / this.MENU_LINE_HEIGHT)).join('\n'));
+
+    const detailX = listX + listWidth + 12;
+    const detailY = listY;
+    const detailWidth = this.MENU_DETAIL_WIDTH;
+    const detailHeight = listHeight;
+
+    this.menuDetailBg.clear();
+    this.menuDetailBg.fillStyle(COLORS.panelBg, COLORS.panelBgAlpha);
+    this.menuDetailBg.fillRect(detailX, detailY, detailWidth, detailHeight);
+    this.menuDetailBg.lineStyle(2, COLORS.borderOuter, 1);
+    this.menuDetailBg.strokeRect(detailX + 1, detailY + 1, detailWidth - 2, detailHeight - 2);
+    this.menuDetailText.setPosition(detailX + this.MENU_PADDING, detailY + this.MENU_PADDING);
+    this.menuDetailText.setText(detailLines.join('\n'));
+  }
+
 
   /**
    * Shared post-action pipeline for both normal move/wait/attack input and
@@ -1373,7 +1783,7 @@ class MainScene extends Phaser.Scene {
     playerBefore: { x: number; y: number },
     enemiesBefore: { x: number; y: number }[],
   ): void {
-    this.messageLog.pushMany(formatEvents(result.events));
+    this.pushMessages(formatEvents(result.events));
     const phaseAfterTurn = this.state.phase as import('./game/types').GamePhase;
 
     if (phaseAfterTurn === 'floor_cleared') {
@@ -1387,8 +1797,8 @@ class MainScene extends Phaser.Scene {
       // phase transition); this only needs the new floor's own
       // floor_started, using the just-advanced state's turn/floor.
       recordFloorStarted(this.telemetry, this.state);
-      this.messageLog.clear();
-      this.messageLog.push(formatEvent({ type: 'floor_advanced' }));
+      this.clearMessages();
+      this.pushMessage(formatEvent({ type: 'floor_advanced' }));
       this.resetSceneToCurrentState();
       return;
     }
@@ -1459,7 +1869,7 @@ class MainScene extends Phaser.Scene {
     this.telemetry = createRunTelemetry(this.state);
     this.endScreenShownForTelemetry = null;
     this.hideEndScreen();
-    this.messageLog.clear();
+    this.clearMessages();
     this.resetSceneToCurrentState();
   }
 
@@ -1475,14 +1885,16 @@ class MainScene extends Phaser.Scene {
       this.state.map.height * TILE_SIZE,
     );
     this.rebuildEnemySprites();
+    this.resetExploredTiles();
+    this.markCameraWindowExplored();
     this.refreshStaticView();
     this.snapActor(this.playerSprite, this.state.player);
     this.snapAllEnemies();
-    // A new run/floor never starts with the overlay open (state.inventoryOpen
-    // is always freshly false from buildFloorState), but keep the on-screen
-    // overlay in sync regardless.
-    this.refreshInventoryOverlay();
-    this.refreshAbilityOverlay();
+    // A new run/floor never starts with the menu open (menuScreen is
+    // reset explicitly below), but keep the on-screen overlay in sync
+    // regardless.
+    this.menuScreen = 'closed';
+    this.refreshMenuOverlay();
   }
 
   /**
@@ -1633,8 +2045,9 @@ class MainScene extends Phaser.Scene {
     this.drawTelegraphs();
     this.updatePlayerSlowedTint();
     this.refreshLogPanel();
-    this.refreshInventoryOverlay();
-    this.refreshAbilityOverlay();
+    this.markCameraWindowExplored();
+    this.drawMinimap();
+    this.refreshMenuOverlay();
     this.updateFacingMarker();
 
     const hunger = getHunger(this.state);
@@ -1647,15 +2060,16 @@ class MainScene extends Phaser.Scene {
     // have — the existing HUD is a single plain-color Text line, so
     // introducing a distinct color for one segment isn't a minimal
     // change; the number itself already conveys "low" against /100.
-    const hungerLabel = hunger <= 0 ? `${hunger} / ${HUNGER_MAX} (空腹)` : `${hunger} / ${HUNGER_MAX}`;
+    const hungerLabel = hunger <= 0 ? `${hunger}(空腹)` : `${hunger}`;
     const level = getLevel(this.state);
-    const expLabel = level >= LEVEL_CAP ? 'MAX' : `${getExperience(this.state)}/${getExperienceRequirement(level)}`;
-    const progressionLabel = `LV ${level}  EXP ${expLabel}  能力P ${getUnspentAbilityPoints(this.state)}`;
+    // Phase 14.5 spec 5.1: a single HUD line with only immediate-glance
+    // values. Run/Floor Seed moved to 記録, the control legend moved to
+    // その他>操作説明, and the previous long enchant-mechanics sentence
+    // removed from constant display (still available via 状態's
+    // "エンチャント" line and 操作説明). Detailed EXP-to-next-level moved
+    // to 状態 (spec 5.1's "通常HUDから外すもの: 詳細なEXP値").
     this.hudText.setText(
-      `FLOOR ${this.state.floor}/${this.state.totalFloors}   HP: ${player.hp}/${player.maxHp}   SOL ${this.state.solarEnergy} / ${this.state.maxSolarEnergy}   満腹度 ${hungerLabel}   ${progressionLabel}   ${this.enchantHudLabel()}   ${this.unlockedElementsHudLabel()}${this.effectsHudLabel()}   Turn: ${this.state.turn}\n` +
-        `Run Seed: ${this.state.runSeed}   Floor Seed: ${this.state.seed}\n` +
-        `移動:方向キー  Shift+方向:向き変更  X:攻撃  Space：待機／日向でチャージ  F:エンチャント切替  Tab:インベントリ\n` +
-        `エンチャントは足元の専用アイテムを踏むと解禁されます。Fで解禁済みの属性を切り替え、命中時にSOLを消費して発動します。`,
+      `${this.state.floor}F  Lv${level}  HP ${player.hp}/${player.maxHp}  SOL ${this.state.solarEnergy}/${this.state.maxSolarEnergy}  満腹度 ${hungerLabel}  ${this.enchantHudLabel()}${this.effectsHudLabel()}`,
     );
 
     if (this.state.phase === 'gameover') {
@@ -1671,17 +2085,122 @@ class MainScene extends Phaser.Scene {
       this.hideEndScreen();
     }
   }
+
+  // ----- Phase 14.5: per-frame dash / long-press repeat driver -----
+
+  /**
+   * Advances dash continuation (Shift+direction held) and the generic
+   * move/wait long-press repeat timers (spec 11.2/11.3/11.6). All three
+   * are mutually exclusive per tick — a dash in progress takes priority
+   * (and stopping it here never itself fires a move/wait repeat in the
+   * same frame). Every stop condition checked here reads only
+   * already-visible GameState (spec 11.3/11.6's "停止判定が既存ゲーム
+   * 情報を越えて未発見対象を察知しないようにする"). No-ops entirely
+   * while a menu/dialog is open, the game isn't in 'playing' phase, or a
+   * move tween is still animating — matching handleRoutedKey's own guard.
+   */
+  update(time: number): void {
+    if (this.state.phase !== 'playing' || this.menuScreen !== 'closed' || this.activeAnimations > 0) return;
+
+    if (this.dashDirection) {
+      if (this.dashRepeat.heldKey !== this.dashDirection) {
+        this.dashRepeat = startRepeat(this.dashDirection, time);
+        return;
+      }
+      const { shouldFire, timer } = tickRepeat(this.dashRepeat, time);
+      this.dashRepeat = timer;
+      if (!shouldFire) return;
+      if (!canTakeDashStep(this.state, this.dashDirection)) {
+        this.dashDirection = null;
+        this.dashRepeat = stopRepeat();
+        return;
+      }
+      const prevPos = { ...this.state.player.pos };
+      const direction = this.dashDirection;
+      this.dispatchGameAction({ type: 'move', direction });
+      const newPos = this.state.player.pos;
+      if (shouldStopDashAfterStep(this.state, prevPos, newPos)) {
+        this.dashDirection = null;
+        this.dashRepeat = stopRepeat();
+      }
+      return;
+    }
+
+    if (this.moveRepeat.heldKey) {
+      const { shouldFire, timer } = tickRepeat(this.moveRepeat, time);
+      this.moveRepeat = timer;
+      if (shouldFire) {
+        this.dispatchGameAction({ type: 'move', direction: this.moveRepeat.heldKey as import('./game/types').Direction8 });
+      }
+      return;
+    }
+
+    if (this.waitRepeat.heldKey) {
+      const { shouldFire, timer } = tickRepeat(this.waitRepeat, time);
+      this.waitRepeat = timer;
+      if (shouldFire) {
+        const hpBefore = this.state.player.hp;
+        const solBefore = this.state.solarEnergy;
+        this.dispatchGameAction({ type: 'wait' });
+        const tookDamage = this.state.player.hp < hpBefore;
+        const solNowFull = this.state.solarEnergy >= this.state.maxSolarEnergy && solBefore < this.state.maxSolarEnergy;
+        const enemyApproaching = this.state.enemies.some(
+          (e) => e.alive && Math.max(Math.abs(e.pos.x - this.state.player.pos.x), Math.abs(e.pos.y - this.state.player.pos.y)) <= 2,
+        );
+        if (this.state.phase !== 'playing' || tookDamage || solNowFull || enemyApproaching) {
+          this.waitRepeat = stopRepeat();
+        }
+      }
+    }
+  }
 }
 
-const width = VIEWPORT_TILES_WIDE * TILE_SIZE;
-const height = VIEWPORT_TILES_HIGH * TILE_SIZE;
 
-new Phaser.Game({
+// Phase 14.5 UI/input overhaul: the Phaser canvas is created at a FIXED
+// logical resolution (LOGICAL_WIDTH x LOGICAL_HEIGHT) — internal drawing
+// coordinates (TILE_SIZE, camera viewports, HUD/message strip positions)
+// never change with window size, satisfying the redesign direction's
+// "TILE_SIZEそのものを画面サイズに応じて動的変更することを前提にしない".
+// Instead, the *displayed* CSS size of that same canvas is scaled by an
+// integer factor to fill the available browser window, computed by
+// applyIntegerScale() below and re-applied on every resize. Phaser's
+// `pixelArt: true` already sets `image-rendering: pixelated` on the
+// canvas element, so this CSS scaling stays crisp/nearest-neighbor at
+// any integer factor (spec 6.2's "整数倍率を優先する" / "画像補間を無効
+//化し、ピクセルの輪郭を保つ").
+const game = new Phaser.Game({
   type: Phaser.AUTO,
   parent: 'app',
-  width,
-  height,
-  backgroundColor: '#000000',
+  width: LOGICAL_WIDTH,
+  height: LOGICAL_HEIGHT,
+  backgroundColor: '#1c1108',
   pixelArt: true,
   scene: [MainScene],
 });
+
+/**
+ * Picks the largest integer >= 1 such that LOGICAL_WIDTH/HEIGHT scaled by
+ * it still fits within the given available area, then applies that as
+ * the canvas element's CSS width/height (its internal drawing-buffer
+ * resolution is untouched). Falls back to 1x if the window is smaller
+ * than the logical resolution itself, rather than shrinking below
+ * integer scale (spec 12's "最小サイズで9×7の論理範囲を維持しつつ...3
+ * 領域が同時に収まること" — 1x is the floor, sized panels/fonts are
+ * designed to fit at 1x on the smallest required viewport, 960x540).
+ */
+function applyIntegerScale(): void {
+  const canvas = game.canvas;
+  if (!canvas) return;
+  const availW = window.innerWidth;
+  const availH = window.innerHeight;
+  const maxScaleByWidth = Math.floor(availW / LOGICAL_WIDTH);
+  const maxScaleByHeight = Math.floor(availH / LOGICAL_HEIGHT);
+  const scale = Math.max(1, Math.min(maxScaleByWidth, maxScaleByHeight));
+  canvas.style.width = `${LOGICAL_WIDTH * scale}px`;
+  canvas.style.height = `${LOGICAL_HEIGHT * scale}px`;
+  canvas.style.display = 'block';
+  canvas.style.margin = '0 auto';
+}
+
+game.events.once(Phaser.Core.Events.READY, applyIntegerScale);
+window.addEventListener('resize', applyIntegerScale);
