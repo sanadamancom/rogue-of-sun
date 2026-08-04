@@ -203,7 +203,7 @@ describe('combat trace (Phase 10.3.1)', () => {
     processTurn(state, { type: 'face', direction: 'E' });
     step(state, { type: 'action' }, telemetry);
     const attackEvent = telemetry.events.find((e) => e.type === 'player_attack');
-    expect(attackEvent).toMatchObject({ weapon: 'sword', outcome: 'hit', physicalDamage: 20, actualDamage: 20 });
+    expect(attackEvent).toMatchObject({ weapon: 'sword', outcome: 'hit', physicalDamage: 12, actualDamage: 12 });
   });
 
   it('records a player miss with hitChance/roll and zero damage', () => {
@@ -559,5 +559,78 @@ describe('determinism and non-interference (Phase 10.3.1)', () => {
     expect(telemetry.result).toBe('in_progress');
     expect(telemetry.events.filter((e) => e.type === 'floor_started')).toHaveLength(2);
     expect(telemetry.events.filter((e) => e.type === 'floor_completed')).toHaveLength(1);
+  });
+});
+
+describe('enemy_attack raw/reduction/floor fields (Phase 15.1 core combat rebalance)', () => {
+  it('an unarmored hit records rawAttackPower equal to damage, armorReduction 0, flooredAtMinimum false', () => {
+    const state = freshState({ combatRngState: GUARANTEED_HIT_SEED });
+    const telemetry = createRunTelemetry(state);
+    const result = step(state, { type: 'wait' }, telemetry);
+    expect(result.enemyAttacked).toBe(true);
+    const attack = telemetry.events.find((e) => e.type === 'enemy_attack') as {
+      rawAttackPower: number;
+      armorReduction: number;
+      flooredAtMinimum: boolean;
+      damage: number;
+    };
+    expect(attack.rawAttackPower).toBe(10);
+    expect(attack.damage).toBe(10);
+    expect(attack.armorReduction).toBe(0);
+    expect(attack.flooredAtMinimum).toBe(false);
+  });
+
+  it('a heavily-armored hit records the proportional armorReduction and detects the minimum-damage floor', () => {
+    const state = freshState({
+      combatRngState: GUARANTEED_HIT_SEED,
+      equippedArmorId: 'armor',
+      inventory: { ...createEmptyInventory(), armor: 1 },
+      // attack 10, armorValue 2 -> round(10 * 2^-0.2) = 9, well above the floor.
+      enemies: [createInitialEnemy('bok', { x: 3, y: 1 }, 1000, 10, 0, 0, 0, 90, 0)],
+    });
+    const telemetry = createRunTelemetry(state);
+    step(state, { type: 'wait' }, telemetry);
+    const attack = telemetry.events.find((e) => e.type === 'enemy_attack') as {
+      rawAttackPower: number;
+      armorReduction: number;
+      flooredAtMinimum: boolean;
+      damage: number;
+    };
+    expect(attack.rawAttackPower).toBe(10);
+    expect(attack.damage).toBe(9);
+    expect(attack.armorReduction).toBe(1);
+    expect(attack.flooredAtMinimum).toBe(false);
+  });
+
+  it('an extreme-defense hit is detected as flooredAtMinimum', () => {
+    const state = freshState({
+      combatRngState: GUARANTEED_HIT_SEED,
+      player: createInitialActor({ x: 2, y: 1 }, 30, 10, 100, 90, 0), // defense 100: proportional result rounds to 0
+      enemies: [createInitialEnemy('bok', { x: 3, y: 1 }, 1000, 10, 0, 0, 0, 90, 0)],
+    });
+    const telemetry = createRunTelemetry(state);
+    step(state, { type: 'wait' }, telemetry);
+    const attack = telemetry.events.find((e) => e.type === 'enemy_attack') as {
+      damage: number;
+      flooredAtMinimum: boolean;
+    };
+    expect(attack.damage).toBe(1); // computeIncomingDamage's own floor
+    expect(attack.flooredAtMinimum).toBe(true);
+  });
+
+  it('computeRunSummary aggregates rawDamage, armorReduction, flooredAtMinimumHits, and defeated per enemy species', () => {
+    const state = freshState({
+      combatRngState: GUARANTEED_HIT_SEED,
+      equippedArmorId: 'armor',
+      inventory: { ...createEmptyInventory(), armor: 1, sword: 1 },
+      equippedWeaponId: 'sword',
+      enemies: [createInitialEnemy('bok', { x: 3, y: 1 }, 2, 10, 0, 0, 0, 90, 0)],
+    });
+    const telemetry = createRunTelemetry(state);
+    state.player.facing = 'E';
+    step(state, { type: 'action' }, telemetry); // kills the bok, and the bok's own attack never lands (defeated first)
+    const summary = computeRunSummary(telemetry, state);
+    const bokStats = summary.damageTakenByEnemy.bok;
+    expect(bokStats.defeated).toBe(1);
   });
 });

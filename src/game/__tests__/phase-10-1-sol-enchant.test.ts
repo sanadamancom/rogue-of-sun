@@ -161,15 +161,15 @@ describe('sol enchantment activation (Phase 10.1)', () => {
     });
   }
 
-  it('sword hit consumes 1 SOL and adds 10 bonus damage (Phase 10.2)', () => {
+  it('sword hit consumes 1 SOL and adds 10 bonus damage (Phase 15.1)', () => {
     const state = attackingState('sword', 5, 'spider');
     faceEastAtEnemy(state);
     const result = processTurn(state, { type: 'action' });
     expect(state.solarEnergy).toBe(4);
     expect(result.events.some((e) => e.type === 'sol_enchantment_used')).toBe(true);
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
-    // fixture player.attack 1 + sword bonus 10 - defense 0 = 11, + sol bonus 10 = 21
-    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(21);
+    // fixture player.attack 1 + sword bonus 2 - defense 0 = 3, + sol bonus 10 = 13
+    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(13);
   });
 
   it('spear hit consumes 1 SOL and adds 10 bonus damage (Phase 10.2)', () => {
@@ -186,18 +186,18 @@ describe('sol enchantment activation (Phase 10.1)', () => {
     const result = processTurn(state, { type: 'action' });
     expect(state.solarEnergy).toBe(4);
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
-    // fixture player.attack 1 + spear bonus 0 - defense 0 = 1, + sol bonus 10 = 11
-    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(11);
+    // fixture player.attack 1 + spear bonus 1 - defense 0 = 2, + sol bonus 10 = 12
+    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(12);
   });
 
-  it('hammer hit consumes 1 SOL and adds 10 bonus damage (Phase 10.2)', () => {
+  it('hammer hit consumes 1 SOL and adds 10 bonus damage (Phase 15.1)', () => {
     const state = attackingState('hammer', 5, 'spider');
     faceEastAtEnemy(state);
     const result = processTurn(state, { type: 'action' });
     expect(state.solarEnergy).toBe(4);
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
-    // fixture player.attack 1 + hammer bonus 20 - defense 0 = 21, + sol bonus 10 = 31
-    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(31);
+    // fixture player.attack 1 + hammer bonus 3 - defense 0 = 4, + sol bonus 10 = 14
+    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(14);
   });
 
   it('goes from SOL 1 to SOL 0 on a single activation', () => {
@@ -213,7 +213,7 @@ describe('sol enchantment activation (Phase 10.1)', () => {
     const result = processTurn(state, { type: 'action' });
     expect(state.solarEnergy).toBe(0);
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
-    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(11); // no bonus (fixture player.attack 1 + sword bonus 10)
+    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(3); // no bonus (fixture player.attack 1 + sword bonus 2)
     expect(result.events.some((e) => e.type === 'sol_enchantment_used')).toBe(false);
   });
 
@@ -297,7 +297,7 @@ describe('sol enchantment activation (Phase 10.1)', () => {
     expect(state.solarEnergy).toBe(4);
     expect(result.events.some((e) => e.type === 'sol_enchantment_used')).toBe(false);
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
-    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(1); // solar_gun attackPower, no bonus
+    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(2); // fixture player.attack 1 + solar_gun bonus 1, no sol enchant bonus
   });
 
   it('never consumes more than 1 SOL for a single hit', () => {

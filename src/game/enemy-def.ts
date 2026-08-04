@@ -121,13 +121,14 @@ export interface EnemyDefinition {
   stationary: boolean;
   /**
    * Experience points awarded to the player when this species is
-   * defeated (Phase 13.1 experience/level foundation). Every current
-   * species awards a flat 1, per this phase's decision to defer any
-   * per-species balancing until real playtest data exists (see
-   * docs/history/phase-13-1-experience-level-foundation.md) — this field
-   * exists explicitly per species (rather than a single shared constant)
-   * so a future phase can change individual species' rewards without
-   * touching the award mechanism itself.
+   * defeated (Phase 13.1 experience/level foundation). Phase 15.1 core
+   * combat rebalance assigns per-species values (1 for bat/spider/bok, 2
+   * for cockatrice/sword/mummy, 3 for golem/axe/kraken — see
+   * docs/history/phase-15-1-core-combat-rebalance.md) instead of the
+   * Phase 13.1-era flat 1 for every species; this field exists explicitly
+   * per species (rather than a single shared constant) so a future phase
+   * can change individual species' rewards without touching the award
+   * mechanism itself.
    */
   experienceReward: number;
   /**
@@ -146,17 +147,18 @@ export interface EnemyDefinition {
 }
 
 // Fixed spawn/species order used whenever a floor spawns one of each
-// species (see ENEMY_COUNT_PER_FLOOR in mapgen.ts). Phase 10.2 combat
-// stat/scale redesign: hp/attack values are the Phase 08/09-era
-// provisional numbers scaled up roughly 10x (see the history doc for the
-// full old/new table and rationale); defense is new this phase.
+// species (see ENEMY_COUNT_PER_FLOOR in mapgen.ts). Phase 15.1 core
+// combat rebalance lowers hp/attack to the Phase 15 balance draft's
+// low-integer Lv1 values (see docs/history/phase-15-1-core-combat-
+// rebalance.md for the full old/new table); defense (golem/kraken only)
+// is unchanged from Phase 10.2.
 export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
   bok: {
     id: 'bok',
     displayName: 'ボク',
     spriteKey: 'bok_lv1',
-    hp: 30,
-    attack: 10,
+    hp: 6,
+    attack: 6,
     defense: 0,
     accuracy: 90,
     evasion: 0,
@@ -174,15 +176,15 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     id: 'cockatrice',
     displayName: 'コカトリス',
     spriteKey: 'cockatrice',
-    hp: 30,
-    attack: 10,
+    hp: 8,
+    attack: 7,
     defense: 0,
     accuracy: 90,
     evasion: 0,
     behaviorType: 'cockatrice_gaze',
     movementType: 'ground',
     stationary: false,
-    experienceReward: 1,
+    experienceReward: 2,
     // Phase 14.4 enemy affinities: source-material cockatrice carries an
     // earth weakness — see docs/history/phase-14-4-enemy-affinities.md.
     elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'weak' },
@@ -191,8 +193,8 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     id: 'spider',
     displayName: 'スパイダー',
     spriteKey: 'spider',
-    hp: 20,
-    attack: 10,
+    hp: 5,
+    attack: 5,
     defense: 0,
     accuracy: 90,
     evasion: 0,
@@ -209,8 +211,8 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     id: 'bat',
     displayName: 'コウモリ',
     spriteKey: 'bat',
-    hp: 20,
-    attack: 10,
+    hp: 4,
+    attack: 4,
     defense: 0,
     accuracy: 90,
     evasion: 10,
@@ -227,15 +229,15 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     id: 'mummy',
     displayName: 'マミー',
     spriteKey: 'mummy_lv1',
-    hp: 50,
-    attack: 20,
+    hp: 10,
+    attack: 9,
     defense: 0,
     accuracy: 90,
     evasion: 0,
     behaviorType: 'mummy_shamble',
     movementType: 'ground',
     stationary: false,
-    experienceReward: 1,
+    experienceReward: 2,
     // Phase 14.4 enemy affinities: follows the original-title mummy's
     // flame weakness (not the sequel's sol weakness — see docs/history/
     // phase-14-4-enemy-affinities.md for the basis).
@@ -245,15 +247,15 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     id: 'golem',
     displayName: 'ゴーレム',
     spriteKey: 'claygolem',
-    hp: 40,
-    attack: 30,
+    hp: 10,
+    attack: 12,
     defense: 1,
     accuracy: 90,
     evasion: 0,
     behaviorType: 'slow_melee',
     movementType: 'ground',
     stationary: false,
-    experienceReward: 1,
+    experienceReward: 3,
     // Phase 14.4 enemy affinities: golem corresponds to the source
     // material's clay golem, which carries a cloud weakness — see
     // docs/history/phase-14-4-enemy-affinities.md.
@@ -263,15 +265,15 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     id: 'sword',
     displayName: 'ソード',
     spriteKey: 'sword',
-    hp: 40,
-    attack: 20,
+    hp: 9,
+    attack: 8,
     defense: 0,
     accuracy: 90,
     evasion: 0,
     behaviorType: 'fast_melee',
     movementType: 'ground',
     stationary: false,
-    experienceReward: 1,
+    experienceReward: 2,
     // Phase 14.4 enemy affinities: source material's weakness for sword
     // is a weapon-category weakness, not an elemental one — deliberately
     // not replaced with an elemental weakness. See docs/history/
@@ -282,15 +284,15 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     id: 'axe',
     displayName: 'アックス',
     spriteKey: 'axe',
-    hp: 60,
-    attack: 20,
+    hp: 12,
+    attack: 12,
     defense: 0,
     accuracy: 90,
     evasion: 0,
     behaviorType: 'recovery_melee',
     movementType: 'ground',
     stationary: false,
-    experienceReward: 1,
+    experienceReward: 3,
     // Phase 14.4 enemy affinities: source material's weakness for axe is
     // a weapon-category/attack-method weakness, not elemental —
     // deliberately not replaced. See docs/history/phase-14-4-enemy-
@@ -301,15 +303,15 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     id: 'kraken',
     displayName: 'クラーケン',
     spriteKey: 'kraken',
-    hp: 60,
-    attack: 20,
+    hp: 12,
+    attack: 10,
     defense: 1,
     accuracy: 90,
     evasion: 0,
     behaviorType: 'kraken_tentacle',
     movementType: 'none',
     stationary: true,
-    experienceReward: 1,
+    experienceReward: 3,
     // Phase 14.4 enemy affinities: kraken is treated as the source
     // material's octopus-equivalent enemy, which carries a flame
     // weakness — see docs/history/phase-14-4-enemy-affinities.md.

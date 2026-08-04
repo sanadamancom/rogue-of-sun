@@ -53,6 +53,7 @@
 import { GameEvent } from './events';
 import { EnemyType, GameState, PlayerAction, WeaponId, ArmorId, ItemId, AbilityId, AbilityValues } from './types';
 import type { TurnResult } from './turn';
+import { getEffectivePlayerDefense } from './turn';
 import { ITEM_DEFINITIONS } from './item-def';
 import { getExperience, getLevel, getUnspentAbilityPoints } from './progression';
 import { getAbilities } from './ability';
@@ -117,6 +118,20 @@ export type RunEventPayload =
       hitChance: number | null;
       roll: number | null;
       damage: number;
+      // Phase 15.1 core combat rebalance: computeIncomingDamage became a
+      // proportional (percentage) reduction instead of flat subtraction,
+      // so "how much armor actually reduced this hit by" is no longer
+      // recoverable from `damage` alone after the fact — these three
+      // fields are captured at push-time instead. rawAttackPower is the
+      // attacking enemy's own attack stat (pre-reduction); armorReduction
+      // is rawAttackPower - damage; flooredAtMinimum is true when the
+      // proportional formula's unfloored result was below 1 (i.e. this
+      // hit landed at the computeIncomingDamage minimum-damage floor
+      // rather than its own natural rounded value). All three are 0/0/
+      // false on a miss (damage is always 0 on a miss).
+      rawAttackPower: number;
+      armorReduction: number;
+      flooredAtMinimum: boolean;
       playerHpBefore: number;
       playerHpAfter: number;
     }
@@ -346,8 +361,31 @@ function destinationOf(pos: { x: number; y: number }, direction: string): { x: n
   return { x: pos.x + v.x, y: pos.y + v.y };
 }
 
-function findEnemyById(state: GameState, id: number): { pos: { x: number; y: number }; hp: number } | undefined {
+function findEnemyById(state: GameState, id: number): { pos: { x: number; y: number }; hp: number; attack: number } | undefined {
   return state.enemies.find((e) => (e.id ?? 0) === id);
+}
+
+/**
+ * Phase 15.1 core combat rebalance: computeIncomingDamage (combat.ts) is
+ * now a proportional reduction, not a flat subtraction, so "how much
+ * armor reduced this hit" and "did this hit land at the floor" can't be
+ * recovered from the final `damage` value alone — this re-derives both
+ * from the same formula turn.ts's getIncomingDamage uses, given the
+ * attacker's raw attack power and the post-attack GameState (defense is
+ * never changed by taking a hit, so `after` and `before` agree on it).
+ * Pure and read-only: never mutates `state`, never re-rolls anything.
+ */
+function describeIncomingDamageReduction(
+  state: GameState,
+  rawAttackPower: number,
+  actualDamage: number,
+): { armorReduction: number; flooredAtMinimum: boolean } {
+  const effectiveDefense = getEffectivePlayerDefense(state);
+  const unflooredProportional = Math.round(rawAttackPower * Math.pow(2, -effectiveDefense / 10));
+  return {
+    armorReduction: rawAttackPower - actualDamage,
+    flooredAtMinimum: unflooredProportional < 1,
+  };
 }
 
 function translateGameEvent(
@@ -467,6 +505,8 @@ function translateGameEvent(
     }
     case 'enemy_attack': {
       const attacker = findEnemyById(after, event.attackerId);
+      const rawAttackPower = attacker ? attacker.attack : event.damage;
+      const { armorReduction, flooredAtMinimum } = describeIncomingDamageReduction(after, rawAttackPower, event.damage);
       pushEvent(telemetry, after, consumed, {
         type: 'enemy_attack',
         attackerId: event.attackerId,
@@ -478,6 +518,9 @@ function translateGameEvent(
         hitChance: null,
         roll: null,
         damage: event.damage,
+        rawAttackPower,
+        armorReduction,
+        flooredAtMinimum,
         playerHpBefore: before.playerHp,
         playerHpAfter: after.player.hp,
       });
@@ -499,6 +542,9 @@ function translateGameEvent(
         hitChance: event.hitChance,
         roll: event.roll,
         damage: 0,
+        rawAttackPower: attacker ? attacker.attack : 0,
+        armorReduction: 0,
+        flooredAtMinimum: false,
         playerHpBefore: before.playerHp,
         playerHpAfter: after.player.hp,
       });
@@ -510,6 +556,10 @@ function translateGameEvent(
       // doc for why it was deliberately excluded from that system.
       // hitChance/roll are therefore recorded as null.
       const attacker = after.enemies.find((e) => e.id === event.enemyId);
+      const rawAttackPower = attacker ? attacker.attack : event.damage;
+      const { armorReduction, flooredAtMinimum } = event.hit
+        ? describeIncomingDamageReduction(after, rawAttackPower, event.damage)
+        : { armorReduction: 0, flooredAtMinimum: false };
       pushEvent(telemetry, after, consumed, {
         type: 'enemy_attack',
         attackerId: event.enemyId,
@@ -521,6 +571,9 @@ function translateGameEvent(
         hitChance: null,
         roll: null,
         damage: event.damage,
+        rawAttackPower,
+        armorReduction,
+        flooredAtMinimum,
         playerHpBefore: before.playerHp,
         playerHpAfter: after.player.hp,
       });
@@ -827,6 +880,13 @@ export interface EnemyDamageStats {
   misses: number;
   zeroDamageHits: number;
   damage: number;
+  // Phase 15.1 core combat rebalance additions — see this file's
+  // describeIncomingDamageReduction and the 'enemy_attack' TelemetryEvent
+  // case's doc comment for what each derives from.
+  defeated: number;
+  rawDamage: number;
+  armorReduction: number;
+  flooredAtMinimumHits: number;
 }
 
 export interface PerFloorStats {
@@ -886,7 +946,7 @@ function emptyWeaponStats(): WeaponCombatStats {
 }
 
 function emptyEnemyStats(): EnemyDamageStats {
-  return { attackAttempts: 0, hits: 0, misses: 0, zeroDamageHits: 0, damage: 0 };
+  return { attackAttempts: 0, hits: 0, misses: 0, zeroDamageHits: 0, damage: 0, defeated: 0, rawDamage: 0, armorReduction: 0, flooredAtMinimumHits: 0 };
 }
 
 function emptyFloorStats(floor: number): PerFloorStats {
@@ -1015,6 +1075,7 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
           getWeaponStats(weapon).kills++;
           getFloorStats(event.floor).kills++;
         }
+        getEnemyStats(event.targetType).defeated++;
         break;
       }
       case 'player_damaged': {
@@ -1039,6 +1100,9 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
         } else {
           stats.hits++;
           if (event.damage === 0) stats.zeroDamageHits++;
+          stats.rawDamage += event.rawAttackPower;
+          stats.armorReduction += event.armorReduction;
+          if (event.flooredAtMinimum) stats.flooredAtMinimumHits++;
         }
         break;
       }

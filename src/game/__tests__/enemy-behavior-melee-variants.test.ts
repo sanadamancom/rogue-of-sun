@@ -277,11 +277,11 @@ describe('axe (recovery_melee) behavior', () => {
 });
 
 describe('axe recovery exploitability at real definition values (phase-07-3-axe-recovery-tune)', () => {
-  it('has an implemented attack value of 20 (Phase 10.2, scaled 10x from 2)', () => {
-    expect(ENEMY_DEFINITIONS.axe.attack).toBe(20);
+  it('has an implemented attack value of 12 (Phase 15.1 rebalance)', () => {
+    expect(ENEMY_DEFINITIONS.axe.attack).toBe(12);
   });
 
-  it('a full-HP (30) player survives a single axe hit at real values, landing on HP10 (Phase 10.2, scaled 10x from HP3/HP1)', () => {
+  it('a full-HP (30) player survives a single axe hit at real values, landing on HP18 (Phase 15.1 rebalance; unarmored so incoming damage equals attack)', () => {
     const state = singleEnemyState('axe', { x: 9, y: 4 }, {
       playerPos: { x: 10, y: 4 },
       attack: ENEMY_DEFINITIONS.axe.attack,
@@ -290,7 +290,7 @@ describe('axe recovery exploitability at real definition values (phase-07-3-axe-
     state.player.maxHp = 30;
     const enemy = state.enemies[0];
     processTurn(state, { type: 'wait' }); // attacks
-    expect(state.player.hp).toBe(10);
+    expect(state.player.hp).toBe(18);
     expect(state.player.alive).toBe(true);
     expect(enemy.recovering).toBe(true);
   });
@@ -303,7 +303,7 @@ describe('axe recovery exploitability at real definition values (phase-07-3-axe-
     state.player.hp = 30;
     state.player.maxHp = 30;
     const enemy = state.enemies[0];
-    processTurn(state, { type: 'wait' }); // turn 1: attacks, HP 30 -> 10
+    processTurn(state, { type: 'wait' }); // turn 1: attacks, HP 30 -> 18
     const hpAfterAttack = state.player.hp;
     const posAfterAttack = { ...enemy.pos };
     processTurn(state, { type: 'wait' }); // turn 2: forced wait (enemy_recovering)
@@ -326,52 +326,51 @@ describe('axe recovery exploitability at real definition values (phase-07-3-axe-
 });
 
 describe('golem HP boundary at real definition values (phase-07-5-golem-hp-tune, Phase 10.2 rescaled)', () => {
-  it('has an implemented HP of 40 (Phase 10.2, scaled 10x from 4)', () => {
-    expect(ENEMY_DEFINITIONS.golem.hp).toBe(40);
+  it('has an implemented HP of 10 (Phase 15.1 rebalance)', () => {
+    expect(ENEMY_DEFINITIONS.golem.hp).toBe(10);
   });
 
-  it('has an implemented attack value of 30 (Phase 10.2, scaled 10x from 3; unchanged by the HP tune)', () => {
-    expect(ENEMY_DEFINITIONS.golem.attack).toBe(30);
+  it('has an implemented attack value of 12 (Phase 15.1 rebalance; unchanged by the HP tune)', () => {
+    expect(ENEMY_DEFINITIONS.golem.attack).toBe(12);
   });
 
-  it("survives 39 hits from the player's normal attack (attack 1, golem defense 0 in this fixture)", () => {
+  it("survives 9 hits from the player's normal attack (attack 1, golem defense 1 floors each hit at 1)", () => {
     const state = singleEnemyState('golem', { x: 9, y: 4 }, {
       playerPos: { x: 10, y: 4 },
       hp: ENEMY_DEFINITIONS.golem.hp,
       attack: ENEMY_DEFINITIONS.golem.attack,
     });
     const enemy = state.enemies[0];
-    // This fixture's golem also carries its real (Phase 10.2-scaled)
-    // attack value (30), which — unlike the old pre-10.2 value (3) — can
-    // now exceed the player's default synthetic HP (20) in a single
+    // This fixture's golem carries its real Phase 15.1 attack value (12),
+    // which can exceed the player's default synthetic HP (20) in a single
     // unarmored hit. Since this test's actual focus is the golem's HP
     // boundary (not player survivability), give the player generous HP
     // headroom purely so an incidental golem counter-attack over the
-    // course of 39 player actions can never end the run early.
+    // course of 9 player actions can never end the run early.
     state.player.hp = 100000;
     state.player.maxHp = 100000;
     // Phase 10.3 accuracy/evasion foundation: hitChance here is 90 (player
     // accuracy 90 + unarmed mod 0 - golem evasion 0); force a combat RNG
-    // seed verified safe for 45+ consecutive sub-90 rolls so this loop's
+    // seed verified safe for many consecutive sub-90 rolls so this loop's
     // exact hit-count assertions stay deterministic.
     state.combatRngState = 22;
     expect(state.player.attack).toBe(1); // confirms the player's normal-attack baseline used below
     state.player.facing = 'W';
     // Attacking every turn via the X action: golem only occupies the
     // adjacent tile, so this resolves as a player attack regardless of
-    // the golem's own act/rest phase. This fixture's enemy defense is 0
-    // (singleEnemyState/createInitialEnemy default), so each unarmed hit
-    // still deals exactly 1 (Phase 10.2's computeAttackDamage minimum),
-    // same as before Phase 10.2 — only the hit count needed to reach the
-    // new, 10x-larger HP changes (4 -> 40).
-    for (let i = 0; i < 39; i++) {
+    // the golem's own act/rest phase. This fixture's golem carries the
+    // real (nonzero) defense 1, so each unarmed hit still deals exactly 1
+    // (computeAttackDamage's minimum, since player.attack(1) - golem
+    // defense(1) = 0, floored to 1) — the hit count needed to reach the
+    // Phase 15.1 HP (10) is therefore 10, not 40.
+    for (let i = 0; i < 9; i++) {
       processTurn(state, { type: 'action' });
     }
     expect(enemy.hp).toBe(1);
     expect(enemy.alive).toBe(true);
   });
 
-  it("is defeated on the 40th hit from the player's normal attack (attack 1)", () => {
+  it("is defeated on the 10th hit from the player's normal attack (attack 1)", () => {
     const state = singleEnemyState('golem', { x: 9, y: 4 }, {
       playerPos: { x: 10, y: 4 },
       hp: ENEMY_DEFINITIONS.golem.hp,
@@ -384,10 +383,10 @@ describe('golem HP boundary at real definition values (phase-07-5-golem-hp-tune,
     state.player.maxHp = 100000;
     state.combatRngState = 22; // see the identical note in the previous test
     state.player.facing = 'W';
-    for (let i = 0; i < 39; i++) {
+    for (let i = 0; i < 9; i++) {
       processTurn(state, { type: 'action' });
     }
-    const result = processTurn(state, { type: 'action' }); // hit 40
+    const result = processTurn(state, { type: 'action' }); // hit 10
     expect(enemy.hp).toBe(0);
     expect(enemy.alive).toBe(false);
     expect(result.events).toContainEqual({ type: 'enemy_defeated', enemyType: 'golem', targetId: 0 });

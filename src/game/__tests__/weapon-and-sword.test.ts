@@ -62,14 +62,14 @@ function freshState(overrides?: Partial<GameState>): GameState {
 
 describe('weapon definition (Phase 08.3)', () => {
   it('registers sword as a weapon item with the correct display name and category', () => {
-    expect(ITEM_DEFINITIONS.sword.displayName).toBe('ソード');
+    expect(ITEM_DEFINITIONS.sword.displayName).toBe('グラディウス');
     expect(ITEM_DEFINITIONS.sword.category).toBe('weapon');
     expect(ITEM_DEFINITIONS.sword.consumable).toBe(false);
     expect(ITEM_DEFINITIONS.sword.stackable).toBe(false);
   });
 
-  it('registers sword with attack power 10 (bonus over bare hands; Phase 10.2, see weapon-def.ts) and reach 1', () => {
-    expect(WEAPON_DEFINITIONS.sword.attackPower).toBe(10);
+  it('registers sword with attack power 2 (bonus over bare hands; Phase 15.1, see weapon-def.ts) and reach 1', () => {
+    expect(WEAPON_DEFINITIONS.sword.attackPower).toBe(2);
     expect(WEAPON_DEFINITIONS.sword.reach).toBe(1);
   });
 });
@@ -252,9 +252,9 @@ describe('weapon-aware combat', () => {
     expect(getEffectiveAttackPower(state)).toBe(1);
   });
 
-  it('sword-equipped attack power is 11 (Phase 10.2: fixture player.attack 1 + sword bonus 10)', () => {
+  it('sword-equipped attack power is 3 (Phase 15.1: fixture player.attack 1 + sword bonus 2)', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
-    expect(getEffectiveAttackPower(state)).toBe(11);
+    expect(getEffectiveAttackPower(state)).toBe(3);
   });
 
   it('an adjacent attack while unarmed deals 1 damage (unchanged)', () => {
@@ -266,13 +266,13 @@ describe('weapon-aware combat', () => {
     expect(enemy.hp).toBe(4);
   });
 
-  it('an adjacent attack while sword-equipped deals its defined bonus damage (Phase 10.2: fixture player.attack 1 + sword bonus 10 = 11)', () => {
+  it('an adjacent attack while sword-equipped deals its defined bonus damage (Phase 15.1: fixture player.attack 1 + sword bonus 2 = 3)', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
     state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 20, 1);
     state.enemies = [enemy];
     processTurn(state, { type: 'action' });
-    expect(enemy.hp).toBe(9);
+    expect(enemy.hp).toBe(17);
   });
 
   it('sword attack works on diagonal adjacency too (range unchanged from unarmed)', () => {
@@ -281,7 +281,7 @@ describe('weapon-aware combat', () => {
     const enemy = createInitialEnemy('bok', { x: 3, y: 2 }, 20, 1); // diagonal from (2,1)
     state.enemies = [enemy];
     processTurn(state, { type: 'action' });
-    expect(enemy.hp).toBe(9);
+    expect(enemy.hp).toBe(17);
   });
 
   it('player_attack event includes weaponId when equipped, omits it when unarmed', () => {
@@ -294,9 +294,9 @@ describe('weapon-aware combat', () => {
       type: 'player_attack',
       enemyType: 'bok',
       targetId: 0,
-      damage: 11,
+      damage: 3,
       targetHpBefore: 20,
-      targetHpAfter: 9,
+      targetHpAfter: 17,
       weaponId: 'sword',
     });
 
@@ -325,14 +325,14 @@ describe('weapon-aware combat', () => {
     expect(result.enemyAttacked).toBe(true); // golem's acting phase on turn 0
   });
 
-  it('golem (HP40) is not defeated by a single sword hit (bonus damage 11, not lethal in one hit) (Phase 10.2, scaled 10x from HP4/dmg2)', () => {
+  it('golem (HP40) is not defeated by a single sword hit (bonus damage 3, not lethal in one hit) (Phase 15.1)', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
     state.player.facing = 'E';
     const golem = createInitialEnemy('golem', { x: 3, y: 1 }, 40, 3, 0, 0);
     state.enemies = [golem];
     processTurn(state, { type: 'action' });
     expect(golem.alive).toBe(true);
-    expect(golem.hp).toBe(29);
+    expect(golem.hp).toBe(37);
   });
 
   it('sword attacks do not knock the enemy back (position unchanged aside from defeat)', () => {

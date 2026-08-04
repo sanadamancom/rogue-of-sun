@@ -93,7 +93,7 @@ describe('stat model (Phase 10.2)', () => {
     const state = createInitialState(1);
     state.player.hp = 5;
     expect(state.player.hp).not.toBe(state.player.maxHp);
-    expect(state.player.maxHp).toBe(30);
+    expect(state.player.maxHp).toBe(15);
   });
 
   it('defense is not uniformly 0 across every enemy (golem and kraken carry the roster\'s only nonzero defense)', () => {
@@ -118,11 +118,11 @@ describe('damage core (combat.ts, Phase 10.2)', () => {
     expect(computeAttackDamage(10, 0, 100)).toBe(1);
   });
 
-  it('computeIncomingDamage subtracts defense and floors at 0 (not 1) — preserving the pre-existing complete-negation design', () => {
+  it('computeIncomingDamage applies a proportional reduction and floors at 1 (Phase 15.1: replaces the old complete-negation/floor-0 design)', () => {
     expect(computeIncomingDamage(10, 0)).toBe(10);
-    expect(computeIncomingDamage(10, 5)).toBe(5);
-    expect(computeIncomingDamage(10, 10)).toBe(0);
-    expect(computeIncomingDamage(10, 100)).toBe(0);
+    expect(computeIncomingDamage(10, 5)).toBe(7); // round(10 * 2^(-0.5)) = round(7.071)
+    expect(computeIncomingDamage(10, 10)).toBe(5); // round(10 * 2^-1) = 5
+    expect(computeIncomingDamage(10, 100)).toBe(1); // floored at 1, never 0
   });
 
   it('is a pure function: repeated calls with the same input give the same output, and never touch any state', () => {
@@ -144,15 +144,15 @@ describe('weapon damage uses the shared calculation (Phase 10.2)', () => {
     expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(10);
   });
 
-  it('sword: damage equals player.attack + sword bonus (10)', () => {
+  it('sword: damage equals player.attack + sword bonus (2, Phase 15.1)', () => {
     const state = freshState({ equippedWeaponId: 'sword', inventory: { ...createEmptyInventory(), sword: 1 } });
     faceEast(state);
     const result = processTurn(state, { type: 'action' });
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
-    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(20);
+    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(12);
   });
 
-  it('spear: damage equals player.attack + spear bonus (0)', () => {
+  it('spear: damage equals player.attack + spear bonus (1, Phase 15.1)', () => {
     const state = freshState({
       equippedWeaponId: 'spear',
       inventory: { ...createEmptyInventory(), spear: 1 },
@@ -161,15 +161,15 @@ describe('weapon damage uses the shared calculation (Phase 10.2)', () => {
     faceEast(state);
     const result = processTurn(state, { type: 'action' });
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
-    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(10);
+    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(11);
   });
 
-  it('hammer: damage equals player.attack + hammer bonus (20)', () => {
+  it('hammer: damage equals player.attack + hammer bonus (3, Phase 15.1)', () => {
     const state = freshState({ equippedWeaponId: 'hammer', inventory: { ...createEmptyInventory(), hammer: 1 } });
     faceEast(state);
     const result = processTurn(state, { type: 'action' });
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
-    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(30);
+    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(13);
   });
 
   it('solar gun: still consumes its own SOL cost and deals player.attack + 0 bonus, unaffected by an active sol selection', () => {
@@ -184,7 +184,7 @@ describe('weapon damage uses the shared calculation (Phase 10.2)', () => {
     const result = processTurn(state, { type: 'action' });
     expect(state.solarEnergy).toBe(4); // solar gun's own solarCost, unrelated to sol enchantment
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
-    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(10); // no melee sol bonus applied
+    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(11); // player.attack 10 + solar_gun bonus 1 (Phase 15.1), no melee sol bonus applied
     expect(result.events.some((e) => e.type === 'sol_enchantment_used')).toBe(false);
   });
 
@@ -197,66 +197,72 @@ describe('weapon damage uses the shared calculation (Phase 10.2)', () => {
     faceEast(state);
     const result = processTurn(state, { type: 'action' });
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
-    // player.attack 10 + sword bonus 10 - golem defense 1 = 19
-    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(19);
+    // player.attack 10 + sword bonus 2 - golem defense 1 = 11 (Phase 15.1)
+    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(11);
   });
 });
 
-describe('representative hit counts at real production values (Phase 10.2)', () => {
+describe('representative hit counts at real production values (Phase 15.1 rebalance)', () => {
+  // Phase 15.1's confirmed player base attack (see docs/history/phase-15-1-core-combat-rebalance.md
+  // and state.ts's createInitialActor call) — hardcoded here (not imported,
+  // since it is not exported as a standalone constant) so this block
+  // reproduces the Phase 15 balance draft's §8 理論必要攻撃回数 table exactly.
+  const PLAYER_BASE_ATTACK = 2;
+
   function hitsToDefeat(weaponBonus: number, defenderHp: number, defenderDefense: number): number {
-    const perHit = computeAttackDamage(10, weaponBonus, defenderDefense);
+    const perHit = computeAttackDamage(PLAYER_BASE_ATTACK, weaponBonus, defenderDefense);
     return Math.ceil(defenderHp / perHit);
   }
 
-  it('bok (no defense): sword kills in 2 hits, matching the pre-10.2 ratio', () => {
+  it('bok (no defense): sword (グラディウス) kills in 2 hits, matching the Phase 15 balance draft', () => {
     expect(hitsToDefeat(WEAPON_DEFINITIONS.sword.attackPower, ENEMY_DEFINITIONS.bok.hp, ENEMY_DEFINITIONS.bok.defense)).toBe(2);
   });
 
-  it('mummy (no defense): hammer kills in 2 hits, matching the pre-10.2 ratio', () => {
+  it('mummy (no defense): hammer (クラブ) kills in 2 hits, matching the Phase 15 balance draft', () => {
     expect(
       hitsToDefeat(WEAPON_DEFINITIONS.hammer.attackPower, ENEMY_DEFINITIONS.mummy.hp, ENEMY_DEFINITIONS.mummy.defense),
     ).toBe(2);
   });
 
-  it('golem (defense 1): sword now takes 3 hits — the one documented, accepted deviation from the pre-10.2 ratio (was 2)', () => {
+  it('golem (defense 1): sword (グラディウス) takes 4 hits, matching the Phase 15 balance draft', () => {
     expect(
       hitsToDefeat(WEAPON_DEFINITIONS.sword.attackPower, ENEMY_DEFINITIONS.golem.hp, ENEMY_DEFINITIONS.golem.defense),
-    ).toBe(3);
+    ).toBe(4);
   });
 
-  it('axe (no defense): sword kills in 3 hits, matching the pre-10.2 ratio', () => {
+  it('axe (no defense): sword (グラディウス) kills in 3 hits, matching the Phase 15 balance draft', () => {
     expect(hitsToDefeat(WEAPON_DEFINITIONS.sword.attackPower, ENEMY_DEFINITIONS.axe.hp, ENEMY_DEFINITIONS.axe.defense)).toBe(3);
   });
 
-  function hitsToDefeatPlayer(enemyAttack: number, playerDefense: number, playerHp: number): number | 'infinite' {
+  function hitsToDefeatPlayer(enemyAttack: number, playerDefense: number, playerHp: number): number {
     const perHit = computeIncomingDamage(enemyAttack, playerDefense);
-    if (perHit === 0) return 'infinite';
     return Math.ceil(playerHp / perHit);
   }
 
-  it('armored player takes exactly 0 damage from bok/cockatrice/spider/bat, matching the pre-10.2 complete-negation case', () => {
+  it('an armored player no longer takes 0 damage from any Lv1 species (Phase 15.1 removes the complete-negation floor)', () => {
     const armoredDefense = ARMOR_DEFINITIONS.armor.armorValue; // no base player defense source yet
     for (const type of ['bok', 'cockatrice', 'spider', 'bat'] as const) {
-      expect(hitsToDefeatPlayer(ENEMY_DEFINITIONS[type].attack, armoredDefense, 30)).toBe('infinite');
+      expect(computeIncomingDamage(ENEMY_DEFINITIONS[type].attack, armoredDefense)).toBeGreaterThanOrEqual(1);
+      expect(hitsToDefeatPlayer(ENEMY_DEFINITIONS[type].attack, armoredDefense, 30)).toBeGreaterThan(0);
     }
   });
 
-  it('armored player still takes 3 hits from golem, matching the pre-10.2 ratio', () => {
+  it('armored player takes 3 hits from golem at the Phase 15.1 proportional-reduction values', () => {
     const armoredDefense = ARMOR_DEFINITIONS.armor.armorValue;
-    expect(hitsToDefeatPlayer(ENEMY_DEFINITIONS.golem.attack, armoredDefense, 30)).toBe(2);
+    expect(hitsToDefeatPlayer(ENEMY_DEFINITIONS.golem.attack, armoredDefense, 30)).toBe(3);
   });
 });
 
-describe('HP and recovery at the new scale (Phase 10.2)', () => {
-  it('player max HP is 30 on a brand new run', () => {
+describe('HP and recovery at the new scale (Phase 15.1 rebalance)', () => {
+  it('player max HP is 15 on a brand new run', () => {
     const state = createInitialState(1);
-    expect(state.player.maxHp).toBe(30);
+    expect(state.player.maxHp).toBe(15);
   });
 
-  it('enemy max HP values are scaled 10x from their pre-10.2 values', () => {
-    expect(ENEMY_DEFINITIONS.bok.hp).toBe(30);
-    expect(ENEMY_DEFINITIONS.mummy.hp).toBe(50);
-    expect(ENEMY_DEFINITIONS.axe.hp).toBe(60);
+  it('enemy max HP values match the Phase 15 balance draft', () => {
+    expect(ENEMY_DEFINITIONS.bok.hp).toBe(6);
+    expect(ENEMY_DEFINITIONS.mummy.hp).toBe(10);
+    expect(ENEMY_DEFINITIONS.axe.hp).toBe(12);
   });
 
   it('apple heals 20 HP, clamped to maxHp', () => {
@@ -295,7 +301,7 @@ describe('HP and recovery at the new scale (Phase 10.2)', () => {
     processTurn(state, { type: 'wait' });
     state = advanceToNextFloor(state);
     // HP carries over (not healed by a floor transition), but maxHp stays the new-scale value.
-    expect(state.player.maxHp).toBe(30);
+    expect(state.player.maxHp).toBe(15);
   });
 });
 
@@ -327,8 +333,8 @@ describe('sol enchantment at the new scale (Phase 10.2)', () => {
     faceEast(state);
     const result = processTurn(state, { type: 'action' });
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
-    // player.attack 10 + sword bonus 10 - defense 0 = 20, + sol bonus 10 = 30
-    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(30);
+    // player.attack 10 + sword bonus 2 - defense 0 = 12, + sol bonus 10 = 22 (Phase 15.1)
+    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(22);
   });
 
   it('a whiff still consumes the turn but never consumes SOL', () => {
@@ -357,7 +363,7 @@ describe('sol enchantment at the new scale (Phase 10.2)', () => {
     faceEast(state);
     const result = processTurn(state, { type: 'action' });
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
-    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(20); // no +10 bonus
+    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(12); // no +10 bonus (player.attack 10 + sword bonus 2, Phase 15.1)
     expect(result.events.some((e) => e.type === 'sol_enchantment_used')).toBe(false);
   });
 
@@ -477,10 +483,10 @@ describe('UI-facing values are representable at the new scale (Phase 10.2)', () 
     expect(state.player.maxHp).toBeLessThan(1000);
   });
 
-  it('enemy HP values are all representable as 2-3 digit numbers', () => {
+  it('enemy HP values are all small positive integers, per the Phase 15 balance draft\'s low-integer scale', () => {
     for (const def of Object.values(ENEMY_DEFINITIONS)) {
-      expect(def.hp).toBeGreaterThanOrEqual(10);
-      expect(def.hp).toBeLessThan(1000);
+      expect(def.hp).toBeGreaterThanOrEqual(1);
+      expect(def.hp).toBeLessThan(100);
     }
   });
 

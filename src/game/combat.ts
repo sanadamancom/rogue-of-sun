@@ -1,32 +1,28 @@
 /**
  * Central damage-calculation module (Phase 10.2 combat stat/scale
- * redesign). Both functions here are pure and state-free — they take
- * plain numbers and return a plain number, never touching HP, alive
+ * redesign; Phase 15.1 rebalance changes the enemy->player formula and
+ * floor — see below). Both functions here are pure and state-free — they
+ * take plain numbers and return a plain number, never touching HP, alive
  * flags, defeat/knockback handling, or events. Every call site (player
  * melee/solar-gun attacks in turn.ts's applyPlayerAttackToEnemy, and
  * every enemy-attack site: tryMeleeAttack, resolveSpiderEnemy,
  * resolveKrakenEnemy) routes its final-damage arithmetic through one of
- * these two functions instead of repeating `attack - defense` inline, so
- * a future change to the formula (e.g. elemental multipliers) only needs
- * to happen here.
- *
- * Two different minimum-damage floors are used, intentionally kept as
- * two separate functions rather than one parameterized signature so the
- * floor value is never an easy-to-miss call-site argument:
+ * these two functions instead of repeating the formula inline, so a
+ * future change to the formula only needs to happen here.
  *
  * - computeAttackDamage (player -> enemy, including the solar gun):
- *   floors at 1 on any connecting hit, per Phase 10.2's confirmed design
+ *   flat subtraction, floors at 1 on any connecting hit
  *   ("有効な対象へ命中した場合の最小ダメージは1とする").
- * - computeIncomingDamage (enemy -> player): floors at 0, preserving the
- *   pre-existing, explicitly documented (since Phase 08.4's armor
- *   foundation) "shonen-mystery-dungeon-style" design where sufficient
- *   armor can reduce a weak enemy's hit to exactly zero. Phase 10.2's own
- *   design doc proposed a uniform max(1, ...) for this direction too, but
- *   that would silently remove an already-shipped, intentional zero-
- *   damage case (see docs/history/phase-10-2-combat-stat-scale-redesign.md
- *   for the investigation and the decision to preserve it instead, per
- *   that phase's own "現行挙動に完全無効攻撃が存在する場合は...その仕様を
- *   維持する" escape clause).
+ * - computeIncomingDamage (enemy -> player): Phase 15.1 replaces the
+ *   previous flat-subtraction/floor-0 formula with a proportional
+ *   (percentage) reduction — `max(1, round(attackerAttack *
+ *   2^(-defenderDefense/10)))` — so defense 10 roughly halves incoming
+ *   damage rather than fully canceling a weak hit, and every connecting
+ *   enemy attack now deals at least 1 damage (matching
+ *   computeAttackDamage's floor). This intentionally removes the
+ *   previously-documented "shonen-mystery-dungeon-style" complete-
+ *   nullification case from Phase 08.4/10.2 — see
+ *   docs/history/phase-15-1-core-combat-rebalance.md for the rationale.
  */
 
 import type { ElementalAffinity } from './types';
@@ -42,12 +38,16 @@ export function computeAttackDamage(baseAttack: number, weaponBonus: number, def
 }
 
 /**
- * Enemy-side outgoing damage: attack minus the defender's (the player's)
- * total defense, floored at 0 — see the module doc comment above for why
- * this floor differs from computeAttackDamage's.
+ * Enemy-side outgoing damage (Phase 15.1 rebalance): a proportional
+ * (percentage) reduction based on the defender's (the player's) total
+ * effective defense, floored at 1 — see the module doc comment above.
+ * `effectiveDefense` is `max(0, armorDefense + armorEnhancement)`,
+ * computed by the caller (turn.ts's getEffectivePlayerDefense) before
+ * being passed in here as `defenderDefense`.
  */
 export function computeIncomingDamage(attackerAttack: number, defenderDefense: number): number {
-  return Math.max(0, attackerAttack - defenderDefense);
+  const effectiveDefense = Math.max(0, defenderDefense);
+  return Math.max(1, Math.round(attackerAttack * Math.pow(2, -effectiveDefense / 10)));
 }
 
 /**
@@ -55,7 +55,7 @@ export function computeIncomingDamage(attackerAttack: number, defenderDefense: n
  * integer percent. No matchup can ever fall outside this range — see
  * computeHitChance.
  */
-export const MIN_HIT_CHANCE = 5;
+export const MIN_HIT_CHANCE = 10;
 export const MAX_HIT_CHANCE = 95;
 
 /**
@@ -76,9 +76,9 @@ export function computeHitChance(attackerAccuracy: number, weaponHitModifier: nu
  * counts as a hit against `hitChance` (integer percent, from
  * computeHitChance): `roll < hitChance`. This means a hitChance of 95
  * hits on exactly 95 of the 100 possible roll values (0-94), and a
- * hitChance of 5 hits on exactly 5 of them (0-4) — matching Phase 10.3's
- * confirmed_design boundary requirements precisely, with no off-by-one
- * ambiguity at either end.
+ * hitChance of 10 (Phase 15.1's MIN_HIT_CHANCE) hits on exactly 10 of
+ * them (0-9) — matching Phase 10.3's confirmed_design boundary
+ * requirements precisely, with no off-by-one ambiguity at either end.
  */
 export function resolvesAsHit(roll: number, hitChance: number): boolean {
   return roll < hitChance;

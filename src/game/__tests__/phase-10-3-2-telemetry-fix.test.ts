@@ -210,19 +210,19 @@ describe('HP and damage accuracy (Phase 10.3.2, known_failure incorrect_hp_snaps
       combatRngState: GUARANTEED_HIT_SEED,
       equippedWeaponId: 'sword',
       inventory: { ...createEmptyInventory(), sword: 1 },
-      enemies: [createInitialEnemy('bok', { x: 3, y: 1 }, 5, 10, 0, 0, 0, 90, 0)], // sword deals 20, hp only 5
+      enemies: [createInitialEnemy('bok', { x: 3, y: 1 }, 5, 10, 0, 0, 0, 90, 0)], // sword deals 12 (Phase 15.1), hp only 5
     });
     const telemetry = createRunTelemetry(state);
     processTurn(state, { type: 'face', direction: 'E' });
     step(state, { type: 'action' }, telemetry);
     const attack = telemetry.events.find((e) => e.type === 'player_attack') as { actualDamage: number; calculatedDamage: number; targetHpBefore: number; targetHpAfter: number };
     // As of Phase 10.3.3, actualDamage reflects only the real HP loss (5),
-    // not the raw pre-clamp attack power (20, still visible via
+    // not the raw pre-clamp attack power (12, still visible via
     // calculatedDamage) — targetHpAfter is correctly 0, not negative.
     expect(attack.targetHpAfter).toBe(0);
     expect(attack.targetHpBefore).toBe(5);
     expect(attack.actualDamage).toBe(5);
-    expect(attack.calculatedDamage).toBe(20);
+    expect(attack.calculatedDamage).toBe(12);
   });
 });
 
@@ -280,12 +280,12 @@ describe('equipment change tracking (Phase 10.3.2, known_failure missing_equipme
 });
 
 describe('zero-damage hit semantics (Phase 10.3.2, known_failure zero_damage_hit_definition)', () => {
-  it('a fully-armored 0-damage enemy attack still counts as a hit', () => {
+  it('a heavily-armored hit still counts as a hit (Phase 15.1: armor reduces but never fully negates)', () => {
     const state = freshState({
       combatRngState: GUARANTEED_HIT_SEED,
       equippedArmorId: 'armor',
       inventory: { ...createEmptyInventory(), armor: 1 },
-      enemies: [createInitialEnemy('bok', { x: 3, y: 1 }, 1000, 10, 0, 0, 0, 90, 0)], // atk10 == armorValue10 -> 0 dmg
+      enemies: [createInitialEnemy('bok', { x: 3, y: 1 }, 1000, 10, 0, 0, 0, 90, 0)], // atk10, armorValue2 -> proportional reduction, floored at 1
     });
     const telemetry = createRunTelemetry(state);
     step(state, { type: 'wait' }, telemetry);
@@ -294,7 +294,7 @@ describe('zero-damage hit semantics (Phase 10.3.2, known_failure zero_damage_hit
     expect(summary.damageTakenByEnemy.bok.misses).toBe(0);
   });
 
-  it('a 0-damage hit is not added to damage, but is added to zeroDamageHits', () => {
+  it('a heavily-reduced hit is still added to damage, and zeroDamageHits stays 0 (Phase 15.1 removes the complete-negation case)', () => {
     const state = freshState({
       combatRngState: GUARANTEED_HIT_SEED,
       equippedArmorId: 'armor',
@@ -304,8 +304,8 @@ describe('zero-damage hit semantics (Phase 10.3.2, known_failure zero_damage_hit
     const telemetry = createRunTelemetry(state);
     step(state, { type: 'wait' }, telemetry);
     const summary = computeRunSummary(telemetry, state);
-    expect(summary.damageTakenByEnemy.bok.damage).toBe(0);
-    expect(summary.damageTakenByEnemy.bok.zeroDamageHits).toBe(1);
+    expect(summary.damageTakenByEnemy.bok.damage).toBeGreaterThan(0);
+    expect(summary.damageTakenByEnemy.bok.zeroDamageHits).toBe(0);
   });
 
   it('an actual miss still counts toward misses, not hits', () => {

@@ -88,23 +88,23 @@ describe('bok regression (unchanged 8-direction behavior)', () => {
     expect(state.player.hp).toBe(hpBefore - bok.attack);
   });
 
-  it('bok spawns with the common-table hp (30) and attack (10) values (Phase 10.2, scaled 10x from hp3/attack1)', () => {
+  it('bok spawns with the common-table hp (6) and attack (6) values (Phase 15.1 rebalance)', () => {
     // enemy-def.ts defines bok's stats directly; verify the definition
     // itself (imported, not re-derived) and that a freshly created bok
     // enemy actually carries those values.
     const bokDef = ENEMY_DEFINITIONS.bok;
-    expect(bokDef.hp).toBe(30);
-    expect(bokDef.attack).toBe(10);
+    expect(bokDef.hp).toBe(6);
+    expect(bokDef.attack).toBe(6);
     const bok = createInitialEnemy('bok', { x: 0, y: 0 }, bokDef.hp, bokDef.attack);
-    expect(bok.hp).toBe(30);
-    expect(bok.maxHp).toBe(30);
-    expect(bok.attack).toBe(10);
+    expect(bok.hp).toBe(6);
+    expect(bok.maxHp).toBe(6);
+    expect(bok.attack).toBe(6);
   });
 
-  it('bok is defeated by a total of 30 damage (matching its hp) (Phase 10.2, scaled 10x from 3)', () => {
+  it('bok is defeated by a total of 6 damage (matching its hp) (Phase 15.1 rebalance)', () => {
     const bokDef = ENEMY_DEFINITIONS.bok;
     const bok = createInitialEnemy('bok', { x: 0, y: 0 }, bokDef.hp, bokDef.attack);
-    bok.hp = Math.max(0, bok.hp - 30);
+    bok.hp = Math.max(0, bok.hp - 6);
     expect(bok.hp).toBe(0);
   });
 });

@@ -4,17 +4,15 @@ import { WeaponId } from './types';
  * A single weapon species' fixed combat data (Phase 08.3 weapon/equipment
  * foundation; Phase 08.5 adds `reach`).
  *
- * Phase 10.2 combat stat/scale redesign changed how `attackPower` is
- * used: it used to *replace* the player's unarmed attack power outright
- * while equipped (never added on top of it). It is now an *additive
- * bonus over bare hands* — combat.ts's computeAttackDamage computes
+ * `attackPower` is an *additive bonus over bare hands* (Phase 10.2 combat
+ * stat/scale redesign) — combat.ts's computeAttackDamage computes
  * `player.attack + weapon.attackPower - enemy.defense`, so bare hands is
  * equivalent to a weapon with attackPower 0 (see turn.ts's
- * getPlayerWeaponBonus). Each weapon's value was chosen so that, with
- * the Phase 10.2 player.attack base of 10, the resulting *total* exactly
- * reproduces the old (pre-10.2) total scaled by 10 — e.g. sword's old
- * total was 2, so its new bonus is 20 - 10 = 10. See
- * docs/history/phase-10-2-combat-stat-scale-redesign.md for the full
+ * getPlayerWeaponBonus). Phase 15.1 core combat rebalance lowers
+ * player.attack from 10 to 2 and re-derives each weapon's attackPower so
+ * the resulting *total* matches the Phase 15 balance draft's low-integer
+ * scale (sword 4, spear 3, hammer 5, solar gun 3 at base) — see
+ * docs/history/phase-15-1-core-combat-rebalance.md for the full
  * derivation and the old/new comparison table.
  *
  * `reach` is the maximum tile distance (in a single straight or diagonal
@@ -67,7 +65,7 @@ export interface WeaponDefinition {
 export const WEAPON_DEFINITIONS: Record<WeaponId, WeaponDefinition> = {
   sword: {
     id: 'sword',
-    attackPower: 10,
+    attackPower: 2,
     reach: 1,
     knockbackDistance: 0,
     hasRecoil: false,
@@ -75,7 +73,7 @@ export const WEAPON_DEFINITIONS: Record<WeaponId, WeaponDefinition> = {
   },
   spear: {
     id: 'spear',
-    attackPower: 0,
+    attackPower: 1,
     reach: 2,
     knockbackDistance: 0,
     hasRecoil: false,
@@ -83,7 +81,7 @@ export const WEAPON_DEFINITIONS: Record<WeaponId, WeaponDefinition> = {
   },
   hammer: {
     id: 'hammer',
-    attackPower: 20,
+    attackPower: 3,
     reach: 1,
     knockbackDistance: 1,
     hasRecoil: true,
@@ -91,7 +89,7 @@ export const WEAPON_DEFINITIONS: Record<WeaponId, WeaponDefinition> = {
   },
   solar_gun: {
     id: 'solar_gun',
-    attackPower: 0,
+    attackPower: 1,
     // Interpreted as max ray distance (tiles), not melee reach steps —
     // see WeaponDefinition.solarCost doc comment.
     reach: 5,

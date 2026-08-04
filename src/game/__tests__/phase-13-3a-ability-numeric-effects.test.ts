@@ -98,12 +98,12 @@ describe('Phase 13.3a ability numeric effects', () => {
       expect(getPowerDamageBonus(state)).toBe(0);
     });
 
-    it('rank0 preserves existing per-weapon damage exactly', () => {
+    it('rank0 preserves existing per-weapon damage exactly (Phase 15.1 weapon bonuses)', () => {
       const cases: { weaponId: WeaponId | null; expectedDamage: number }[] = [
         { weaponId: null, expectedDamage: 10 },
-        { weaponId: 'sword', expectedDamage: 20 },
-        { weaponId: 'spear', expectedDamage: 10 },
-        { weaponId: 'hammer', expectedDamage: 30 },
+        { weaponId: 'sword', expectedDamage: 12 },
+        { weaponId: 'spear', expectedDamage: 11 },
+        { weaponId: 'hammer', expectedDamage: 13 },
       ];
       for (const { weaponId, expectedDamage } of cases) {
         const state = freshState();
@@ -286,10 +286,11 @@ describe('Phase 13.3a ability numeric effects', () => {
       const swordDmg = playerAttackDamage(attackAdjacentEnemy(swordState));
       const hammerDmg = playerAttackDamage(attackAdjacentEnemy(hammerState));
 
-      // Base gaps (10 unarmed / 20 sword / 30 hammer) are preserved exactly
-      // since the +6 bonus is a flat addition applied identically to all three.
-      expect(swordDmg - unarmedDmg).toBe(10);
-      expect(hammerDmg - swordDmg).toBe(10);
+      // Base gaps (10 unarmed / 12 sword / 13 hammer, Phase 15.1) are
+      // preserved exactly since the +6 bonus is a flat addition applied
+      // identically to all three.
+      expect(swordDmg - unarmedDmg).toBe(2);
+      expect(hammerDmg - swordDmg).toBe(1);
     });
   });
 
@@ -325,18 +326,20 @@ describe('Phase 13.3a ability numeric effects', () => {
   });
 });
 
+// Phase 15.1 rebalance: weapon bonuses over the fixture's base attack (10)
+// are now sword +2, spear +1, hammer +3, solar_gun +1 (see weapon-def.ts).
 function weaponBaseDamage(weaponId: WeaponId | null): number {
   switch (weaponId) {
     case null:
       return 10;
     case 'sword':
-      return 20;
+      return 12;
     case 'spear':
-      return 10;
+      return 11;
     case 'hammer':
-      return 30;
+      return 13;
     case 'solar_gun':
-      return 10;
+      return 11;
     default:
       return 10;
   }

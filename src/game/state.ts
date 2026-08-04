@@ -48,9 +48,9 @@ interface CarryOverStats {
   abilities: AbilityValues;
 }
 
-/** Fixed initial/maximum solar energy for a brand new run (Phase 09.1; provisional value, see history doc). */
-const INITIAL_SOLAR_ENERGY = 5;
-const INITIAL_MAX_SOLAR_ENERGY = 5;
+/** Fixed initial/maximum solar energy for a brand new run (Phase 09.1; Phase 15.1 rebalance raises this from 5 to 15 to match the player's initial max LIFE — see docs/history/phase-15-1-core-combat-rebalance.md). */
+const INITIAL_SOLAR_ENERGY = 15;
+const INITIAL_MAX_SOLAR_ENERGY = 15;
 
 /**
  * Picks `count` species independently (with replacement) from `pool` using
@@ -114,12 +114,12 @@ function buildFloorState(
 
   const player: Actor = carry
     ? createInitialActor(placement.start, carry.maxHp, carry.attack, carry.defense, carry.accuracy, carry.evasion)
-    : // Phase 10.2 combat stat/scale redesign: hp 3->30, attack 1->10
-      // (10x scale, see docs/history for the full table); defense 0 (no
+    : // Phase 15.1 core combat rebalance: maxHp 30->15, attack 10->2 (see
+      // docs/history/phase-15-1-core-combat-rebalance.md); defense 0 (no
       // permanent player defense source yet besides equipped armor).
       // Phase 10.3 accuracy/evasion foundation: accuracy 90, evasion 0
       // (confirmed_design's initial_values.actors.player).
-      createInitialActor(placement.start, 30, 10, 0, 90, 0);
+      createInitialActor(placement.start, 15, 2, 0, 90, 0);
   if (carry) {
     // maxHp/attack already set via createInitialActor above; only current
     // HP and facing need to be overridden to the carried-over values

@@ -135,9 +135,10 @@ describe('Phase 13.1 experience/level/ability-point progression foundation', () 
       }
     });
 
-    it('every current enemy rewards exactly 1 experience', () => {
+    it('every current enemy rewards a positive integer experience (Phase 15.1: per-species 1/2/3, not a flat 1)', () => {
       for (const type of ENEMY_TYPES_IN_ORDER) {
-        expect(ENEMY_DEFINITIONS[type].experienceReward).toBe(1);
+        expect(ENEMY_DEFINITIONS[type].experienceReward).toBeGreaterThanOrEqual(1);
+        expect(Number.isInteger(ENEMY_DEFINITIONS[type].experienceReward)).toBe(true);
       }
     });
 

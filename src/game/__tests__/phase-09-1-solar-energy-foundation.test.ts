@@ -79,10 +79,10 @@ describe('sun fruit item definition (Phase 09.1)', () => {
 });
 
 describe('solar energy state (Phase 09.1)', () => {
-  it('a new run starts at SOL 5/5', () => {
+  it('a new run starts at SOL 15/15 (Phase 15.1 rebalance)', () => {
     const state = createInitialState(42);
-    expect(state.solarEnergy).toBe(5);
-    expect(state.maxSolarEnergy).toBe(5);
+    expect(state.solarEnergy).toBe(15);
+    expect(state.maxSolarEnergy).toBe(15);
   });
 
   it('never drops below 0 via use (used indirectly through applyItemUse guard)', () => {
@@ -131,10 +131,10 @@ describe('solar energy state (Phase 09.1)', () => {
     expect(state.solarEnergy).toBe(4);
   });
 
-  it('a brand new run resets solar energy to 5/5', () => {
+  it('a brand new run resets solar energy to 15/15 (Phase 15.1 rebalance)', () => {
     const state = createInitialState(7);
-    expect(state.solarEnergy).toBe(5);
-    expect(state.maxSolarEnergy).toBe(5);
+    expect(state.solarEnergy).toBe(15);
+    expect(state.maxSolarEnergy).toBe(15);
   });
 });
 

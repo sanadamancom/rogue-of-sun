@@ -288,28 +288,28 @@ describe('attack_up damage bonus (Phase 12.1)', () => {
     expect(before - state.enemies[0].hp).toBe(15);
   });
 
-  it('sword (+10 weapon bonus): 10 base + 5 attack_up + 10 sword - 0 defense = 25 damage', () => {
+  it('sword (+2 weapon bonus, Phase 15.1): 10 base + 5 attack_up + 2 sword - 0 defense = 17 damage', () => {
     const state = attackerState('sword');
     const before = state.enemies[0].hp;
     processTurn(state, { type: 'face', direction: 'E' });
     processTurn(state, { type: 'action' });
-    expect(before - state.enemies[0].hp).toBe(25);
+    expect(before - state.enemies[0].hp).toBe(17);
   });
 
-  it('spear (+0 weapon bonus): 10 base + 5 attack_up + 0 - 0 defense = 15 damage', () => {
+  it('spear (+1 weapon bonus, Phase 15.1): 10 base + 5 attack_up + 1 - 0 defense = 16 damage', () => {
     const state = attackerState('spear');
     const before = state.enemies[0].hp;
     processTurn(state, { type: 'face', direction: 'E' });
     processTurn(state, { type: 'action' });
-    expect(before - state.enemies[0].hp).toBe(15);
+    expect(before - state.enemies[0].hp).toBe(16);
   });
 
-  it('hammer (+20 weapon bonus): 10 base + 5 attack_up + 20 - 0 defense = 35 damage', () => {
+  it('hammer (+3 weapon bonus, Phase 15.1): 10 base + 5 attack_up + 3 - 0 defense = 18 damage', () => {
     const state = attackerState('hammer');
     const before = state.enemies[0].hp;
     processTurn(state, { type: 'face', direction: 'E' });
     processTurn(state, { type: 'action' });
-    expect(before - state.enemies[0].hp).toBe(35);
+    expect(before - state.enemies[0].hp).toBe(18);
   });
 
   it('does not apply to the solar gun', () => {
@@ -342,8 +342,8 @@ describe('attack_up damage bonus (Phase 12.1)', () => {
     const before = state.enemies[0].hp;
     processTurn(state, { type: 'face', direction: 'E' });
     processTurn(state, { type: 'action' });
-    // 10 base + 5 attack_up + 10 sword - 0 defense = 25, plus fixed sol bonus 10 = 35
-    expect(before - state.enemies[0].hp).toBe(35);
+    // 10 base + 5 attack_up + 2 sword (Phase 15.1) - 0 defense = 17, plus fixed sol bonus 10 = 27
+    expect(before - state.enemies[0].hp).toBe(27);
   });
 
   it('floors at minimum damage 1 even with attack_up active against high defense', () => {

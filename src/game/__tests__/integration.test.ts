@@ -99,11 +99,11 @@ describe('integration - generated map gameplay', () => {
     expect(state.turn).toBe(before);
   });
 
-  it('keeps Phase 01 combat behavior on a generated map (enemy takes 2 hits to defeat) (Phase 10.2: real unarmed player.attack is now 10, so hp is set to 15 — one hit to survive, a second to finish)', () => {
+  it('keeps Phase 01 combat behavior on a generated map (enemy takes 2 hits to defeat) (Phase 15.1: real unarmed player.attack is now 2, so hp is set to 3 — one hit to survive, a second to finish)', () => {
     const state = createInitialState(555);
     state.enemies[0].pos = { x: state.player.pos.x + 1, y: state.player.pos.y };
     state.enemies[0].alive = true;
-    state.enemies[0].hp = 15;
+    state.enemies[0].hp = 3;
     state.enemies[1].pos = { x: 0, y: 0 };
     state.enemies[1].alive = false;
     state.player.facing = 'E';

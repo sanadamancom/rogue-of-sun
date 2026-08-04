@@ -8,10 +8,12 @@ import { ArmorId } from './types';
  * random-affix fields exist yet; a future second armor piece is expected
  * to extend this table rather than add parallel ad-hoc fields elsewhere.
  *
- * Phase 10.2 combat stat/scale redesign: armorValue is scaled 10x (1->10)
- * alongside every other combat stat, preserving its exact old effect —
- * see turn.ts's getEffectivePlayerDefense (armorValue is added on top of
- * the player's own base `defense`, currently always 0).
+ * Phase 15.1 core combat rebalance lowers armorValue from 10 to 2 (the
+ * Phase 15 balance draft's クロスアーマー) and changes how it's applied on
+ * the incoming-damage side — see turn.ts's getEffectivePlayerDefense
+ * (armorValue is still added on top of the player's own base `defense`,
+ * currently always 0) and combat.ts's computeIncomingDamage (now a
+ * proportional reduction rather than flat subtraction).
  */
 export interface ArmorDefinition {
   id: ArmorId;
@@ -23,7 +25,7 @@ export interface ArmorDefinition {
 export const ARMOR_DEFINITIONS: Record<ArmorId, ArmorDefinition> = {
   armor: {
     id: 'armor',
-    armorValue: 10,
+    armorValue: 2,
   },
 };
 

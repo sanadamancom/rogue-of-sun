@@ -62,19 +62,19 @@ function freshState(overrides?: Partial<GameState>): GameState {
 
 describe('weapon definition (Phase 08.5)', () => {
   it('registers spear as a weapon with the correct display name and category', () => {
-    expect(ITEM_DEFINITIONS.spear.displayName).toBe('スピア');
+    expect(ITEM_DEFINITIONS.spear.displayName).toBe('ショートスピア');
     expect(ITEM_DEFINITIONS.spear.category).toBe('weapon');
     expect(ITEM_DEFINITIONS.spear.consumable).toBe(false);
     expect(ITEM_DEFINITIONS.spear.stackable).toBe(false);
   });
 
-  it('registers spear with attackPower 0 (bare-hands-equivalent bonus; Phase 10.2, see weapon-def.ts) and reach 2', () => {
-    expect(WEAPON_DEFINITIONS.spear.attackPower).toBe(0);
+  it('registers spear with attackPower 1 (bonus over bare hands; Phase 15.1, see weapon-def.ts) and reach 2', () => {
+    expect(WEAPON_DEFINITIONS.spear.attackPower).toBe(1);
     expect(WEAPON_DEFINITIONS.spear.reach).toBe(2);
   });
 
-  it('sword keeps attackPower 10 (bonus over bare hands; Phase 10.2) and reach 1 (regression)', () => {
-    expect(WEAPON_DEFINITIONS.sword.attackPower).toBe(10);
+  it('sword keeps attackPower 2 (bonus over bare hands; Phase 15.1) and reach 1 (regression)', () => {
+    expect(WEAPON_DEFINITIONS.sword.attackPower).toBe(2);
     expect(WEAPON_DEFINITIONS.sword.reach).toBe(1);
   });
 });
@@ -292,7 +292,7 @@ describe('two-tile spear attack (via X action)', () => {
     const posBefore = { ...state.player.pos };
     const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(true);
-    expect(enemy.hp).toBe(4); // spear attackPower 1
+    expect(enemy.hp).toBe(3); // Phase 15.1 spear attackPower 1 -> total 2 dmg
     expect(state.player.pos).toEqual(posBefore);
   });
 
@@ -304,17 +304,17 @@ describe('two-tile spear attack (via X action)', () => {
     const posBefore = { ...state.player.pos };
     const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(true);
-    expect(enemy.hp).toBe(4);
+    expect(enemy.hp).toBe(3);
     expect(state.player.pos).toEqual(posBefore); // did not move
   });
 
-  it('deals exactly 1 damage with the spear (regression-safe distinct from sword)', () => {
+  it('deals exactly 2 damage with the spear (Phase 15.1: regression-safe distinct from sword)', () => {
     const state = freshState({ equippedWeaponId: 'spear' });
     state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 4, y: 1 }, 5, 1);
     state.enemies = [enemy];
     processTurn(state, { type: 'action' });
-    expect(enemy.hp).toBe(4);
+    expect(enemy.hp).toBe(3);
   });
 
   it('2-tile attack consumes exactly 1 turn and triggers enemy actions afterward', () => {
@@ -336,7 +336,7 @@ describe('two-tile spear attack (via X action)', () => {
     const farEnemy = createInitialEnemy('bok', { x: 4, y: 1 }, 5, 1);
     state.enemies = [nearEnemy, farEnemy];
     processTurn(state, { type: 'action' });
-    expect(nearEnemy.hp).toBe(4);
+    expect(nearEnemy.hp).toBe(3);
     expect(farEnemy.hp).toBe(5); // untouched
   });
 
@@ -347,7 +347,7 @@ describe('two-tile spear attack (via X action)', () => {
     const bystander = createInitialEnemy('bat', { x: 4, y: 3 }, 5, 1); // unrelated tile
     state.enemies = [enemy, bystander];
     processTurn(state, { type: 'action' });
-    expect(enemy.hp).toBe(4);
+    expect(enemy.hp).toBe(3);
     expect(bystander.hp).toBe(5);
   });
 
@@ -440,7 +440,7 @@ describe('spear obstruction and diagonal rules (via X action)', () => {
     const farEnemy = createInitialEnemy('bat', { x: 4, y: 1 }, 5, 1);
     state.enemies = [nearEnemy, farEnemy];
     processTurn(state, { type: 'action' });
-    expect(nearEnemy.hp).toBe(4);
+    expect(nearEnemy.hp).toBe(3);
     expect(farEnemy.hp).toBe(5);
   });
 
@@ -454,7 +454,7 @@ describe('spear obstruction and diagonal rules (via X action)', () => {
     state.enemies = [enemy];
     const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(true);
-    expect(enemy.hp).toBe(4);
+    expect(enemy.hp).toBe(3);
   });
 
   it('the exit tile in the intervening position does not block the attack', () => {
@@ -464,7 +464,7 @@ describe('spear obstruction and diagonal rules (via X action)', () => {
     state.enemies = [enemy];
     const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(true);
-    expect(enemy.hp).toBe(4);
+    expect(enemy.hp).toBe(3);
   });
 
   it('does not attack outside the map bounds', () => {
@@ -497,7 +497,7 @@ describe('spear obstruction and diagonal rules (via X action)', () => {
     state.enemies = [enemy];
     const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(true);
-    expect(enemy.hp).toBe(4);
+    expect(enemy.hp).toBe(3);
   });
 
   it('cannot attack diagonally when the first-segment corner is blocked', () => {
@@ -561,22 +561,22 @@ describe('persistence and reset (Phase 08.5)', () => {
 });
 
 describe('regression: Phase 08.2/08.3/08.4 behavior unaffected', () => {
-  it('sword still deals its defined bonus damage and still only hits adjacent enemies (Phase 10.2: fixture player.attack 1 + sword bonus 10 - defense 0 = 11)', () => {
+  it('sword still deals its defined bonus damage and still only hits adjacent enemies (Phase 15.1: fixture player.attack 1 + sword bonus 2 - defense 0 = 3)', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
     state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 20, 1);
     state.enemies = [enemy];
     processTurn(state, { type: 'action' });
-    expect(enemy.hp).toBe(9);
+    expect(enemy.hp).toBe(17);
   });
 
-  it('armor still reduces damage via max(0, attackPower - armorValue)', () => {
+  it('armor still reduces damage (Phase 15.1: floored minimum 1 damage, no longer full negation)', () => {
     const state = freshState({ equippedArmorId: 'armor' });
     const bok = createInitialEnemy('bok', { x: 3, y: 1 }, 2, 1);
     state.enemies = [bok];
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' });
-    expect(state.player.hp).toBe(hpBefore);
+    expect(state.player.hp).toBe(hpBefore - 1);
   });
 
   it('apple still heals 2 HP and consumes 1 apple on success', () => {

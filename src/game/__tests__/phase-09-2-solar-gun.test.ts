@@ -77,13 +77,13 @@ function freshState(overrides?: Partial<GameState>): GameState {
 }
 
 describe('solar gun definition and inventory (Phase 09.2)', () => {
-  it('registers solar_gun as a weapon with attackPower 0 (bare-hands-equivalent bonus; Phase 10.2, see weapon-def.ts), reach(range) 5, solarCost 1', () => {
+  it('registers solar_gun as a weapon with attackPower 1 (bonus over bare hands; Phase 15.1, see weapon-def.ts), reach(range) 5, solarCost 1', () => {
     expect(ITEM_IDS_IN_ORDER).toContain('solar_gun');
     expect(WEAPON_IDS_IN_ORDER).toContain('solar_gun');
     expect(ITEM_DEFINITIONS.solar_gun.displayName).toBe('太陽銃');
     expect(ITEM_DEFINITIONS.solar_gun.category).toBe('weapon');
     expect(ITEM_DEFINITIONS.solar_gun.consumable).toBe(false);
-    expect(WEAPON_DEFINITIONS.solar_gun.attackPower).toBe(0);
+    expect(WEAPON_DEFINITIONS.solar_gun.attackPower).toBe(1);
     expect(WEAPON_DEFINITIONS.solar_gun.reach).toBe(5);
     expect(WEAPON_DEFINITIONS.solar_gun.solarCost).toBe(1);
   });
@@ -157,7 +157,7 @@ describe('solar gun firing (Phase 09.2)', () => {
     state.enemies = [enemy];
     const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(true);
-    expect(enemy.hp).toBe(4);
+    expect(enemy.hp).toBe(3);
   });
 
   it.each([1, 2, 3, 4, 5])('hits an enemy at distance %i', (distance) => {
@@ -167,7 +167,7 @@ describe('solar gun firing (Phase 09.2)', () => {
     state.enemies = [enemy];
     const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(true);
-    expect(enemy.hp).toBe(4);
+    expect(enemy.hp).toBe(3);
   });
 
   it('does not hit an enemy at distance 6', () => {
@@ -180,14 +180,14 @@ describe('solar gun firing (Phase 09.2)', () => {
     expect(enemy.hp).toBe(5);
   });
 
-  it('hits only the closest enemy on the ray, dealing exactly 1 damage', () => {
+  it('hits only the closest enemy on the ray, dealing exactly 2 damage (Phase 15.1: fixture player.attack 1 + solar_gun bonus 1)', () => {
     const state = freshState({ equippedWeaponId: 'solar_gun' });
     state.player.facing = 'E';
     const near = createInitialEnemy('bok', { x: 12, y: 10 }, 5, 1);
     const far = createInitialEnemy('bok', { x: 14, y: 10 }, 5, 1);
     state.enemies = [near, far];
     processTurn(state, { type: 'action' });
-    expect(near.hp).toBe(4);
+    expect(near.hp).toBe(3);
     expect(far.hp).toBe(5);
   });
 

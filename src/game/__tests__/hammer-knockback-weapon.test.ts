@@ -62,14 +62,14 @@ function freshState(overrides?: Partial<GameState>): GameState {
 
 describe('weapon definition (Phase 08.7)', () => {
   it('registers hammer as a weapon with the correct display name and category', () => {
-    expect(ITEM_DEFINITIONS.hammer.displayName).toBe('ハンマー');
+    expect(ITEM_DEFINITIONS.hammer.displayName).toBe('クラブ');
     expect(ITEM_DEFINITIONS.hammer.category).toBe('weapon');
     expect(ITEM_DEFINITIONS.hammer.consumable).toBe(false);
     expect(ITEM_DEFINITIONS.hammer.stackable).toBe(false);
   });
 
-  it('registers hammer with attackPower 20 (bonus over bare hands; Phase 10.2, see weapon-def.ts), reach 1, knockbackDistance 1, hasRecoil true', () => {
-    expect(WEAPON_DEFINITIONS.hammer.attackPower).toBe(20);
+  it('registers hammer with attackPower 3 (bonus over bare hands; Phase 15.1, see weapon-def.ts), reach 1, knockbackDistance 1, hasRecoil true', () => {
+    expect(WEAPON_DEFINITIONS.hammer.attackPower).toBe(3);
     expect(WEAPON_DEFINITIONS.hammer.reach).toBe(1);
     expect(WEAPON_DEFINITIONS.hammer.knockbackDistance).toBe(1);
     expect(WEAPON_DEFINITIONS.hammer.hasRecoil).toBe(true);
@@ -203,13 +203,13 @@ describe('hammer pickup, equip, and persistence', () => {
 });
 
 describe('hammer attack', () => {
-  it('deals 21 damage to an adjacent enemy (Phase 10.2: fixture player.attack 1 + hammer bonus 20 - defense 0)', () => {
+  it('deals 4 damage to an adjacent enemy (Phase 15.1: fixture player.attack 1 + hammer bonus 3 - defense 0)', () => {
     const state = freshState({ equippedWeaponId: 'hammer' });
     state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 30, 1);
     state.enemies = [enemy];
     processTurn(state, { type: 'action' });
-    expect(enemy.hp).toBe(9);
+    expect(enemy.hp).toBe(26);
   });
 
   it('cannot hit an enemy 2 tiles away (reach 1)', () => {
@@ -238,7 +238,7 @@ describe('hammer attack', () => {
     const bystander = createInitialEnemy('bat', { x: 3, y: 5 }, 5, 1);
     state.enemies = [target, bystander];
     processTurn(state, { type: 'action' });
-    expect(target.hp).toBe(9);
+    expect(target.hp).toBe(26);
     expect(bystander.hp).toBe(5);
   });
 
@@ -292,7 +292,7 @@ describe('hammer knockback', () => {
     const enemy = createInitialEnemy('bok', { x: 4, y: 1 }, 30, 1);
     state.enemies = [enemy];
     processTurn(state, { type: 'action' });
-    expect(enemy.hp).toBe(9); // damage still applied (30 - 21)
+    expect(enemy.hp).toBe(26); // damage still applied (30 - 4)
     expect(enemy.pos).toEqual({ x: 4, y: 1 }); // did not move into the wall
   });
 
@@ -322,7 +322,7 @@ describe('hammer knockback', () => {
     state.enemies = [target, blocker];
     processTurn(state, { type: 'action' });
     expect(target.pos).toEqual({ x: 3, y: 1 }); // blocked by blocker
-    expect(target.hp).toBe(9); // damage still applied (30 - 21)
+    expect(target.hp).toBe(26); // damage still applied (30 - 4)
   });
 
   it('does not knock the enemy onto the player position', () => {
@@ -404,7 +404,7 @@ describe('hammer knockback', () => {
     const enemy = createInitialEnemy('bok', { x: 4, y: 1 }, 30, 1);
     state.enemies = [enemy];
     processTurn(state, { type: 'action' });
-    expect(enemy.hp).toBe(9); // exactly the hammer's bonus damage (30 - 21), no extra from a failed knockback
+    expect(enemy.hp).toBe(26); // exactly the hammer's bonus damage (30 - 4), no extra from a failed knockback
   });
 
   it('never pushes multiple enemies in a chain (only the directly-hit target can move)', () => {
@@ -440,7 +440,7 @@ describe('hammer knockback', () => {
     state.enemies = [golem];
     const posBefore = { ...golem.pos };
     processTurn(state, { type: 'action' });
-    expect(golem.hp).toBe(9); // 30 - 21 (fixture defense 0: createInitialEnemy's default, not real ENEMY_DEFINITIONS.golem.defense)
+    expect(golem.hp).toBe(26); // 30 - 4 (fixture defense 0: createInitialEnemy's default, not real ENEMY_DEFINITIONS.golem.defense)
     expect(golem.pos).toEqual(posBefore);
   });
 
@@ -451,7 +451,7 @@ describe('hammer knockback', () => {
     state.enemies = [kraken];
     const posBefore = { ...kraken.pos };
     processTurn(state, { type: 'action' });
-    expect(kraken.hp).toBe(9); // 30 - 21 (fixture defense 0: createInitialEnemy's default, not real ENEMY_DEFINITIONS.kraken.defense)
+    expect(kraken.hp).toBe(26); // 30 - 4 (fixture defense 0: createInitialEnemy's default, not real ENEMY_DEFINITIONS.kraken.defense)
     expect(kraken.pos).toEqual(posBefore);
   });
 });
@@ -532,7 +532,7 @@ describe('hammer recoil', () => {
     processTurn(state, { type: 'action' }); // re-cock
     expect(state.hammerRecovery).toBe(false);
     processTurn(state, { type: 'action' }); // real attack now
-    expect(enemy.hp).toBe(9);
+    expect(enemy.hp).toBe(26);
   });
 
   it('a successful move clears recovery', () => {
@@ -606,33 +606,33 @@ describe('hammer recoil', () => {
 });
 
 describe('regression: Phase 08.2-08.6 behavior unaffected', () => {
-  it('sword still deals its defined bonus damage and has no knockback (Phase 10.2: fixture player.attack 1 + sword bonus 10 - defense 0 = 11)', () => {
+  it('sword still deals its defined bonus damage and has no knockback (Phase 15.1: fixture player.attack 1 + sword bonus 2 - defense 0 = 3)', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
     state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 30, 1);
     state.enemies = [enemy];
     processTurn(state, { type: 'action' });
-    expect(enemy.hp).toBe(19);
+    expect(enemy.hp).toBe(27);
     expect(enemy.pos).toEqual({ x: 3, y: 1 });
   });
 
-  it('spear still reaches 2 tiles (Phase 10.2: fixture player.attack 1 + spear bonus 0 - defense 0 = 1)', () => {
+  it('spear still reaches 2 tiles (Phase 15.1: fixture player.attack 1 + spear bonus 1 - defense 0 = 2)', () => {
     const state = freshState({ equippedWeaponId: 'spear' });
     state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 4, y: 1 }, 30, 1);
     state.enemies = [enemy];
     const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(true);
-    expect(enemy.hp).toBe(29);
+    expect(enemy.hp).toBe(28);
   });
 
-  it('armor still reduces damage', () => {
+  it('armor still reduces damage (Phase 15.1: floored minimum 1 damage)', () => {
     const state = freshState({ equippedArmorId: 'armor' });
     const bok = createInitialEnemy('bok', { x: 3, y: 1 }, 2, 1);
     state.enemies = [bok];
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' });
-    expect(state.player.hp).toBe(hpBefore);
+    expect(state.player.hp).toBe(hpBefore - 1);
   });
 
   it('apple still heals 2 HP', () => {

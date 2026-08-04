@@ -275,16 +275,16 @@ describe('enemy attack: hit and miss (Phase 10.3)', () => {
     expect(result.enemyActed).toBe(true);
   });
 
-  it('existing armor-based damage reduction still applies on a hit', () => {
+  it('existing armor-based damage reduction still applies on a hit (Phase 15.1: proportional reduction, not full absorption)', () => {
     const state = freshState({
       combatRngState: GUARANTEED_HIT_SEED,
       equippedArmorId: 'armor',
       inventory: { ...createEmptyInventory(), armor: 1 },
-      enemies: [createInitialEnemy('bok', { x: 3, y: 1 }, 1000, 10, 0, 0, 0, 90, 0)], // attack 10 = armorValue 10 -> 0 dmg
+      enemies: [createInitialEnemy('bok', { x: 3, y: 1 }, 1000, 10, 0, 0, 0, 90, 0)], // attack 10, armorValue 2 -> round(10*2^-0.2) = 9 dmg
     });
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' });
-    expect(state.player.hp).toBe(hpBefore); // fully absorbed, same as pre-10.3
+    expect(state.player.hp).toBe(hpBefore - 9); // reduced but not fully absorbed
   });
 });
 

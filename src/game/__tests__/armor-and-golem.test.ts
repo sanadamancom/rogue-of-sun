@@ -69,14 +69,14 @@ function freshState(overrides?: Partial<GameState>): GameState {
 
 describe('armor definition (Phase 08.4)', () => {
   it('registers armor as an armor item with the correct display name and category', () => {
-    expect(ITEM_DEFINITIONS.armor.displayName).toBe('アーマー');
+    expect(ITEM_DEFINITIONS.armor.displayName).toBe('クロスアーマー');
     expect(ITEM_DEFINITIONS.armor.category).toBe('armor');
     expect(ITEM_DEFINITIONS.armor.consumable).toBe(false);
     expect(ITEM_DEFINITIONS.armor.stackable).toBe(false);
   });
 
-  it('registers armor with armorValue 10 (Phase 10.2 combat stat/scale redesign, scaled 10x from 1)', () => {
-    expect(ARMOR_DEFINITIONS.armor.armorValue).toBe(10);
+  it('registers armor with armorValue 2 (Phase 15.1 core combat rebalance, クロスアーマー)', () => {
+    expect(ARMOR_DEFINITIONS.armor.armorValue).toBe(2);
   });
 });
 
@@ -247,9 +247,9 @@ describe('armor damage reduction', () => {
     expect(getEffectiveArmorValue(state)).toBe(0);
   });
 
-  it('armor-equipped armor value is 10 (Phase 10.2, scaled 10x from 1)', () => {
+  it('armor-equipped armor value is 2 (Phase 15.1 core combat rebalance)', () => {
     const state = freshState({ equippedArmorId: 'armor' });
-    expect(getEffectiveArmorValue(state)).toBe(10);
+    expect(getEffectiveArmorValue(state)).toBe(2);
   });
 
   it('unarmored: incoming damage equals attack power unchanged', () => {
@@ -259,32 +259,32 @@ describe('armor damage reduction', () => {
     expect(getIncomingDamage(state, 30)).toBe(30);
   });
 
-  it('armor 10: attack power 10 becomes 0 damage (Phase 10.2, scaled 10x from armor1/attack1)', () => {
+  it('armor 2: attack power 10 is proportionally reduced to 9 (Phase 15.1 割合軽減式)', () => {
     const state = freshState({ equippedArmorId: 'armor' });
-    expect(getIncomingDamage(state, 10)).toBe(0);
+    expect(getIncomingDamage(state, 10)).toBe(9);
   });
 
-  it('armor 10: attack power 20 becomes 10 damage (Phase 10.2, scaled 10x from armor1/attack2)', () => {
+  it('armor 2: attack power 20 is proportionally reduced to 17 (Phase 15.1 割合軽減式)', () => {
     const state = freshState({ equippedArmorId: 'armor' });
-    expect(getIncomingDamage(state, 20)).toBe(10);
+    expect(getIncomingDamage(state, 20)).toBe(17);
   });
 
-  it('armor 10: golem attack power 30 becomes 20 damage (Phase 10.2, scaled 10x from armor1/attack3)', () => {
+  it('armor 2: golem attack power 30 is proportionally reduced to 26 (Phase 15.1 割合軽減式)', () => {
     const state = freshState({ equippedArmorId: 'armor' });
-    expect(getIncomingDamage(state, 30)).toBe(20);
+    expect(getIncomingDamage(state, 30)).toBe(26);
   });
 
-  it('an armored player takes 0 damage from a bok (attack 1) melee hit; HP unchanged', () => {
+  it('an armored player takes the floored minimum 1 damage from a bok (attack 1) melee hit (Phase 15.1: 割合軽減式 min 1)', () => {
     const state = freshState({ equippedArmorId: 'armor' });
     const bok = createInitialEnemy('bok', { x: 3, y: 1 }, 2, 1);
     state.enemies = [bok];
     const hpBefore = state.player.hp;
     const result = processTurn(state, { type: 'wait' });
     expect(result.enemyAttacked).toBe(true);
-    expect(state.player.hp).toBe(hpBefore);
+    expect(state.player.hp).toBe(hpBefore - 1);
   });
 
-  it('a 0-damage hit still consumes the turn and advances turn count', () => {
+  it('a minimum-damage hit still consumes the turn and advances turn count', () => {
     const state = freshState({ equippedArmorId: 'armor' });
     const bok = createInitialEnemy('bok', { x: 3, y: 1 }, 2, 1);
     state.enemies = [bok];
@@ -293,7 +293,7 @@ describe('armor damage reduction', () => {
     expect(state.turn).toBe(turnBefore + 1);
   });
 
-  it('a 0-damage hit never sets player.alive to false / never triggers gameover', () => {
+  it('a minimum-damage hit never sets player.alive to false / never triggers gameover on its own', () => {
     const state = freshState({ equippedArmorId: 'armor' });
     const bok = createInitialEnemy('bok', { x: 3, y: 1 }, 2, 1);
     state.enemies = [bok];
@@ -302,23 +302,23 @@ describe('armor damage reduction', () => {
     expect(state.phase).toBe('playing');
   });
 
-  it('a 0-damage hit still advances other enemies and special cycles (golem slow_melee) normally', () => {
+  it('a minimum-damage hit still advances other enemies and special cycles (golem slow_melee) normally', () => {
     const state = freshState({ equippedArmorId: 'armor' });
     const bok = createInitialEnemy('bok', { x: 3, y: 1 }, 2, 1);
     const golem = createInitialEnemy('golem', { x: 0, y: 0 }, 4, 3, 0, 1);
     golem.spawnTurn = 0;
     state.enemies = [bok, golem];
     const result = processTurn(state, { type: 'wait' });
-    // bok deals 0 damage (armored), but both enemies should still have acted.
+    // bok deals only the floored 1 damage (armored), but both enemies should still have acted.
     expect(result.enemyActed).toBe(true);
   });
 
-  it('emits an enemy_attack event with damage: 0 when armor fully blocks', () => {
+  it('emits an enemy_attack event with the floored minimum damage (1) when armor heavily reduces the hit (Phase 15.1)', () => {
     const state = freshState({ equippedArmorId: 'armor' });
     const bok = createInitialEnemy('bok', { x: 3, y: 1 }, 2, 1);
     state.enemies = [bok];
     const result = processTurn(state, { type: 'wait' });
-    expect(result.events).toContainEqual({ type: 'enemy_attack', enemyType: 'bok', attackerId: 0, damage: 0 });
+    expect(result.events).toContainEqual({ type: 'enemy_attack', enemyType: 'bok', attackerId: 0, damage: 1 });
   });
 
   it('armor is not consumed/removed by absorbing hits', () => {
@@ -369,7 +369,7 @@ describe('floor 2 golem availability (Phase 08.4)', () => {
     expect(state.enemies).toHaveLength(2);
   });
 
-  it('golem stats are unchanged when it appears on 2F (HP40, attack 30, slow_melee) (Phase 10.2, scaled 10x from HP4/attack3)', () => {
+  it('golem stats are unchanged when it appears on 2F (HP10, attack 12, slow_melee) (Phase 15.1 rebalance)', () => {
     for (let runSeed = 0; runSeed < 200; runSeed++) {
       let s: GameState = createInitialState(runSeed);
       s.enemies.forEach((e) => (e.alive = false));
@@ -378,8 +378,8 @@ describe('floor 2 golem availability (Phase 08.4)', () => {
       s = advanceToNextFloor(s);
       const golem = s.enemies.find((e) => e.type === 'golem');
       if (golem) {
-        expect(golem.maxHp).toBe(40);
-        expect(golem.attack).toBe(30);
+        expect(golem.maxHp).toBe(10);
+        expect(golem.attack).toBe(12);
       }
     }
   });
@@ -475,13 +475,13 @@ describe('inventory controls with apple, sword, and armor (Phase 08.4)', () => {
 });
 
 describe('regression: Phase 08.2/08.3 behavior unaffected', () => {
-  it('sword still deals its defined bonus damage (Phase 10.2: fixture player.attack 1 + sword bonus 10 - defense 0 = 11)', () => {
+  it('sword still deals its defined bonus damage (Phase 15.1: fixture player.attack 1 + sword bonus 2 - defense 0 = 3)', () => {
     const state = freshState({ equippedWeaponId: 'sword' });
     state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 3, y: 1 }, 20, 1);
     state.enemies = [enemy];
     processTurn(state, { type: 'action' });
-    expect(enemy.hp).toBe(9);
+    expect(enemy.hp).toBe(17);
   });
 
   it('apple still heals, clamped to this fixture maxHp 3, and consumes 1 apple on success', () => {

@@ -49,7 +49,7 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
   },
   sword: {
     id: 'sword',
-    displayName: 'ソード',
+    displayName: 'グラディウス',
     glyph: '🗡️',
     category: 'weapon',
     consumable: false,
@@ -57,7 +57,7 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
   },
   armor: {
     id: 'armor',
-    displayName: 'アーマー',
+    displayName: 'クロスアーマー',
     glyph: '🛡️',
     category: 'armor',
     consumable: false,
@@ -65,7 +65,7 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
   },
   spear: {
     id: 'spear',
-    displayName: 'スピア',
+    displayName: 'ショートスピア',
     glyph: '🔱',
     category: 'weapon',
     consumable: false,
@@ -73,7 +73,7 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
   },
   hammer: {
     id: 'hammer',
-    displayName: 'ハンマー',
+    displayName: 'クラブ',
     glyph: '🔨',
     category: 'weapon',
     consumable: false,

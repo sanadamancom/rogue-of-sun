@@ -318,12 +318,12 @@ describe('input isolation and turn-consumption regressions (Phase 08.6)', () => 
     expect(state.turn).toBe(turnBefore + 1);
   });
 
-  it('armor 0-damage handling is unaffected by the new action type (regression)', () => {
+  it('armor damage reduction is unaffected by the new action type (regression; Phase 15.1: floored minimum 1 damage)', () => {
     const state = freshState({ equippedArmorId: 'armor' });
     const bok = createInitialEnemy('bok', { x: 3, y: 1 }, 2, 1);
     state.enemies = [bok];
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' });
-    expect(state.player.hp).toBe(hpBefore);
+    expect(state.player.hp).toBe(hpBefore - 1);
   });
 });
