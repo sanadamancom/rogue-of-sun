@@ -242,3 +242,120 @@ export function createEmptyInventory(): Inventory {
   }
   return inventory;
 }
+
+/**
+ * Ground-item count distribution (Phase 15.4b random ground item
+ * generation, replacing the previous per-item guaranteed-placement
+ * system — see docs/history/phase-15-4-random-ground-items.md). Percent
+ * weights out of 100 for each possible total ground-item count (2-6),
+ * expected value exactly 4.0 (2*.10+3*.25+4*.30+5*.25+6*.10). Single
+ * source of truth: no call site duplicates these numbers.
+ */
+export const GROUND_ITEM_COUNT_WEIGHTS: ReadonlyArray<{ count: number; weight: number }> = [
+  { count: 2, weight: 10 },
+  { count: 3, weight: 25 },
+  { count: 4, weight: 30 },
+  { count: 5, weight: 25 },
+  { count: 6, weight: 10 },
+];
+
+/**
+ * Draws one ground-item count (2-6) from GROUND_ITEM_COUNT_WEIGHTS,
+ * consuming exactly one rng() call. `rng()` is expected to return a
+ * value in [0, 1); the 0..99 integer roll is mapped to a count via a
+ * fixed cumulative-weight table walked in GROUND_ITEM_COUNT_WEIGHTS'
+ * own listed order, so the same roll always yields the same count.
+ */
+export function drawGroundItemCount(rng: () => number): number {
+  const roll = Math.floor(rng() * 100); // 0..99
+  let cumulative = 0;
+  for (const { count, weight } of GROUND_ITEM_COUNT_WEIGHTS) {
+    cumulative += weight;
+    if (roll < cumulative) return count;
+  }
+  // Unreachable given weights sum to exactly 100 and roll is 0..99, but
+  // kept as a defensive fallback rather than an unchecked array index.
+  return GROUND_ITEM_COUNT_WEIGHTS[GROUND_ITEM_COUNT_WEIGHTS.length - 1].count;
+}
+
+/**
+ * Items whose ground pickup is a one-time enchantment/attunement unlock
+ * (sets a GameState boolean/record flag; see turn.ts's ground-item pickup
+ * handling) rather than a stacking inventory count. Phase 15.4b's
+ * generation rules treat these specially: never more than one of the
+ * same enchantment id drawn per floor, and never drawn at all if the
+ * carried-over GameState already has it unlocked (see
+ * getAlreadyUnlockedEnchantmentItemIds in state.ts). Every other
+ * registered item (including antidote/panacea, which are ordinary
+ * stacking consumables) allows same-floor duplicates.
+ */
+export const ENCHANTMENT_ITEM_IDS: ReadonlyArray<ItemId> = [
+  'sol_enchantment',
+  'flame_enchantment',
+  'frost_enchantment',
+  'cloud_enchantment',
+  'earth_enchantment',
+];
+
+// Phase 15.4b staged ground-item pool (replaces the previous per-item,
+// per-floor-condition guaranteed-placement blocks in state.ts's
+// buildFloorState). Cumulative: each floor's pool is the previous
+// floor's pool plus that floor's own additions — an item, once staged in
+// on floor N, remains a candidate on every floor >= N. Verified counts:
+// floor 1 = 11, floor 2 = 15, floor 3 = 16 (every registered item).
+const GROUND_ITEM_POOL_FLOOR_1: ReadonlyArray<ItemId> = [
+  'apple',
+  'sword',
+  'armor',
+  'sun_fruit',
+  'solar_gun',
+  'sol_enchantment',
+  'chocolate',
+  'banana',
+  'flame_enchantment',
+  'antidote',
+  'panacea',
+];
+const GROUND_ITEM_POOL_FLOOR_2_ADDITIONS: ReadonlyArray<ItemId> = ['spear', 'hammer', 'frost_enchantment', 'cloud_enchantment'];
+const GROUND_ITEM_POOL_FLOOR_3_ADDITIONS: ReadonlyArray<ItemId> = ['earth_enchantment'];
+
+/**
+ * The full staged ground-item candidate pool for `floor` (Phase 15.4b),
+ * per GROUND_ITEM_POOL_FLOOR_1/2/3_ADDITIONS above. Floor numbers below 1
+ * are treated as floor 1; floor numbers above 3 keep the full (floor-3)
+ * pool, since no floor-4+ additions are defined (this game's TOTAL_FLOORS
+ * is 3 — see floor.ts).
+ */
+export function getGroundItemPoolForFloor(floor: number): ItemId[] {
+  if (floor <= 1) return [...GROUND_ITEM_POOL_FLOOR_1];
+  if (floor === 2) return [...GROUND_ITEM_POOL_FLOOR_1, ...GROUND_ITEM_POOL_FLOOR_2_ADDITIONS];
+  return [...GROUND_ITEM_POOL_FLOOR_1, ...GROUND_ITEM_POOL_FLOOR_2_ADDITIONS, ...GROUND_ITEM_POOL_FLOOR_3_ADDITIONS];
+}
+
+/**
+ * Draws `count` item ids uniformly at random from `pool` (Phase 15.4b),
+ * consuming exactly one rng() call per draw (never zero, regardless of
+ * duplicates). `pool` should already have any already-unlocked
+ * enchantment ids filtered out by the caller (see state.ts's
+ * getAlreadyUnlockedEnchantmentItemIds) — this function itself only
+ * enforces the *within-this-draw* rule: once an ENCHANTMENT_ITEM_IDS
+ * member is drawn, it's removed from the working candidate list so it
+ * can never be drawn a second time on the same floor, while every other
+ * (ordinary/weapon/armor) id remains eligible for repeated draws. Since
+ * every floor's pool has strictly more ordinary ids than the maximum
+ * possible count (6), exhausting every enchantment candidate never
+ * starves a later draw — ordinary ids are always available.
+ */
+export function drawGroundItemSelection(count: number, pool: ItemId[], rng: () => number): ItemId[] {
+  let working = pool.slice();
+  const result: ItemId[] = [];
+  for (let i = 0; i < count; i++) {
+    const index = Math.floor(rng() * working.length);
+    const picked = working[index];
+    result.push(picked);
+    if (ENCHANTMENT_ITEM_IDS.includes(picked)) {
+      working = working.filter((id) => id !== picked);
+    }
+  }
+  return result;
+}

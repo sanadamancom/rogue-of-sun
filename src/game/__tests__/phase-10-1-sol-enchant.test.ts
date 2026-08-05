@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createEmptyInventory } from '../item-def';
+import { createEmptyInventory, getGroundItemPoolForFloor } from '../item-def';
 import { createInitialState } from '../state';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { EnemyType, GameMap, GameState, Tile } from '../types';
@@ -363,25 +363,33 @@ describe('existing weapon behavior preserved under sol enchantment (Phase 10.1)'
 });
 
 describe('sol enchantment world placement (Phase 10.1)', () => {
-  it('places exactly one sol_enchantment ground item on floor 1, on a reachable floor tile not shared with start/exit/enemies/other items', () => {
+  it('when a sol_enchantment ground item is placed on floor 1, it is on a reachable floor tile not shared with start/exit/enemies/other items', () => {
     for (let seed = 1; seed <= 20; seed++) {
       const state = createInitialState(seed);
       const solItems = state.groundItems.filter((item) => item.itemId === 'sol_enchantment');
-      expect(solItems.length).toBe(1);
-      const pos = solItems[0].pos;
-      expect(pos).not.toEqual(state.player.pos);
-      expect(pos).not.toEqual(state.exit);
-      for (const enemy of state.enemies) {
-        expect(pos).not.toEqual(enemy.pos);
+      expect(solItems.length).toBeLessThanOrEqual(1); // Phase 15.4b: enchantment ids never duplicate within a floor
+      for (const solItem of solItems) {
+        const pos = solItem.pos;
+        expect(pos).not.toEqual(state.player.pos);
+        expect(pos).not.toEqual(state.exit);
+        for (const enemy of state.enemies) {
+          expect(pos).not.toEqual(enemy.pos);
+        }
+        const otherItemPositions = state.groundItems
+          .filter((item) => item !== solItem)
+          .map((item) => item.pos);
+        for (const otherPos of otherItemPositions) {
+          expect(pos).not.toEqual(otherPos);
+        }
+        expect(state.map.terrain[pos.y][pos.x]).toBe('floor');
       }
-      const otherItemPositions = state.groundItems
-        .filter((item) => item.itemId !== 'sol_enchantment')
-        .map((item) => item.pos);
-      for (const otherPos of otherItemPositions) {
-        expect(pos).not.toEqual(otherPos);
-      }
-      expect(state.map.terrain[pos.y][pos.x]).toBe('floor');
     }
+  });
+
+  it('sol_enchantment is a valid candidate on floor 1, floor 2, and floor 3 (cumulative pool, no longer floor-1-only) (Phase 15.4b)', () => {
+    expect(getGroundItemPoolForFloor(1)).toContain('sol_enchantment');
+    expect(getGroundItemPoolForFloor(2)).toContain('sol_enchantment');
+    expect(getGroundItemPoolForFloor(3)).toContain('sol_enchantment');
   });
 
   it('is deterministic: the same seed places sol_enchantment at the same position twice', () => {

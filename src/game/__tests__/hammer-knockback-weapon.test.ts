@@ -101,22 +101,22 @@ describe('hammer placement (floor 2 only)', () => {
     }
   });
 
-  it('places exactly one hammer on floor 2, on a floor tile, not overlapping player/exit/enemy/apple/spear', () => {
+  it('when a hammer is placed on floor 2, it is on a valid floor tile not overlapping player/exit/enemy/other items', () => {
     for (const runSeed of RUN_SEEDS) {
       const state = advance(runSeed);
       const hammers = state.groundItems.filter((i) => i.itemId === 'hammer');
-      expect(hammers).toHaveLength(1);
-      const hammer = hammers[0];
-      expect(state.map.terrain[hammer.pos.y][hammer.pos.x]).toBe('floor');
-      expect(hammer.pos).not.toEqual(state.player.pos);
-      expect(hammer.pos).not.toEqual(state.exit);
-      for (const enemy of state.enemies) {
-        expect(hammer.pos).not.toEqual(enemy.pos);
+      for (const hammer of hammers) {
+        expect(state.map.terrain[hammer.pos.y][hammer.pos.x]).toBe('floor');
+        expect(hammer.pos).not.toEqual(state.player.pos);
+        expect(hammer.pos).not.toEqual(state.exit);
+        for (const enemy of state.enemies) {
+          expect(hammer.pos).not.toEqual(enemy.pos);
+        }
+        for (const other of state.groundItems) {
+          if (other === hammer) continue;
+          expect(hammer.pos).not.toEqual(other.pos);
+        }
       }
-      const apple = state.groundItems.find((i) => i.itemId === 'apple')!;
-      const spear = state.groundItems.find((i) => i.itemId === 'spear')!;
-      expect(hammer.pos).not.toEqual(apple.pos);
-      expect(hammer.pos).not.toEqual(spear.pos);
     }
   });
 

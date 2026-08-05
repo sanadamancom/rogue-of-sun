@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { useSelectedInventoryItem } from '../inventory';
-import { createEmptyInventory, ITEM_DEFINITIONS, ITEM_IDS_IN_ORDER } from '../item-def';
+import { createEmptyInventory, getGroundItemPoolForFloor, ITEM_DEFINITIONS, ITEM_IDS_IN_ORDER } from '../item-def';
 import { advanceToNextFloor, createInitialState } from '../state';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { GameMap, GameState, Tile } from '../types';
@@ -252,45 +252,39 @@ describe('sun fruit use (Phase 09.1)', () => {
   });
 });
 
-describe('sun fruit placement (Phase 09.1)', () => {
-  it('places exactly 1 sun fruit on floor 1', () => {
-    const state = createInitialState(123);
-    const sunFruits = state.groundItems.filter((i) => i.itemId === 'sun_fruit');
-    expect(sunFruits.length).toBe(1);
+describe('sun fruit placement (Phase 15.4b random ground item generation)', () => {
+  it('is a valid candidate on floor 1, floor 2, and floor 3 (cumulative pool, no longer floor-1/2-only)', () => {
+    expect(getGroundItemPoolForFloor(1)).toContain('sun_fruit');
+    expect(getGroundItemPoolForFloor(2)).toContain('sun_fruit');
+    expect(getGroundItemPoolForFloor(3)).toContain('sun_fruit');
   });
 
-  it('places exactly 1 sun fruit on floor 2', () => {
-    let state = createInitialState(123);
-    state.enemies.forEach((e) => (e.alive = false));
-    state.player.pos = { ...state.exit };
-    state = advanceToNextFloor(state);
-    const sunFruits = state.groundItems.filter((i) => i.itemId === 'sun_fruit');
-    expect(sunFruits.length).toBe(1);
-  });
-
-  it('does not place a sun fruit on floor 3', () => {
-    let state = createInitialState(123);
-    for (let i = 0; i < 2; i++) {
-      state.enemies.forEach((e) => (e.alive = false));
-      state.player.pos = { ...state.exit };
-      state = advanceToNextFloor(state);
+  it('appearance is no longer guaranteed on any floor (Phase 15.4b): it varies across seeds', () => {
+    let seenPresent = false;
+    let seenAbsent = false;
+    for (let seed = 0; seed < 60; seed++) {
+      const state = createInitialState(seed);
+      const count = state.groundItems.filter((i) => i.itemId === 'sun_fruit').length;
+      if (count >= 1) seenPresent = true;
+      else seenAbsent = true;
     }
-    const sunFruits = state.groundItems.filter((i) => i.itemId === 'sun_fruit');
-    expect(sunFruits.length).toBe(0);
+    expect(seenPresent).toBe(true);
+    expect(seenAbsent).toBe(true);
   });
 
-  it('the same seed and floor produce the same sun fruit coordinates', () => {
+  it('the same seed and floor produce the same groundItems (present or absent alike)', () => {
     const a = createInitialState(999);
     const b = createInitialState(999);
-    const posA = a.groundItems.find((i) => i.itemId === 'sun_fruit')!.pos;
-    const posB = b.groundItems.find((i) => i.itemId === 'sun_fruit')!.pos;
-    expect(posA).toEqual(posB);
+    expect(a.groundItems).toEqual(b.groundItems);
   });
 
-  it('the sun fruit is placed on a reachable normal floor tile', () => {
-    const state = createInitialState(55);
-    const pos = state.groundItems.find((i) => i.itemId === 'sun_fruit')!.pos;
-    expect(state.map.terrain[pos.y][pos.x]).toBe('floor');
+  it('the sun fruit is placed on a reachable normal floor tile when present', () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const state = createInitialState(seed);
+      const sunFruit = state.groundItems.find((i) => i.itemId === 'sun_fruit');
+      if (!sunFruit) continue;
+      expect(state.map.terrain[sunFruit.pos.y][sunFruit.pos.x]).toBe('floor');
+    }
   });
 
   it('the sun fruit never overlaps the player, exit, or another ground item', () => {
@@ -309,14 +303,15 @@ describe('sun fruit placement (Phase 09.1)', () => {
     }
   });
 
-  it('adding the sun fruit does not move any existing floor-1 ground item', () => {
+  it('every placed ground item still lands on a distinct, valid tile (Phase 15.4b unified generation)', () => {
     const state = createInitialState(321);
-    const apple = state.groundItems.find((i) => i.itemId === 'apple');
-    const sword = state.groundItems.find((i) => i.itemId === 'sword');
-    const armor = state.groundItems.find((i) => i.itemId === 'armor');
-    expect(apple).toBeDefined();
-    expect(sword).toBeDefined();
-    expect(armor).toBeDefined();
+    const seen = new Set<string>();
+    for (const item of state.groundItems) {
+      expect(state.map.terrain[item.pos.y][item.pos.x]).toBe('floor');
+      const key = `${item.pos.x},${item.pos.y}`;
+      expect(seen.has(key)).toBe(false);
+      seen.add(key);
+    }
   });
 
   it('adding the sun fruit does not change enemy positions or the exit', () => {

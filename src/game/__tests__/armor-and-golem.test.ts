@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { closeInventory, inventoryEntries, toggleInventory, useSelectedInventoryItem } from '../inventory';
-import { createEmptyInventory, ITEM_DEFINITIONS } from '../item-def';
+import { createEmptyInventory, getGroundItemPoolForFloor, ITEM_DEFINITIONS } from '../item-def';
 import { ARMOR_DEFINITIONS } from '../armor-def';
 import { getEnemyPoolForFloor } from '../enemy-def';
 import { advanceToNextFloor, createInitialState, randomSeed } from '../state';
@@ -80,40 +80,32 @@ describe('armor definition (Phase 08.4)', () => {
   });
 });
 
-describe('armor placement (floor 1 only)', () => {
+describe('armor placement (Phase 15.4b random ground item generation)', () => {
   const RUN_SEEDS = [1, 2, 5, 13, 42, 100, 12345];
 
-  it('places exactly one armor on floor 1, on a floor tile, not overlapping player/exit/enemy/apple/sword', () => {
+  it('when armor is placed on floor 1, it is on a valid floor tile not overlapping player/exit/enemy/other items', () => {
     for (const runSeed of RUN_SEEDS) {
       const state = createInitialState(runSeed);
       const armors = state.groundItems.filter((item) => item.itemId === 'armor');
-      expect(armors).toHaveLength(1);
-      const armor = armors[0];
-      expect(state.map.terrain[armor.pos.y][armor.pos.x]).toBe('floor');
-      expect(armor.pos).not.toEqual(state.player.pos);
-      expect(armor.pos).not.toEqual(state.exit);
-      for (const enemy of state.enemies) {
-        expect(armor.pos).not.toEqual(enemy.pos);
+      for (const armor of armors) {
+        expect(state.map.terrain[armor.pos.y][armor.pos.x]).toBe('floor');
+        expect(armor.pos).not.toEqual(state.player.pos);
+        expect(armor.pos).not.toEqual(state.exit);
+        for (const enemy of state.enemies) {
+          expect(armor.pos).not.toEqual(enemy.pos);
+        }
+        for (const other of state.groundItems) {
+          if (other === armor) continue;
+          expect(armor.pos).not.toEqual(other.pos);
+        }
       }
-      const apple = state.groundItems.find((i) => i.itemId === 'apple')!;
-      const sword = state.groundItems.find((i) => i.itemId === 'sword')!;
-      expect(armor.pos).not.toEqual(apple.pos);
-      expect(armor.pos).not.toEqual(sword.pos);
     }
   });
 
-  it('does not place armor on floor 2 or 3', () => {
-    for (const runSeed of [1, 7, 42]) {
-      let state = createInitialState(runSeed);
-      for (let target = 2; target <= 3; target++) {
-        state.enemies.forEach((e) => (e.alive = false));
-        state.player.pos = { ...state.exit };
-        processTurn(state, { type: 'wait' });
-        expect(state.phase).toBe('floor_cleared');
-        state = advanceToNextFloor(state);
-        expect(state.groundItems.filter((i) => i.itemId === 'armor')).toHaveLength(0);
-      }
-    }
+  it('armor is no longer floor-1-exclusive: it stays in the cumulative pool on floor 2 and floor 3 too (Phase 15.4b)', () => {
+    expect(getGroundItemPoolForFloor(1)).toContain('armor');
+    expect(getGroundItemPoolForFloor(2)).toContain('armor');
+    expect(getGroundItemPoolForFloor(3)).toContain('armor');
   });
 
   it('is deterministic: the same seed places armor at the same coordinate', () => {

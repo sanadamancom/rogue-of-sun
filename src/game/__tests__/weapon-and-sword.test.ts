@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { closeInventory, inventoryEntries, toggleInventory, useSelectedInventoryItem } from '../inventory';
-import { createEmptyInventory, ITEM_DEFINITIONS } from '../item-def';
+import { createEmptyInventory, getGroundItemPoolForFloor, ITEM_DEFINITIONS } from '../item-def';
 import { WEAPON_DEFINITIONS } from '../weapon-def';
 import { advanceToNextFloor, createInitialState, randomSeed } from '../state';
 import { createInitialActor, createInitialEnemy, getEffectiveAttackPower, processTurn } from '../turn';
@@ -74,42 +74,38 @@ describe('weapon definition (Phase 08.3)', () => {
   });
 });
 
-describe('sword placement (floor 1 only)', () => {
+describe('sword placement (Phase 15.4b random ground item generation)', () => {
   const RUN_SEEDS = [1, 2, 5, 13, 42, 100, 12345];
 
-  it('places exactly one sword on floor 1, on a floor tile, not overlapping player/exit/enemy/apple', () => {
+  it('when a sword is placed on floor 1, it is on a valid floor tile not overlapping player/exit/enemy/other items', () => {
     for (const runSeed of RUN_SEEDS) {
       const state = createInitialState(runSeed);
       const swords = state.groundItems.filter((item) => item.itemId === 'sword');
-      expect(swords).toHaveLength(1);
-      const sword = swords[0];
-      expect(state.map.terrain[sword.pos.y][sword.pos.x]).toBe('floor');
-      expect(sword.pos).not.toEqual(state.player.pos);
-      expect(sword.pos).not.toEqual(state.exit);
-      for (const enemy of state.enemies) {
-        expect(sword.pos).not.toEqual(enemy.pos);
-      }
-      const apple = state.groundItems.find((item) => item.itemId === 'apple')!;
-      expect(sword.pos).not.toEqual(apple.pos);
-    }
-  });
-
-  it('does not place a sword on floor 2 or 3', () => {
-    for (const runSeed of [1, 7, 42]) {
-      let state = createInitialState(runSeed);
-      for (let target = 2; target <= 3; target++) {
-        state.enemies.forEach((e) => (e.alive = false));
-        state.player.pos = { ...state.exit };
-        processTurn(state, { type: 'wait' });
-        expect(state.phase).toBe('floor_cleared');
-        state = advanceToNextFloor(state);
-        expect(state.floor).toBe(target);
-        expect(state.groundItems.filter((i) => i.itemId === 'sword')).toHaveLength(0);
+      for (const sword of swords) {
+        expect(state.map.terrain[sword.pos.y][sword.pos.x]).toBe('floor');
+        expect(sword.pos).not.toEqual(state.player.pos);
+        expect(sword.pos).not.toEqual(state.exit);
+        for (const enemy of state.enemies) {
+          expect(sword.pos).not.toEqual(enemy.pos);
+        }
+        for (const other of state.groundItems) {
+          if (other === sword) continue;
+          expect(sword.pos).not.toEqual(other.pos);
+        }
       }
     }
   });
 
-  it('is deterministic: the same seed places the sword at the same coordinate', () => {
+  it('sword is no longer floor-1-exclusive: it stays in the cumulative pool on floor 2 and floor 3 too (Phase 15.4b)', () => {
+    // Phase 15.4b removes the old "sword only ever appears on floor 1"
+    // guarantee — sword is in GROUND_ITEM_POOL_FLOOR_1 and every later
+    // floor's pool is a superset, so it remains a valid candidate.
+    expect(getGroundItemPoolForFloor(1)).toContain('sword');
+    expect(getGroundItemPoolForFloor(2)).toContain('sword');
+    expect(getGroundItemPoolForFloor(3)).toContain('sword');
+  });
+
+  it('is deterministic: the same seed places the sword at the same coordinate (present or absent alike)', () => {
     for (const runSeed of RUN_SEEDS) {
       const a = createInitialState(runSeed);
       const b = createInitialState(runSeed);
@@ -119,7 +115,7 @@ describe('sword placement (floor 1 only)', () => {
     }
   });
 
-  it('does not perturb existing map/placement/species/apple determinism (independent RNG stream)', () => {
+  it('does not perturb existing map/placement/species determinism (independent RNG streams)', () => {
     const a = createInitialState(2780624551);
     const b = createInitialState(2780624551);
     expect(a.map.terrain).toEqual(b.map.terrain);
@@ -128,16 +124,20 @@ describe('sword placement (floor 1 only)', () => {
     expect(a.enemies.map((e) => ({ type: e.type, pos: e.pos }))).toEqual(
       b.enemies.map((e) => ({ type: e.type, pos: e.pos })),
     );
-    const appleA = a.groundItems.find((i) => i.itemId === 'apple');
-    const appleB = b.groundItems.find((i) => i.itemId === 'apple');
-    expect(appleA).toEqual(appleB);
+    expect(a.groundItems).toEqual(b.groundItems);
   });
 
-  it('never introduces a random sword-appearance rate: every fresh floor-1 state has exactly one', () => {
-    for (let runSeed = 0; runSeed < 30; runSeed++) {
+  it('sword appearance is no longer guaranteed every floor-1 run (Phase 15.4b): it varies across seeds', () => {
+    let seenPresent = false;
+    let seenAbsent = false;
+    for (let runSeed = 0; runSeed < 60; runSeed++) {
       const state = createInitialState(runSeed);
-      expect(state.groundItems.filter((i) => i.itemId === 'sword')).toHaveLength(1);
+      const count = state.groundItems.filter((i) => i.itemId === 'sword').length;
+      if (count >= 1) seenPresent = true;
+      else seenAbsent = true;
     }
+    expect(seenPresent).toBe(true);
+    expect(seenAbsent).toBe(true);
   });
 });
 

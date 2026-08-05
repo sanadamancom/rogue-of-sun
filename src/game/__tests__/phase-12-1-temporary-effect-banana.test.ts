@@ -8,7 +8,7 @@ import {
   grantOrRefreshEffect,
   isEffectAtMaxDuration,
 } from '../effects';
-import { createEmptyInventory, ITEM_DEFINITIONS, ITEM_IDS_IN_ORDER } from '../item-def';
+import { createEmptyInventory, getGroundItemPoolForFloor, ITEM_DEFINITIONS, ITEM_IDS_IN_ORDER } from '../item-def';
 import { advanceToNextFloor, createInitialState } from '../state';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { ActiveEffect, GameMap, GameState, Tile } from '../types';
@@ -131,31 +131,48 @@ describe('banana item definition and placement (Phase 12.1)', () => {
     expect(createEmptyInventory().banana).toBe(0);
   });
 
-  it('is placed exactly once per floor across several seeds', () => {
-    for (const seed of [1, 7, 42, 2024]) {
-      const state = createInitialState(seed);
-      const bananas = state.groundItems.filter((item) => item.itemId === 'banana');
-      expect(bananas).toHaveLength(1);
-    }
+  it('is a valid candidate on every floor (in the cumulative pool from floor 1) (Phase 15.4b)', () => {
+    expect(getGroundItemPoolForFloor(1)).toContain('banana');
+    expect(getGroundItemPoolForFloor(2)).toContain('banana');
+    expect(getGroundItemPoolForFloor(3)).toContain('banana');
   });
 
-  it('is placed on a reachable floor tile', () => {
-    const state = createInitialState(2024);
-    const banana = state.groundItems.find((item) => item.itemId === 'banana')!;
-    expect(state.map.terrain[banana.pos.y][banana.pos.x]).toBe('floor');
+  it('appearance is no longer guaranteed every floor (Phase 15.4b): it varies across seeds', () => {
+    let seenPresent = false;
+    let seenAbsent = false;
+    for (let seed = 0; seed < 60; seed++) {
+      const state = createInitialState(seed);
+      const count = state.groundItems.filter((item) => item.itemId === 'banana').length;
+      if (count >= 1) seenPresent = true;
+      else seenAbsent = true;
+    }
+    expect(seenPresent).toBe(true);
+    expect(seenAbsent).toBe(true);
+  });
+
+  it('when placed, it is on a reachable floor tile', () => {
+    for (const seed of [1, 7, 42, 2024]) {
+      const state = createInitialState(seed);
+      const banana = state.groundItems.find((item) => item.itemId === 'banana');
+      if (!banana) continue;
+      expect(state.map.terrain[banana.pos.y][banana.pos.x]).toBe('floor');
+    }
   });
 
   it('does not overlap the player, exit, enemies, or other ground items', () => {
-    const state = createInitialState(2024);
-    const banana = state.groundItems.find((item) => item.itemId === 'banana')!;
-    expect(banana.pos).not.toEqual(state.player.pos);
-    expect(banana.pos).not.toEqual(state.exit);
-    for (const enemy of state.enemies) {
-      expect(banana.pos).not.toEqual(enemy.pos);
-    }
-    const others = state.groundItems.filter((item) => item.itemId !== 'banana');
-    for (const other of others) {
-      expect(banana.pos).not.toEqual(other.pos);
+    for (const seed of [1, 7, 42, 2024]) {
+      const state = createInitialState(seed);
+      const banana = state.groundItems.find((item) => item.itemId === 'banana');
+      if (!banana) continue;
+      expect(banana.pos).not.toEqual(state.player.pos);
+      expect(banana.pos).not.toEqual(state.exit);
+      for (const enemy of state.enemies) {
+        expect(banana.pos).not.toEqual(enemy.pos);
+      }
+      const others = state.groundItems.filter((item) => item !== banana);
+      for (const other of others) {
+        expect(banana.pos).not.toEqual(other.pos);
+      }
     }
   });
 
@@ -165,18 +182,10 @@ describe('banana item definition and placement (Phase 12.1)', () => {
     expect(a.groundItems).toEqual(b.groundItems);
   });
 
-  it('does not change existing items' + "\u2019" + ' placement/positions (apple stays identical with/without banana present)', () => {
-    // Regression guard: banana placement is appended after every other
-    // existing ground item using its own independent RNG stream, so no
-    // prior item's chosen tile should move.
+  it('groundItems generation is fully deterministic for a fixed seed, regardless of any single item\'s presence (Phase 15.4b)', () => {
     const state = createInitialState(4242);
-    const apple = state.groundItems.find((item) => item.itemId === 'apple')!;
-    expect(apple).toBeDefined();
-    // Same seed, re-derived: apple's position must be stable regardless of
-    // banana's presence in the same groundItems array.
     const again = createInitialState(4242);
-    const appleAgain = again.groundItems.find((item) => item.itemId === 'apple')!;
-    expect(apple.pos).toEqual(appleAgain.pos);
+    expect(state.groundItems).toEqual(again.groundItems);
   });
 
   it('picking it up adds 1 to inventory via the existing auto-pickup path', () => {

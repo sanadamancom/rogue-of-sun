@@ -1,8 +1,8 @@
-import { choosePlacement, chooseGroundItemPosition, chooseTrapPosition, chooseRoomFloorPosition, roomIndexContaining, createRng, generateMap, MAP_GEN_PARAMS } from './mapgen';
+import { choosePlacement, chooseGroundItemPosition, chooseTrapPosition, roomIndexContaining, createRng, generateMap, MAP_GEN_PARAMS } from './mapgen';
 import { createInitialActor, createInitialEnemy } from './turn';
 import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
 import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
-import { createEmptyInventory } from './item-def';
+import { createEmptyInventory, drawGroundItemCount, drawGroundItemSelection, getGroundItemPoolForFloor } from './item-def';
 import { generateSunlightLayer } from './sunlight';
 import { HUNGER_MAX } from './hunger';
 import {
@@ -11,7 +11,7 @@ import {
   PROGRESSION_INITIAL_UNSPENT_ABILITY_POINTS,
 } from './progression';
 import { INITIAL_ABILITY_VALUES } from './ability';
-import { Actor, ActiveEffect, AbilityValues, ElementId, EnchantmentId, EnemyActor, EnemyType, GameState, GroundItem, Inventory, TrapTile, Vec2, WeaponId, ArmorId, Direction8 } from './types';
+import { Actor, ActiveEffect, AbilityValues, ElementId, EnchantmentId, EnemyActor, EnemyType, GameState, GroundItem, Inventory, ItemId, TrapTile, Vec2, WeaponId, ArmorId, Direction8 } from './types';
 
 /** Generates a random run seed without relying on Math.random's implicit global state at call sites. */
 export function randomSeed(): number {
@@ -79,6 +79,26 @@ function buildEnemies(positions: Vec2[], types: EnemyType[], spawnTurn: number):
     const def = ENEMY_DEFINITIONS[type];
     return createInitialEnemy(type, pos, def.hp, def.attack, spawnTurn, i, def.defense, def.accuracy, def.evasion);
   });
+}
+
+/**
+ * Phase 15.4b random ground item generation: the subset of
+ * ENCHANTMENT_ITEM_IDS that `carry` (if any) has already unlocked, and
+ * therefore must never be drawn again as a ground item on this floor —
+ * see item-def.ts's drawGroundItemSelection doc comment. A brand new run
+ * (no carry) has nothing unlocked yet, matching every other carry-based
+ * field's "absent carry = fresh defaults" convention elsewhere in this
+ * file (e.g. solUnlocked/unlockedEnchantments themselves, just below).
+ */
+function getAlreadyUnlockedEnchantmentItemIds(carry?: CarryOverStats): Set<ItemId> {
+  const unlocked = new Set<ItemId>();
+  if (!carry) return unlocked;
+  if (carry.solUnlocked) unlocked.add('sol_enchantment');
+  if (carry.unlockedEnchantments.flame) unlocked.add('flame_enchantment');
+  if (carry.unlockedEnchantments.frost) unlocked.add('frost_enchantment');
+  if (carry.unlockedEnchantments.cloud) unlocked.add('cloud_enchantment');
+  if (carry.unlockedEnchantments.earth) unlocked.add('earth_enchantment');
+  return unlocked;
 }
 
 /**
@@ -155,229 +175,37 @@ function buildFloorState(
   }
   const enemies = buildEnemies(placement.enemies, types, turn);
 
-  // Ground item placement (Phase 08.2) uses its own independent RNG stream
-  // (a third distinct XOR constant), so adding the apple never perturbs
-  // the existing map-generation, placement, or species RNG
-  // sequences/determinism. Excludes start, exit, and every enemy position;
-  // never falls back to a reduced item count — chooseGroundItemPosition
-  // throws explicitly if no valid tile exists.
-  const itemRng = createRng(floorSeed ^ 0xa3c17f05);
-  const applePos = chooseGroundItemPosition(
-    map,
-    placement.start,
-    [placement.start, placement.exit, ...placement.enemies],
-    itemRng,
-  );
-  const groundItems: GroundItem[] = [{ id: 0, itemId: 'apple', pos: applePos }];
+  // Phase 15.4b random ground item generation (replaces the previous
+  // per-item, per-floor-condition guaranteed-placement blocks — see
+  // docs/history/phase-15-4-random-ground-items.md). Traps are generated
+  // first (see below `traps` block) so item placement can exclude their
+  // tiles; item generation itself uses three independent RNG streams
+  // (count, selection, placement — each its own distinct XOR constant),
+  // so it never perturbs the map/placement/species RNG sequences or
+  // their consumption order, and adding/removing items never perturbs
+  // trap generation's own RNG streams either (traps are derived above
+  // this point, from floorSeed alone, not from anything item-related).
 
-  // Sword placement (Phase 08.3 weapon/equipment foundation): floor 1
-  // only, using a fourth distinct independent RNG stream so it never
-  // perturbs the map/placement/species/apple RNG sequences or their
-  // consumption order. Excludes the apple's tile too, in addition to
-  // start/exit/every enemy position.
-  if (floor === 1) {
-    const swordRng = createRng(floorSeed ^ 0x5c2e91d3);
-    const swordPos = chooseGroundItemPosition(
-      map,
-      placement.start,
-      [placement.start, placement.exit, ...placement.enemies, applePos],
-      swordRng,
-    );
-    groundItems.push({ id: 1, itemId: 'sword', pos: swordPos });
-
-    // Armor placement (Phase 08.4 armor/defense foundation): floor 1
-    // only, using a fifth distinct independent RNG stream so it never
-    // perturbs the map/placement/species/apple/sword RNG sequences or
-    // their consumption order. Excludes the sword's tile too, in
-    // addition to start/exit/every enemy position/apple's tile.
-    const armorRng = createRng(floorSeed ^ 0x91b6d8e4);
-    const armorPos = chooseGroundItemPosition(
-      map,
-      placement.start,
-      [placement.start, placement.exit, ...placement.enemies, applePos, swordPos],
-      armorRng,
-    );
-    groundItems.push({ id: 2, itemId: 'armor', pos: armorPos });
-  }
-
-  // Spear placement (Phase 08.5 reach weapon): floor 2 only, using a
-  // sixth distinct independent RNG stream so it never perturbs the
-  // map/placement/species/apple/sword/armor RNG sequences or their
-  // consumption order. Floor 2's only other ground item at this point is
-  // the apple (sword/armor are floor-1-only), so only that needs
-  // excluding in addition to start/exit/every enemy position.
-  if (floor === 2) {
-    const spearRng = createRng(floorSeed ^ 0x3d7a4c19);
-    const spearPos = chooseGroundItemPosition(
-      map,
-      placement.start,
-      [placement.start, placement.exit, ...placement.enemies, applePos],
-      spearRng,
-    );
-    groundItems.push({ id: groundItems.length, itemId: 'spear', pos: spearPos });
-
-    // Hammer placement (Phase 08.7 knockback weapon): floor 2 only, after
-    // every other floor-2 item is placed, using a seventh distinct
-    // independent RNG stream so it never perturbs the
-    // map/placement/species/apple/spear RNG sequences or their
-    // consumption order. Excludes the spear's tile too, in addition to
-    // start/exit/every enemy position/apple's tile.
-    const hammerRng = createRng(floorSeed ^ 0x6a1f38b2);
-    const hammerPos = chooseGroundItemPosition(
-      map,
-      placement.start,
-      [placement.start, placement.exit, ...placement.enemies, applePos, spearPos],
-      hammerRng,
-    );
-    groundItems.push({ id: groundItems.length, itemId: 'hammer', pos: hammerPos });
-  }
-
-  // Sun fruit placement (Phase 09.1 solar energy foundation): floor 1 and
-  // floor 2, one each, using its own distinct independent RNG stream (an
-  // eighth XOR constant) placed after every other existing ground item on
-  // that floor, so it never perturbs any prior RNG sequence/consumption
-  // order and excludes every tile already used by another ground item in
-  // addition to start/exit/every enemy position.
-  if (floor === 1 || floor === 2) {
-    const priorExclusions = [
-      placement.start,
-      placement.exit,
-      ...placement.enemies,
-      ...groundItems.map((item) => item.pos),
-    ];
-    const sunFruitRng = createRng(floorSeed ^ 0xd472e6a9);
-    const sunFruitPos = chooseGroundItemPosition(map, placement.start, priorExclusions, sunFruitRng);
-    groundItems.push({ id: groundItems.length, itemId: 'sun_fruit', pos: sunFruitPos });
-  }
-
-  // Solar gun placement (Phase 09.2 ranged solar weapon): floor 1 only,
-  // using a ninth distinct independent RNG stream, placed after every
-  // other floor-1 ground item (including sun fruit) so it never perturbs
-  // any prior RNG sequence/consumption order.
-  if (floor === 1) {
-    const solarGunExclusions = [
-      placement.start,
-      placement.exit,
-      ...placement.enemies,
-      ...groundItems.map((item) => item.pos),
-    ];
-    const solarGunRng = createRng(floorSeed ^ 0x2b9e5c74);
-    const solarGunPos = chooseGroundItemPosition(map, placement.start, solarGunExclusions, solarGunRng);
-    groundItems.push({ id: groundItems.length, itemId: 'solar_gun', pos: solarGunPos });
-
-    // Sol enchantment placement (Phase 10.1): floor 1 only, using a tenth
-    // distinct independent RNG stream, placed after every other floor-1
-    // ground item (including the solar gun) so it never perturbs any
-    // prior RNG sequence/consumption order. Floor-1-only guarantees it is
-    // reachable and pickable during every 3-floor playthrough, matching
-    // confirmed_design's "3フロアの試作中に必ず取得して検証できる位置へ
-    // 決定論的に1個配置する".
-    const solEnchantExclusions = [
-      placement.start,
-      placement.exit,
-      ...placement.enemies,
-      ...groundItems.map((item) => item.pos),
-    ];
-    const solEnchantRng = createRng(floorSeed ^ 0x9f4a1e63);
-    const solEnchantPos = chooseGroundItemPosition(map, placement.start, solEnchantExclusions, solEnchantRng);
-    groundItems.push({ id: groundItems.length, itemId: 'sol_enchantment', pos: solEnchantPos });
-  }
-
-  // Chocolate placement (Phase 11.3 hunger foundation): every floor gets
-  // exactly one, using its own distinct independent RNG stream (an
-  // eleventh XOR constant) placed after every other existing ground item
-  // on that floor, so it never perturbs any prior RNG sequence/
-  // consumption order and excludes every tile already used by another
-  // ground item in addition to start/exit/every enemy position — same
-  // pattern as sun_fruit above, just unconditional on floor number
-  // (fixed_specification.chocolate.placement.initial_rule: "各フロアに1
-  // 個").
-  {
-    const chocolateExclusions = [
-      placement.start,
-      placement.exit,
-      ...placement.enemies,
-      ...groundItems.map((item) => item.pos),
-    ];
-    const chocolateRng = createRng(floorSeed ^ 0x7e1c4a92);
-    const chocolatePos = chooseGroundItemPosition(map, placement.start, chocolateExclusions, chocolateRng);
-    groundItems.push({ id: groundItems.length, itemId: 'chocolate', pos: chocolatePos });
-  }
-
-  // Banana placement (Phase 12.1 temporary-effect foundation): every
-  // floor gets exactly one, using its own distinct independent RNG stream
-  // (a twelfth XOR constant) placed after every other existing ground
-  // item on that floor, so it never perturbs any prior RNG sequence/
-  // consumption order and excludes every tile already used by another
-  // ground item in addition to start/exit/every enemy position — same
-  // pattern as chocolate above (fixed_specification.banana.placement's
-  // "各フロアへ必ず1個配置する" / "既存のgroundItem配置処理を利用する").
-  {
-    const bananaExclusions = [
-      placement.start,
-      placement.exit,
-      ...placement.enemies,
-      ...groundItems.map((item) => item.pos),
-    ];
-    const bananaRng = createRng(floorSeed ^ 0x4c8d29f6);
-    const bananaPos = chooseGroundItemPosition(map, placement.start, bananaExclusions, bananaRng);
-    groundItems.push({ id: groundItems.length, itemId: 'banana', pos: bananaPos });
-  }
-
-  // Slow trap placement (Phase 12.2): at most one per floor, using its
-  // own distinct independent RNG stream (a thirteenth XOR constant) so it
-  // never perturbs any prior RNG sequence/consumption order. Restricted
-  // to ordinary room-interior floor tiles via chooseTrapPosition (never
-  // corridors/doorways/walls/the exit — see that function's doc comment),
-  // excluding every already-placed ground item's tile in addition to
-  // start/exit/every enemy position. Unlike every other placement helper
-  // in this file, chooseTrapPosition returns null instead of throwing
-  // when no candidate qualifies — that floor simply gets no trap
-  // (fixed_specification.trap.placement's "条件を満たす候補がない場合
-  // だけ配置なしを許可し、理由を記録する"; see chooseTrapPosition's doc
-  // comment for why a code comment is this codebase's equivalent of a
-  // "recorded reason").
+  // Trap placement (Phase 12.2 slow_trap, Phase 12.3 poison_trap): at
+  // most one each, using their own distinct independent RNG streams.
+  // Phase 15.4b moves this ahead of ground item generation (previously
+  // traps were placed after most, but not all, items) so that ground
+  // items can uniformly exclude every trap tile — traps themselves only
+  // ever need to exclude start/exit/every enemy position, since no
+  // ground item exists yet at this point in generation.
   const traps: TrapTile[] = [];
-  const slowTrapExclusions = [
-    placement.start,
-    placement.exit,
-    ...placement.enemies,
-    ...groundItems.map((item) => item.pos),
-  ];
+  const slowTrapExclusions = [placement.start, placement.exit, ...placement.enemies];
   const slowTrapRng = createRng(floorSeed ^ 0x1a6f83c5);
   const slowTrapPos = chooseTrapPosition(map, map.rooms, placement.start, placement.exit, slowTrapExclusions, slowTrapRng);
   if (slowTrapPos) {
     traps.push({ id: traps.length, pos: slowTrapPos, triggered: false, trapType: 'slow_trap' });
   }
 
-  // Poison trap placement (Phase 12.3): at most one per floor, using its
-  // own distinct independent RNG stream (a fourteenth XOR constant), added
-  // to the same `traps` array as slow_trap (fixed_specification/
-  // implementation_policy's "鈍足罠と毒罠で別々のGameState配列を作る"
-  // 禁止) rather than a separate GameState field. Prefers a different
-  // room from slow_trap's (fixed_specification.poison_trap.placement's
-  // "可能ならslow_trapとは別の部屋へ配置する"): the first attempt below
-  // restricts chooseTrapPosition's room list to every room except the one
-  // slow_trap landed in (found via roomIndexContaining). Only if that
-  // attempt finds zero candidates (meaning no *other* room has any valid
-  // tile at all, given the exclusions/distance rules) does the second
-  // attempt fall back to searching every room again — since the first
-  // attempt already proved every other room empty, in practice this
-  // second attempt can only ever succeed inside slow_trap's own room, so
-  // it also adds `minDistanceFrom: { pos: slowTrapPos, distance: 3 }` to
-  // satisfy "同じ部屋の場合はslow_trapからマンハッタン距離3以上離す".
-  // Both attempts share one continuous rng stream: chooseTrapPosition
-  // only ever consumes an rng() draw when it finds at least one
-  // candidate (see its doc comment), so a null first attempt costs zero
-  // draws and doesn't desynchronize the second attempt's result from what
-  // a single-attempt call would have drawn.
-  const poisonTrapExclusions = [
-    placement.start,
-    placement.exit,
-    ...placement.enemies,
-    ...groundItems.map((item) => item.pos),
-    ...traps.map((t) => t.pos),
-  ];
+  // Poison trap placement (Phase 12.3): prefers a different room from
+  // slow_trap's (fixed_specification.poison_trap.placement's "可能なら
+  // slow_trapとは別の部屋へ配置する") — unchanged from the pre-15.4b
+  // logic, just with a groundItems-free exclusion list (see above).
+  const poisonTrapExclusions = [placement.start, placement.exit, ...placement.enemies, ...traps.map((t) => t.pos)];
   const poisonTrapRng = createRng(floorSeed ^ 0x3f9c5e82);
   const slowTrapRoomIndex = slowTrapPos ? roomIndexContaining(map.rooms, slowTrapPos) : -1;
   const otherRooms = slowTrapRoomIndex === -1 ? map.rooms : map.rooms.filter((_, i) => i !== slowTrapRoomIndex);
@@ -404,145 +232,46 @@ function buildFloorState(
     traps.push({ id: traps.length, pos: poisonTrapPos, triggered: false, trapType: 'poison_trap' });
   }
 
-  // Antidote placement (Phase 12.4 status-ailment removal foundation):
-  // at most one per floor, restricted to ordinary room-interior floor
-  // tiles via chooseRoomFloorPosition (never corridors/doorways/walls/
-  // the exit — see that function's doc comment). Uses its own distinct
-  // independent RNG stream (a fifteenth XOR constant) so it never
-  // perturbs any prior RNG sequence/consumption order, and excludes
-  // every already-placed ground item's tile plus both trap positions in
-  // addition to start/exit/every enemy position. Returns null (never
-  // throws) when no candidate qualifies — that floor simply gets no
-  // antidote.
-  const antidoteExclusions = [
-    placement.start,
-    placement.exit,
-    ...placement.enemies,
-    ...groundItems.map((item) => item.pos),
-    ...traps.map((t) => t.pos),
-  ];
-  const antidoteRng = createRng(floorSeed ^ 0x6d5a91e7);
-  const antidotePos = chooseRoomFloorPosition(map, map.rooms, antidoteExclusions, antidoteRng);
-  if (antidotePos) {
-    groundItems.push({ id: groundItems.length, itemId: 'antidote', pos: antidotePos });
-  }
+  // Ground item count (Phase 15.4b): drawn once from item-def.ts's
+  // GROUND_ITEM_COUNT_WEIGHTS (2-6, expected value 4.0), using its own
+  // independent RNG stream so it never perturbs any other stream's
+  // consumption order.
+  const itemCountRng = createRng(floorSeed ^ 0xa3c17f05);
+  const itemCount = drawGroundItemCount(itemCountRng);
 
-  // Panacea placement (Phase 12.4): at most one per floor, same
-  // mechanism as antidote immediately above, using its own distinct
-  // independent RNG stream (a sixteenth XOR constant). Excludes
-  // antidote's own just-chosen tile (in addition to every other
-  // exclusion) so the two new items never land on the same tile
-  // (placement.common_requirements's "毒消しと万能薬を互いに重複させな
-  // い").
-  const panaceaExclusions = [
-    placement.start,
-    placement.exit,
-    ...placement.enemies,
-    ...groundItems.map((item) => item.pos),
-    ...traps.map((t) => t.pos),
-  ];
-  const panaceaRng = createRng(floorSeed ^ 0x2e8f4b6d);
-  const panaceaPos = chooseRoomFloorPosition(map, map.rooms, panaceaExclusions, panaceaRng);
-  if (panaceaPos) {
-    groundItems.push({ id: groundItems.length, itemId: 'panacea', pos: panaceaPos });
-  }
+  // Ground item selection (Phase 15.4b): drawn from this floor's
+  // cumulative staged pool (item-def.ts's getGroundItemPoolForFloor),
+  // with already-unlocked enchantment ids filtered out first (they can
+  // never be drawn again once carried over as unlocked), using its own
+  // independent RNG stream — separate from both the count stream above
+  // and the placement stream below, per implementation_requirements'
+  // "種類抽選と座標抽選のRNGストリームを分離する".
+  const alreadyUnlocked = getAlreadyUnlockedEnchantmentItemIds(carry);
+  const floorItemPool = getGroundItemPoolForFloor(floor).filter((id) => !alreadyUnlocked.has(id));
+  const itemSelectionRng = createRng(floorSeed ^ 0x5c2e91d3);
+  const selectedItemIds = drawGroundItemSelection(itemCount, floorItemPool, itemSelectionRng);
 
-  // Flame/frost/cloud/earth enchantment placement (Phase 14.2
-  // five-element acquisition): current 3-floor prototype distribution —
-  // flame on floor 1, frost+cloud on floor 2, earth on floor 3 — so all
-  // four are guaranteed obtainable within a single 3-floor run, exactly
-  // one of each per run. Each uses its own distinct independent RNG
-  // stream (four new XOR constants, none reused elsewhere in this file)
-  // so placement never perturbs any prior map-generation/species/item/
-  // trap RNG sequence or its consumption order, and each excludes every
-  // already-placed ground item/trap in addition to start/exit/every
-  // enemy position, same convention as every placement above. This
-  // per-floor distribution is explicitly a 3-floor prototype arrangement
-  // (confirmed_game_spec.current_three_floor_distribution) — the
-  // completed game's full-depth distribution is deferred to Phase 21,
-  // so no generic loot-table mechanism is introduced here.
-  if (floor === 1) {
-    const flameExclusions = [
+  // Ground item placement (Phase 15.4b): each selected id is placed in
+  // draw order via chooseGroundItemPosition, excluding start/exit/every
+  // enemy position/every already-placed trap/every ground item placed
+  // earlier in this same loop — using its own independent RNG stream, so
+  // adding/removing items never perturbs the count or selection streams'
+  // consumption order. Never falls back to a reduced item count or a
+  // relaxed exclusion set: chooseGroundItemPosition throws explicitly if
+  // no valid tile exists for a given draw (unchanged from every prior
+  // phase's ground-item placement contract).
+  const itemPlacementRng = createRng(floorSeed ^ 0x91b6d8e4);
+  const groundItems: GroundItem[] = [];
+  for (const itemId of selectedItemIds) {
+    const exclusions = [
       placement.start,
       placement.exit,
       ...placement.enemies,
-      ...groundItems.map((item) => item.pos),
       ...traps.map((t) => t.pos),
-    ];
-    const flameRng = createRng(floorSeed ^ 0x8b3e6f1a);
-    const flamePos = chooseGroundItemPosition(map, placement.start, flameExclusions, flameRng);
-    groundItems.push({ id: groundItems.length, itemId: 'flame_enchantment', pos: flamePos });
-  }
-
-  if (floor === 2) {
-    // frost placed first via the ordinary chooseGroundItemPosition
-    // candidate pool (every reachable, non-excluded floor tile).
-    const frostExclusions = [
-      placement.start,
-      placement.exit,
-      ...placement.enemies,
       ...groundItems.map((item) => item.pos),
-      ...traps.map((t) => t.pos),
     ];
-    const frostRng = createRng(floorSeed ^ 0x1e7c5a94);
-    const frostPos = chooseGroundItemPosition(map, placement.start, frostExclusions, frostRng);
-    groundItems.push({ id: groundItems.length, itemId: 'frost_enchantment', pos: frostPos });
-
-    // cloud placement prefers a different room from frost's
-    // (confirmed_game_spec.current_three_floor_distribution's "floor 2
-    // の二つは可能な限り別の部屋へ配置する"): the first attempt below
-    // additionally excludes every tile inside frost's containing room
-    // (found via roomIndexContaining); only if that leaves zero
-    // candidates (frost landed in a corridor/doorway tile, so
-    // roomIndexContaining returns -1 and no room-exclusion applies, or
-    // every other room is otherwise fully excluded) does the plain
-    // chooseGroundItemPosition call run again without the room
-    // exclusion. Both attempts share one continuous rng stream:
-    // chooseGroundItemPosition only ever consumes an rng() draw once it
-    // has found at least one candidate (it throws before drawing when
-    // candidates.length === 0), so a failed first attempt costs zero
-    // draws and the fallback draws exactly once — deterministic and
-    // reproducible for a given seed.
-    const cloudBaseExclusions = [
-      placement.start,
-      placement.exit,
-      ...placement.enemies,
-      ...groundItems.map((item) => item.pos),
-      ...traps.map((t) => t.pos),
-    ];
-    const frostRoomIndex = roomIndexContaining(map.rooms, frostPos);
-    const cloudRng = createRng(floorSeed ^ 0x4f9d2b83);
-    let cloudPos: Vec2;
-    if (frostRoomIndex !== -1) {
-      const frostRoom = map.rooms[frostRoomIndex];
-      const frostRoomTiles: Vec2[] = [];
-      for (let y = frostRoom.y; y < frostRoom.y + frostRoom.height; y++) {
-        for (let x = frostRoom.x; x < frostRoom.x + frostRoom.width; x++) {
-          frostRoomTiles.push({ x, y });
-        }
-      }
-      try {
-        cloudPos = chooseGroundItemPosition(map, placement.start, [...cloudBaseExclusions, ...frostRoomTiles], cloudRng);
-      } catch {
-        cloudPos = chooseGroundItemPosition(map, placement.start, cloudBaseExclusions, cloudRng);
-      }
-    } else {
-      cloudPos = chooseGroundItemPosition(map, placement.start, cloudBaseExclusions, cloudRng);
-    }
-    groundItems.push({ id: groundItems.length, itemId: 'cloud_enchantment', pos: cloudPos });
-  }
-
-  if (floor === 3) {
-    const earthExclusions = [
-      placement.start,
-      placement.exit,
-      ...placement.enemies,
-      ...groundItems.map((item) => item.pos),
-      ...traps.map((t) => t.pos),
-    ];
-    const earthRng = createRng(floorSeed ^ 0xb2c76e19);
-    const earthPos = chooseGroundItemPosition(map, placement.start, earthExclusions, earthRng);
-    groundItems.push({ id: groundItems.length, itemId: 'earth_enchantment', pos: earthPos });
+    const pos = chooseGroundItemPosition(map, placement.start, exclusions, itemPlacementRng);
+    groundItems.push({ id: groundItems.length, itemId, pos });
   }
 
   return {

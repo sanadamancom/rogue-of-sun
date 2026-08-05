@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { createEmptyInventory } from '../item-def';
+import { createEmptyInventory, getGroundItemPoolForFloor } from '../item-def';
 import { advanceToNextFloor, createInitialState } from '../state';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { createRunTelemetry, recordTurn, snapshotForTurn } from '../telemetry';
-import { roomIndexContaining } from '../mapgen';
 import { ElementId, GameMap, GameState, PlayerAction, Tile } from '../types';
 
 const TEST_LAYOUT: string[] = [
@@ -64,100 +63,70 @@ function faceEastAtEnemy(state: GameState): void {
   processTurn(state, { type: 'face', direction: 'E' });
 }
 
-describe('Phase 14.2: floor placement', () => {
-  it('places exactly one flame_enchantment on floor 1, and no other element items', () => {
-    const state = createInitialState(12345);
-    const flames = state.groundItems.filter((i) => i.itemId === 'flame_enchantment');
-    expect(flames).toHaveLength(1);
-    expect(state.groundItems.filter((i) => i.itemId === 'frost_enchantment')).toHaveLength(0);
-    expect(state.groundItems.filter((i) => i.itemId === 'cloud_enchantment')).toHaveLength(0);
-    expect(state.groundItems.filter((i) => i.itemId === 'earth_enchantment')).toHaveLength(0);
+describe('Phase 14.2/15.4b: floor placement (random ground item generation)', () => {
+  it('flame_enchantment is a candidate from floor 1 onward; frost/cloud from floor 2; earth from floor 3 (cumulative staged pool)', () => {
+    expect(getGroundItemPoolForFloor(1)).toContain('flame_enchantment');
+    expect(getGroundItemPoolForFloor(1)).not.toContain('frost_enchantment');
+    expect(getGroundItemPoolForFloor(1)).not.toContain('cloud_enchantment');
+    expect(getGroundItemPoolForFloor(1)).not.toContain('earth_enchantment');
+
+    expect(getGroundItemPoolForFloor(2)).toContain('flame_enchantment');
+    expect(getGroundItemPoolForFloor(2)).toContain('frost_enchantment');
+    expect(getGroundItemPoolForFloor(2)).toContain('cloud_enchantment');
+    expect(getGroundItemPoolForFloor(2)).not.toContain('earth_enchantment');
+
+    expect(getGroundItemPoolForFloor(3)).toContain('flame_enchantment');
+    expect(getGroundItemPoolForFloor(3)).toContain('frost_enchantment');
+    expect(getGroundItemPoolForFloor(3)).toContain('cloud_enchantment');
+    expect(getGroundItemPoolForFloor(3)).toContain('earth_enchantment');
   });
 
-  it('places exactly one frost_enchantment and one cloud_enchantment on floor 2', () => {
-    let state = createInitialState(12345);
-    state = advanceToNextFloor(state);
-    expect(state.floor).toBe(2);
-    expect(state.groundItems.filter((i) => i.itemId === 'frost_enchantment')).toHaveLength(1);
-    expect(state.groundItems.filter((i) => i.itemId === 'cloud_enchantment')).toHaveLength(1);
-    expect(state.groundItems.filter((i) => i.itemId === 'flame_enchantment')).toHaveLength(0);
-    expect(state.groundItems.filter((i) => i.itemId === 'earth_enchantment')).toHaveLength(0);
+  it('no element item is guaranteed on any floor any more (Phase 15.4b): presence varies across seeds', () => {
+    let seenFlamePresent = false;
+    let seenFlameAbsent = false;
+    for (let seed = 0; seed < 60; seed++) {
+      const state = createInitialState(seed);
+      const hasFlame = state.groundItems.some((i) => i.itemId === 'flame_enchantment');
+      if (hasFlame) seenFlamePresent = true;
+      else seenFlameAbsent = true;
+    }
+    expect(seenFlamePresent).toBe(true);
+    expect(seenFlameAbsent).toBe(true);
   });
 
-  it('places exactly one earth_enchantment on floor 3, and no other element items', () => {
-    let state = createInitialState(12345);
-    state = advanceToNextFloor(state);
-    state = advanceToNextFloor(state);
-    expect(state.floor).toBe(3);
-    expect(state.groundItems.filter((i) => i.itemId === 'earth_enchantment')).toHaveLength(1);
-    expect(state.groundItems.filter((i) => i.itemId === 'flame_enchantment')).toHaveLength(0);
-    expect(state.groundItems.filter((i) => i.itemId === 'frost_enchantment')).toHaveLength(0);
-    expect(state.groundItems.filter((i) => i.itemId === 'cloud_enchantment')).toHaveLength(0);
+  it('never draws the same enchantment id twice on one floor', () => {
+    for (let seed = 0; seed < 60; seed++) {
+      let state = createInitialState(seed);
+      for (let floor = 1; floor <= 3; floor++) {
+        for (const id of ['sol_enchantment', 'flame_enchantment', 'frost_enchantment', 'cloud_enchantment', 'earth_enchantment'] as const) {
+          const count = state.groundItems.filter((i) => i.itemId === id).length;
+          expect(count).toBeLessThanOrEqual(1);
+        }
+        if (floor < 3) state = advanceToNextFloor(state);
+      }
+    }
   });
 
-  it('reproduces the same placement coordinates for the same seed', () => {
+  it('reproduces the same groundItems for the same seed (Phase 15.4b: full-array determinism)', () => {
     const a = createInitialState(555);
     const b = createInitialState(555);
-    const aFlame = a.groundItems.find((i) => i.itemId === 'flame_enchantment');
-    const bFlame = b.groundItems.find((i) => i.itemId === 'flame_enchantment');
-    expect(aFlame?.pos).toEqual(bFlame?.pos);
+    expect(a.groundItems).toEqual(b.groundItems);
   });
 
-  it('satisfies placement constraints across several different seeds', () => {
+  it('when placed, element items never sit on start, exit, or another ground item', () => {
     const seeds = [1, 2, 3, 42, 999, 123456];
     for (const seed of seeds) {
       let state = createInitialState(seed);
-      const flame = state.groundItems.find((i) => i.itemId === 'flame_enchantment');
-      expect(flame).toBeDefined();
-      expect(flame?.pos).not.toEqual(state.player.pos);
-      expect(flame?.pos).not.toEqual(state.exit);
-
-      state = advanceToNextFloor(state);
-      const frost = state.groundItems.find((i) => i.itemId === 'frost_enchantment');
-      const cloud = state.groundItems.find((i) => i.itemId === 'cloud_enchantment');
-      expect(frost).toBeDefined();
-      expect(cloud).toBeDefined();
-      expect(frost?.pos).not.toEqual(cloud?.pos);
-      expect(frost?.pos).not.toEqual(state.player.pos);
-      expect(cloud?.pos).not.toEqual(state.player.pos);
-
-      state = advanceToNextFloor(state);
-      const earth = state.groundItems.find((i) => i.itemId === 'earth_enchantment');
-      expect(earth).toBeDefined();
-      expect(earth?.pos).not.toEqual(state.player.pos);
-      expect(earth?.pos).not.toEqual(state.exit);
-    }
-  });
-
-  it('does not place any element item on the same tile as another ground item, enemy, start, or exit', () => {
-    let state = createInitialState(777);
-    for (let floor = 1; floor <= 3; floor++) {
-      const positions = state.groundItems.map((i) => `${i.pos.x},${i.pos.y}`);
-      const uniquePositions = new Set(positions);
-      expect(uniquePositions.size).toBe(positions.length);
-      for (const item of state.groundItems) {
-        expect(item.pos).not.toEqual(state.player.pos);
-        expect(item.pos).not.toEqual(state.exit);
+      for (let floor = 1; floor <= 3; floor++) {
+        for (const item of state.groundItems) {
+          expect(item.pos).not.toEqual(state.player.pos);
+          expect(item.pos).not.toEqual(state.exit);
+        }
+        const positions = state.groundItems.map((i) => `${i.pos.x},${i.pos.y}`);
+        expect(new Set(positions).size).toBe(positions.length);
+        if (floor < 3) state = advanceToNextFloor(state);
       }
-      if (floor < 3) state = advanceToNextFloor(state);
     }
-  });
-
-  it('prefers different rooms for frost and cloud on floor 2 when candidates exist', () => {
-    let anyChecked = false;
-    for (let seed = 1; seed <= 30; seed++) {
-      let state = createInitialState(seed);
-      state = advanceToNextFloor(state);
-      const frost = state.groundItems.find((i) => i.itemId === 'frost_enchantment');
-      const cloud = state.groundItems.find((i) => i.itemId === 'cloud_enchantment');
-      if (!frost || !cloud) continue;
-      const frostRoom = roomIndexContaining(state.map.rooms, frost.pos);
-      const cloudRoom = roomIndexContaining(state.map.rooms, cloud.pos);
-      if (frostRoom === -1 || cloudRoom === -1) continue;
-      anyChecked = true;
-      expect(cloudRoom).not.toBe(frostRoom);
-    }
-    expect(anyChecked).toBe(true);
   });
 
   it('does not disturb enemy placement determinism (same seed -> same enemy positions)', () => {

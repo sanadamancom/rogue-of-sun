@@ -89,7 +89,7 @@ describe('spear placement (floor 2 only)', () => {
     }
   });
 
-  it('places exactly one spear on floor 2, on a floor tile, not overlapping player/exit/enemy/apple', () => {
+  it('when a spear is placed on floor 2, it is on a valid floor tile not overlapping player/exit/enemy/other items', () => {
     for (const runSeed of RUN_SEEDS) {
       let state = createInitialState(runSeed);
       state.enemies.forEach((e) => (e.alive = false));
@@ -98,16 +98,18 @@ describe('spear placement (floor 2 only)', () => {
       state = advanceToNextFloor(state);
       expect(state.floor).toBe(2);
       const spears = state.groundItems.filter((i) => i.itemId === 'spear');
-      expect(spears).toHaveLength(1);
-      const spear = spears[0];
-      expect(state.map.terrain[spear.pos.y][spear.pos.x]).toBe('floor');
-      expect(spear.pos).not.toEqual(state.player.pos);
-      expect(spear.pos).not.toEqual(state.exit);
-      for (const enemy of state.enemies) {
-        expect(spear.pos).not.toEqual(enemy.pos);
+      for (const spear of spears) {
+        expect(state.map.terrain[spear.pos.y][spear.pos.x]).toBe('floor');
+        expect(spear.pos).not.toEqual(state.player.pos);
+        expect(spear.pos).not.toEqual(state.exit);
+        for (const enemy of state.enemies) {
+          expect(spear.pos).not.toEqual(enemy.pos);
+        }
+        for (const other of state.groundItems) {
+          if (other === spear) continue;
+          expect(spear.pos).not.toEqual(other.pos);
+        }
       }
-      const apple = state.groundItems.find((i) => i.itemId === 'apple')!;
-      expect(spear.pos).not.toEqual(apple.pos);
     }
   });
 

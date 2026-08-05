@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createEmptyInventory, ITEM_DEFINITIONS, ITEM_IDS_IN_ORDER } from '../item-def';
+import { createEmptyInventory, getGroundItemPoolForFloor, ITEM_DEFINITIONS, ITEM_IDS_IN_ORDER } from '../item-def';
 import { WEAPON_DEFINITIONS, WEAPON_IDS_IN_ORDER } from '../weapon-def';
 import { advanceToNextFloor, createInitialState } from '../state';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
@@ -521,45 +521,39 @@ describe('solar gun and sun fruit integration (Phase 09.2)', () => {
   });
 });
 
-describe('solar gun placement (Phase 09.2)', () => {
-  it('places exactly 1 solar gun on floor 1', () => {
-    const state = createInitialState(4242);
-    const guns = state.groundItems.filter((i) => i.itemId === 'solar_gun');
-    expect(guns.length).toBe(1);
+describe('solar gun placement (Phase 15.4b random ground item generation)', () => {
+  it('is a valid candidate on floor 1, floor 2, and floor 3 (cumulative pool, no longer floor-1-only)', () => {
+    expect(getGroundItemPoolForFloor(1)).toContain('solar_gun');
+    expect(getGroundItemPoolForFloor(2)).toContain('solar_gun');
+    expect(getGroundItemPoolForFloor(3)).toContain('solar_gun');
   });
 
-  it('does not place a solar gun on floor 2', () => {
-    let state = createInitialState(4242);
-    state.enemies.forEach((e) => (e.alive = false));
-    state.player.pos = { ...state.exit };
-    state = advanceToNextFloor(state);
-    const guns = state.groundItems.filter((i) => i.itemId === 'solar_gun');
-    expect(guns.length).toBe(0);
-  });
-
-  it('does not place a solar gun on floor 3', () => {
-    let state = createInitialState(4242);
-    for (let i = 0; i < 2; i++) {
-      state.enemies.forEach((e) => (e.alive = false));
-      state.player.pos = { ...state.exit };
-      state = advanceToNextFloor(state);
+  it('appearance is no longer guaranteed on any floor (Phase 15.4b): it varies across seeds', () => {
+    let seenPresent = false;
+    let seenAbsent = false;
+    for (let seed = 0; seed < 60; seed++) {
+      const state = createInitialState(seed);
+      const count = state.groundItems.filter((i) => i.itemId === 'solar_gun').length;
+      if (count >= 1) seenPresent = true;
+      else seenAbsent = true;
     }
-    const guns = state.groundItems.filter((i) => i.itemId === 'solar_gun');
-    expect(guns.length).toBe(0);
+    expect(seenPresent).toBe(true);
+    expect(seenAbsent).toBe(true);
   });
 
-  it('the same seed and floor produce the same solar gun coordinates', () => {
+  it('the same seed and floor produce the same groundItems (present or absent alike)', () => {
     const a = createInitialState(777);
     const b = createInitialState(777);
-    const posA = a.groundItems.find((i) => i.itemId === 'solar_gun')!.pos;
-    const posB = b.groundItems.find((i) => i.itemId === 'solar_gun')!.pos;
-    expect(posA).toEqual(posB);
+    expect(a.groundItems).toEqual(b.groundItems);
   });
 
-  it('the solar gun is placed on a reachable normal floor tile', () => {
-    const state = createInitialState(88);
-    const pos = state.groundItems.find((i) => i.itemId === 'solar_gun')!.pos;
-    expect(state.map.terrain[pos.y][pos.x]).toBe('floor');
+  it('the solar gun is placed on a reachable normal floor tile when present', () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const state = createInitialState(seed);
+      const gun = state.groundItems.find((i) => i.itemId === 'solar_gun');
+      if (!gun) continue;
+      expect(state.map.terrain[gun.pos.y][gun.pos.x]).toBe('floor');
+    }
   });
 
   it('the solar gun never overlaps the player, exit, or another ground item', () => {
@@ -578,16 +572,15 @@ describe('solar gun placement (Phase 09.2)', () => {
     }
   });
 
-  it('adding the solar gun does not move any other existing floor-1 ground item', () => {
+  it('every placed ground item still lands on a distinct, valid tile (Phase 15.4b unified generation)', () => {
     const state = createInitialState(999);
-    const apple = state.groundItems.find((i) => i.itemId === 'apple');
-    const sword = state.groundItems.find((i) => i.itemId === 'sword');
-    const armor = state.groundItems.find((i) => i.itemId === 'armor');
-    const sunFruit = state.groundItems.find((i) => i.itemId === 'sun_fruit');
-    expect(apple).toBeDefined();
-    expect(sword).toBeDefined();
-    expect(armor).toBeDefined();
-    expect(sunFruit).toBeDefined();
+    const seen = new Set<string>();
+    for (const item of state.groundItems) {
+      expect(state.map.terrain[item.pos.y][item.pos.x]).toBe('floor');
+      const key = `${item.pos.x},${item.pos.y}`;
+      expect(seen.has(key)).toBe(false);
+      seen.add(key);
+    }
   });
 
   it('adding the solar gun does not change enemy or exit placement (seed-stable regeneration)', () => {

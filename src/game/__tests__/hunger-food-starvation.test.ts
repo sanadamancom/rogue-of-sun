@@ -10,7 +10,7 @@ import {
   STARVATION_DAMAGE,
   STARVATION_INTERVAL,
 } from '../hunger';
-import { createEmptyInventory, ITEM_DEFINITIONS, ITEM_IDS_IN_ORDER } from '../item-def';
+import { createEmptyInventory, getGroundItemPoolForFloor, ITEM_DEFINITIONS, ITEM_IDS_IN_ORDER } from '../item-def';
 import { advanceToNextFloor, createInitialState } from '../state';
 import { createInitialActor, createInitialEnemy, processTurn, REGEN_TURNS_PER_HP } from '../turn';
 import { GameMap, GameState, Tile } from '../types';
@@ -202,32 +202,50 @@ describe('hunger decrease (Phase 11.3)', () => {
   });
 });
 
-describe('chocolate (Phase 11.3)', () => {
-  it('is placed once per floor', () => {
-    for (const seed of [1, 7, 42, 2024]) {
-      const state = createInitialState(seed);
-      const chocolates = state.groundItems.filter((item) => item.itemId === 'chocolate');
-      expect(chocolates).toHaveLength(1);
-    }
+describe('chocolate (Phase 15.4b random ground item generation)', () => {
+  it('is a valid candidate on every floor (in the cumulative pool from floor 1)', () => {
+    expect(getGroundItemPoolForFloor(1)).toContain('chocolate');
+    expect(getGroundItemPoolForFloor(2)).toContain('chocolate');
+    expect(getGroundItemPoolForFloor(3)).toContain('chocolate');
   });
 
-  it('is placed on a reachable floor tile', () => {
-    const state = createInitialState(2024);
-    const chocolate = state.groundItems.find((item) => item.itemId === 'chocolate')!;
-    expect(state.map.terrain[chocolate.pos.y][chocolate.pos.x]).toBe('floor');
+  it('appearance is no longer guaranteed every floor (Phase 15.4b): it varies across seeds', () => {
+    let seenPresent = false;
+    let seenAbsent = false;
+    for (let seed = 0; seed < 60; seed++) {
+      const state = createInitialState(seed);
+      const count = state.groundItems.filter((item) => item.itemId === 'chocolate').length;
+      if (count >= 1) seenPresent = true;
+      else seenAbsent = true;
+    }
+    expect(seenPresent).toBe(true);
+    expect(seenAbsent).toBe(true);
+  });
+
+  it('when placed, it is on a reachable floor tile', () => {
+    for (const seed of [1, 7, 42, 2024]) {
+      const state = createInitialState(seed);
+      const chocolate = state.groundItems.find((item) => item.itemId === 'chocolate');
+      if (!chocolate) continue;
+      expect(state.map.terrain[chocolate.pos.y][chocolate.pos.x]).toBe('floor');
+    }
   });
 
   it('does not overlap the player, exit, enemies, or other ground items', () => {
-    const state = createInitialState(2024);
-    const chocolate = state.groundItems.find((item) => item.itemId === 'chocolate')!;
-    expect(chocolate.pos).not.toEqual(state.player.pos);
-    expect(chocolate.pos).not.toEqual(state.exit);
-    for (const enemy of state.enemies) {
-      expect(chocolate.pos).not.toEqual(enemy.pos);
-    }
-    const others = state.groundItems.filter((item) => item.itemId !== 'chocolate');
-    for (const other of others) {
-      expect(chocolate.pos).not.toEqual(other.pos);
+    for (const seed of [1, 7, 42, 2024]) {
+      const state = createInitialState(seed);
+      const chocolate = state.groundItems.find((item) => item.itemId === 'chocolate');
+      if (!chocolate) continue;
+      expect(chocolate.pos).not.toEqual(state.player.pos);
+      expect(chocolate.pos).not.toEqual(state.exit);
+      for (const enemy of state.enemies) {
+        expect(chocolate.pos).not.toEqual(enemy.pos);
+      }
+      const others = state.groundItems.filter((item) => item.itemId !== 'chocolate' || item !== chocolate);
+      for (const other of others) {
+        if (other === chocolate) continue;
+        expect(chocolate.pos).not.toEqual(other.pos);
+      }
     }
   });
 
