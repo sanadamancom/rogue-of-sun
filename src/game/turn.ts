@@ -1,5 +1,5 @@
 import { directionBetweenAdjacent, isAdjacent, isOrthogonallyAdjacent } from './direction';
-import { canMove, destinationOf, isInBounds, isWalkable } from './map';
+import { canMove, destinationOf, isDiagonalCornerOpen, isInBounds, isWalkable } from './map';
 import { ENEMY_DEFINITIONS } from './enemy-def';
 import { ITEM_DEFINITIONS } from './item-def';
 import { hasInventoryCapacity, inventoryEntries } from './inventory';
@@ -722,9 +722,14 @@ function resolveFacingAttack(
 
   const destination: Vec2 = destinationOf(player.pos, direction);
 
-  const target = enemies.find(
-    (enemy) => enemy.alive && enemy.pos.x === destination.x && enemy.pos.y === destination.y,
-  );
+  // Phase 15.6: a diagonal adjacent target behind a wall corner is not a
+  // legal attack target — the same corner definition normal diagonal
+  // movement already uses (isDiagonalCornerOpen, shared via map.ts).
+  // Cardinal directions are always open by definition, so this only ever
+  // changes the diagonal case.
+  const target = isDiagonalCornerOpen(map, player.pos, destination)
+    ? enemies.find((enemy) => enemy.alive && enemy.pos.x === destination.x && enemy.pos.y === destination.y)
+    : undefined;
   if (target) {
     const result = applyPlayerAttackToEnemy(state, target, events);
     if (result.hit && !result.defeated) {
@@ -1343,6 +1348,15 @@ function applyDiscardItem(
 function tryMeleeAttack(state: GameState, enemy: EnemyActor, events: GameEvent[]): boolean {
   const { player } = state;
   if (!isAdjacent(enemy.pos, player.pos)) return false;
+  // Phase 15.6: symmetric with the player-side fix in resolveFacingAttack
+  // — a diagonally adjacent player behind a wall corner is not a legal
+  // attack target for the enemy either, using the exact same shared
+  // corner definition (isDiagonalCornerOpen). Cardinal adjacency is
+  // always open, so this only ever blocks the diagonal case. Every
+  // tryMeleeAttack caller already falls through to its own tryChaseStep
+  // (or waits, if no legal step exists) when this returns false, so no
+  // enemy-behavior branch needs its own special case.
+  if (!isDiagonalCornerOpen(state.map, enemy.pos, player.pos)) return false;
   const dir = directionBetweenAdjacent(enemy.pos, player.pos);
   if (dir) enemy.facing = dir;
   resolveEnemyAttackHit(state, enemy, events);

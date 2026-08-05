@@ -378,11 +378,16 @@ describe('hammer knockback', () => {
     expect(result.events).toContainEqual({ type: 'enemy_knocked_back', enemyType: 'bok' });
   });
 
-  it('does not knock back diagonally through a blocked corner', () => {
+  it('does not attack diagonally through a blocked corner at all (Phase 15.6: previously only knockback was blocked; now the attack itself never lands)', () => {
     // From (2,3), attacking SE toward the enemy at (3,4): sideA=(3,3) is
-    // wall, sideB=(2,4) is wall in this layout's inner block, so the
-    // knockback destination (4,5) must not be used even though (3,4)->(4,5)
-    // would otherwise be a valid single step.
+    // wall, sideB=(2,4) is wall in this layout's inner block, so this
+    // diagonal target is illegal to attack at all now (not just illegal
+    // to knock back into) — see docs/history/phase-15-6-block-diagonal-
+    // attacks-through-corners.md. The enemy's own turn is unaffected by
+    // this test beyond confirming it couldn't attack back through the
+    // same corner either (Phase 15.6 symmetry) — blocked from attacking,
+    // it falls through to its existing chase-step AI instead, per spec,
+    // so its exact resulting tile is not asserted here.
     const state = freshState({
       equippedWeaponId: 'hammer',
       player: createInitialActor({ x: 2, y: 3 }, 3, 1),
@@ -390,9 +395,11 @@ describe('hammer knockback', () => {
     state.player.facing = 'SE';
     const enemy = createInitialEnemy('bok', { x: 3, y: 4 }, 10, 1);
     state.enemies = [enemy];
+    const hpBefore = state.player.hp;
     const result = processTurn(state, { type: 'action' });
-    expect(result.playerAttacked).toBe(true);
-    expect(enemy.pos).toEqual({ x: 3, y: 4 }); // stayed put
+    expect(result.playerAttacked).toBe(false);
+    expect(enemy.hp).toBe(10); // untouched by the player
+    expect(state.player.hp).toBe(hpBefore); // untouched by the enemy (same blocked corner, symmetric)
   });
 
   it('a failed knockback does not add extra damage', () => {
