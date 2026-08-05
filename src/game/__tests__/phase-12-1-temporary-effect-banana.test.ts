@@ -330,7 +330,8 @@ describe('attack_up damage bonus (Phase 12.1)', () => {
     const state = freshState({
       player: createInitialActor({ x: 2, y: 1 }, 30, 10, 0, 100, 0),
       // Phase 14.4 enemy affinities: bok is now sol-weak; use spider
-      // (still all-neutral) so the fixed sol bonus stays exactly 10.
+      // (still all-neutral) so the fixed sol bonus stays exactly 2
+      // (Phase 15.3: neutral affinity, mind rank 0).
       enemies: [createInitialEnemy('spider', { x: 3, y: 1 }, 1000, 0, 0, 0, 0, 90, 0)],
       equippedWeaponId: 'sword',
       solUnlocked: true,
@@ -342,8 +343,8 @@ describe('attack_up damage bonus (Phase 12.1)', () => {
     const before = state.enemies[0].hp;
     processTurn(state, { type: 'face', direction: 'E' });
     processTurn(state, { type: 'action' });
-    // 10 base + 5 attack_up + 2 sword (Phase 15.1) - 0 defense = 17, plus fixed sol bonus 10 = 27
-    expect(before - state.enemies[0].hp).toBe(27);
+    // 10 base + 5 attack_up + 2 sword (Phase 15.1) - 0 defense = 17, plus fixed sol bonus 2 (Phase 15.3) = 19
+    expect(before - state.enemies[0].hp).toBe(19);
   });
 
   it('floors at minimum damage 1 even with attack_up active against high defense', () => {

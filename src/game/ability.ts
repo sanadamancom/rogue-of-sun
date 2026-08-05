@@ -42,14 +42,14 @@ export const INITIAL_ABILITY_VALUES: AbilityValues = { body: 0, mind: 0, power: 
  */
 export const ABILITY_RANK_CAP = 10;
 
-/** Phase 13.3a: max HP granted per body rank (30 + 4*bodyRank). */
-export const BODY_MAX_HP_PER_RANK = 4;
+/** Phase 15.3 SOL/element/ability rebalance: max HP granted per body rank (15 + 2*bodyRank) — 4->2 (see docs/history/phase-15-3-sol-element-ability-rebalance.md). */
+export const BODY_MAX_HP_PER_RANK = 2;
 
-/** Phase 13.3a: max SOL granted per mind rank (5 + mindRank). */
-export const MIND_MAX_SOL_PER_RANK = 1;
+/** Phase 15.3 SOL/element/ability rebalance: max SOL granted per mind rank (15 + 2*mindRank) — 1->2. */
+export const MIND_MAX_SOL_PER_RANK = 2;
 
-/** Phase 13.3a: flat direct-attack damage bonus granted per power rank (2*powerRank). */
-export const POWER_DAMAGE_PER_RANK = 2;
+/** Phase 15.3 SOL/element/ability rebalance: flat direct-attack damage bonus granted per power rank (1*powerRank) — 2->1. */
+export const POWER_DAMAGE_PER_RANK = 1;
 
 /**
  * The player's current direct-attack damage bonus from the power ability
@@ -65,17 +65,19 @@ export function getPowerDamageBonus(state: GameState): number {
 }
 
 /**
- * The elemental-enchantment base-damage bonus granted by the player's
- * mind rank (Phase 14.3 five-element combat effects): +1 per rank,
- * added to the element's base damage before affinity is applied.
- * Applies identically to every element, including sol — see turn.ts's
- * applyPlayerAttackToEnemy, the single call site. Pure — never mutates
- * `state`; reads only the existing mind rank via getAbilityValue (the
- * same source of truth power/body/speed already use), no new state
- * field.
+ * The elemental-enchantment additive-damage bonus granted by the
+ * player's mind rank (Phase 15.3 SOL/element/ability rebalance):
+ * floor(mindRank / 2), added on top of the fixed per-affinity value
+ * (combat.ts's ELEMENTAL_AFFINITY_BONUS_DAMAGE) rather than to a
+ * pre-affinity base as before. Applies identically to every element,
+ * including sol — see turn.ts's applyPlayerAttackToEnemy, the single
+ * call site. mind rank 1 yields 0 (no increase yet); rank 2 yields +1,
+ * rank 4 yields +2, rank 6 yields +3. Pure — never mutates `state`;
+ * reads only the existing mind rank via getAbilityValue (the same
+ * source of truth power/body/speed already use), no new state field.
  */
 export function getElementalMindBonus(state: GameState): number {
-  return getAbilityValue(state, 'mind');
+  return Math.floor(getAbilityValue(state, 'mind') / 2);
 }
 
 /**
@@ -198,8 +200,12 @@ export function allocateAbilityPoint(state: GameState, ability: AbilityId): Abil
     state.player.maxHp += BODY_MAX_HP_PER_RANK;
     state.player.hp = Math.min(state.player.maxHp, state.player.hp + BODY_MAX_HP_PER_RANK);
   } else if (ability === 'mind') {
+    // Phase 15.3 SOL/element/ability rebalance: mind allocation only
+    // raises maxSolarEnergy — current SOL is deliberately never restored
+    // here (current_sol_recovery_on_allocate: 0), unlike body's current-
+    // LIFE restoration above. Increasing maxSolarEnergy can never push
+    // current solarEnergy above it, so no clamp is needed either.
     state.maxSolarEnergy += MIND_MAX_SOL_PER_RANK;
-    state.solarEnergy = Math.min(state.maxSolarEnergy, state.solarEnergy + MIND_MAX_SOL_PER_RANK);
   } else if (ability === 'speed') {
     // Phase 13.3b: a speed-rank change alters what "actionGauge >=
     // playerSpeed" means for every enemy (the same absolute gauge value
@@ -427,8 +433,18 @@ export function formatAbilityEffectLine(state: GameState, ability: AbilityId): s
   switch (ability) {
     case 'body':
       return d.atRankCap ? `HP${d.currentValue}（上限）` : `HP${d.currentValue}→${d.nextValue}（+${BODY_MAX_HP_PER_RANK}回復）`;
-    case 'mind':
-      return d.atRankCap ? `SOL${d.currentValue}（上限）` : `SOL${d.currentValue}→${d.nextValue}（+${MIND_MAX_SOL_PER_RANK}回復）`;
+    case 'mind': {
+      // Phase 15.3 SOL/element/ability rebalance: mind no longer restores
+      // current SOL on allocation (only maxSolarEnergy increases), so the
+      // wording never implies a "+N回復" the way body's line does. Instead
+      // this documents the floor(mindRank/2) elemental-damage bonus rule
+      // explicitly (step_7's "ココロの説明に「2ポイントごとに属性追加+1」
+      // を明記する") alongside its current value.
+      const elementBonus = getElementalMindBonus(state);
+      return d.atRankCap
+        ? `SOL${d.currentValue}（上限）／属性追加+${elementBonus}`
+        : `SOL${d.currentValue}→${d.nextValue}（2ポイントごとに属性追加+1、現在+${elementBonus}）`;
+    }
     case 'power':
       return d.atRankCap ? `攻撃+${d.currentValue}（上限）` : `攻撃+${d.currentValue}→+${d.nextValue}（全武器・太陽銃）`;
     case 'speed':

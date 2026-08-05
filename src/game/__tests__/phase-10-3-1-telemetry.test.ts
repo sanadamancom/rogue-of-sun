@@ -5,6 +5,7 @@ import {
   computeRunSummary,
   createRunTelemetry,
   finalizeRun,
+  recordAbilityAllocation,
   recordFloorStarted,
   recordTurn,
   snapshotForTurn,
@@ -12,6 +13,8 @@ import {
 import { createEmptyInventory } from '../item-def';
 import { advanceToNextFloor, createInitialState } from '../state';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
+import { allocateAbilityPoint, POWER_DAMAGE_PER_RANK } from '../ability';
+import { formatEvent as formatEventForTest } from '../message-log';
 import { GameMap, GameState, PlayerAction, Tile } from '../types';
 
 const TEST_LAYOUT: string[] = [
@@ -263,7 +266,7 @@ describe('combat trace (Phase 10.3.1)', () => {
     processTurn(state, { type: 'face', direction: 'E' });
     step(state, { type: 'action' }, telemetry);
     const attackEvent = telemetry.events.find((e) => e.type === 'player_attack');
-    expect(attackEvent).toMatchObject({ additionalDamage: 10, solConsumed: 1 });
+    expect(attackEvent).toMatchObject({ additionalDamage: 2, solConsumed: 1 });
   });
 
   it('hammer knockback is recorded on the attack event', () => {
@@ -748,5 +751,196 @@ describe('Phase 15.2 recovery/satiety/status rebalance telemetry', () => {
     expect(summary.recoveryAndSatiety.satiety.start).toBe(4);
     expect(summary.recoveryAndSatiety.satiety.min).toBe(3);
     expect(summary.recoveryAndSatiety.satiety.end).toBe(33);
+  });
+});
+
+describe('Phase 15.3 SOL/element/ability rebalance telemetry', () => {
+  it('run_started records the true starting SOL', () => {
+    const state = createInitialState(1);
+    const telemetry = createRunTelemetry(state);
+    const started = telemetry.events.find((e) => e.type === 'run_started') as { sol: number };
+    expect(started.sol).toBe(15);
+  });
+
+  it('sol_changed carries requestedAmount for sun_fruit (item) recovery, distinct from the clamped actual amount', () => {
+    const state = freshState({
+      enemies: [],
+      solarEnergy: 13,
+      maxSolarEnergy: 15,
+      inventory: { ...createEmptyInventory(), sun_fruit: 1 },
+    });
+    const telemetry = createRunTelemetry(state);
+    step(state, { type: 'use_item', itemId: 'sun_fruit' }, telemetry);
+    const solChanged = telemetry.events.find((e) => e.type === 'sol_changed') as { amount: number; requestedAmount?: number };
+    expect(solChanged.requestedAmount).toBe(5); // real sun_fruit.solarAmount
+    expect(solChanged.amount).toBe(2); // clamped: 13 -> 15
+  });
+
+  it('sol_changed carries requestedAmount for sunlight charge, matching SUNLIGHT_CHARGE_AMOUNT', () => {
+    const sunlitGrid = Array.from({ length: 8 }, () => Array.from({ length: 10 }, () => true));
+    const state = freshState({ enemies: [], solarEnergy: 3, maxSolarEnergy: 15, sunlight: sunlitGrid });
+    const telemetry = createRunTelemetry(state);
+    step(state, { type: 'wait' }, telemetry); // sunlit + below max -> solar charge, not a plain wait
+    const solChanged = telemetry.events.find((e) => e.type === 'sol_changed') as { amount: number; requestedAmount?: number };
+    expect(solChanged.requestedAmount).toBe(1);
+    expect(solChanged.amount).toBe(1);
+  });
+
+  it('element_activation records requested/actual elemental damage and mind bonus for a neutral hit', () => {
+    const state = freshState({
+      equippedWeaponId: 'sword',
+      inventory: { ...createEmptyInventory(), sword: 1 },
+      solUnlocked: true,
+      unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
+      selectedEnchantment: 'sol',
+      solarEnergy: 5,
+      enemies: [createInitialEnemy('spider', { x: 3, y: 1 }, 1000, 1)], // all-neutral
+    });
+    const telemetry = createRunTelemetry(state);
+    state.player.facing = 'E';
+    step(state, { type: 'action' }, telemetry);
+    const activation = telemetry.events.find((e) => e.type === 'element_activation') as {
+      element: string;
+      affinity: string;
+      requestedElementalDamage: number;
+      actualElementalDamage: number;
+      mindBonusPortion: number;
+      solConsumed: number;
+    };
+    expect(activation).toBeDefined();
+    expect(activation.element).toBe('sol');
+    expect(activation.affinity).toBe('neutral');
+    expect(activation.requestedElementalDamage).toBe(2); // fixed neutral bonus, mind rank 0
+    expect(activation.actualElementalDamage).toBe(2);
+    expect(activation.mindBonusPortion).toBe(0);
+    expect(activation.solConsumed).toBe(1);
+  });
+
+  it('element_activation attributes mindBonusPortion correctly at mind rank 4 (floor(4/2)=2)', () => {
+    const state = freshState({
+      equippedWeaponId: 'sword',
+      inventory: { ...createEmptyInventory(), sword: 1 },
+      solUnlocked: true,
+      unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
+      selectedEnchantment: 'sol',
+      solarEnergy: 5,
+      abilities: { body: 0, mind: 4, power: 0, speed: 0 },
+      enemies: [createInitialEnemy('spider', { x: 3, y: 1 }, 1000, 1)],
+    });
+    const telemetry = createRunTelemetry(state);
+    state.player.facing = 'E';
+    step(state, { type: 'action' }, telemetry);
+    const activation = telemetry.events.find((e) => e.type === 'element_activation') as {
+      requestedElementalDamage: number;
+      actualElementalDamage: number;
+      mindBonusPortion: number;
+    };
+    expect(activation.mindBonusPortion).toBe(2);
+    expect(activation.requestedElementalDamage).toBe(4); // fixed 2 + mind bonus 2
+    expect(activation.actualElementalDamage).toBe(4);
+  });
+
+  it('element_activation caps actualElementalDamage at the real remaining HP on an overkill hit', () => {
+    const state = freshState({
+      equippedWeaponId: 'sword',
+      inventory: { ...createEmptyInventory(), sword: 1 },
+      solUnlocked: true,
+      unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
+      selectedEnchantment: 'sol',
+      solarEnergy: 5,
+      // physical portion alone (player.attack 10 + sword bonus 2) = 12,
+      // already exceeds this enemy's 1 HP, so the elemental portion's
+      // actual contribution is entirely absorbed by the overkill clamp.
+      enemies: [createInitialEnemy('spider', { x: 3, y: 1 }, 1, 1)],
+    });
+    const telemetry = createRunTelemetry(state);
+    state.player.facing = 'E';
+    step(state, { type: 'action' }, telemetry);
+    const activation = telemetry.events.find((e) => e.type === 'element_activation') as {
+      requestedElementalDamage: number;
+      actualElementalDamage: number;
+    };
+    expect(activation.requestedElementalDamage).toBe(2);
+    expect(activation.actualElementalDamage).toBe(0);
+  });
+
+  it('element_activation_failed fires when an eligible, selected, unlocked element lacks enough SOL', () => {
+    const state = freshState({
+      equippedWeaponId: 'sword',
+      inventory: { ...createEmptyInventory(), sword: 1 },
+      unlockedEnchantments: { sol: false, flame: true, frost: false, cloud: false, earth: false },
+      selectedEnchantment: 'flame',
+      solarEnergy: 1, // flame costs 2
+      enemies: [createInitialEnemy('spider', { x: 3, y: 1 }, 1000, 1)],
+    });
+    const telemetry = createRunTelemetry(state);
+    state.player.facing = 'E';
+    step(state, { type: 'action' }, telemetry);
+    const failed = telemetry.events.find((e) => e.type === 'element_activation_failed') as { element: string; reason: string };
+    expect(failed).toBeDefined();
+    expect(failed.element).toBe('flame');
+    expect(failed.reason).toBe('insufficient_sol');
+    expect(telemetry.events.some((e) => e.type === 'element_activation')).toBe(false);
+    // The message log identifies this distinctly from a plain unenchanted hit.
+    const line = formatEventForTest({ type: 'element_activation_failed', element: 'flame', reason: 'insufficient_sol' });
+    expect(line).toContain('SOLが足りず');
+  });
+
+  it('computeRunSummary aggregates element activations by element and by affinity, and counts insufficient-SOL failures', () => {
+    const state = freshState({
+      equippedWeaponId: 'sword',
+      inventory: { ...createEmptyInventory(), sword: 1 },
+      solUnlocked: true,
+      unlockedEnchantments: { sol: true, flame: false, frost: false, cloud: false, earth: false },
+      selectedEnchantment: 'sol',
+      solarEnergy: 1, // enough for exactly 1 sol activation (cost 1)
+      // bok is sol-weak (see enemy-def.ts), so this hit is a 'weak' activation.
+      enemies: [createInitialEnemy('bok', { x: 3, y: 1 }, 1000, 1)],
+    });
+    const telemetry = createRunTelemetry(state);
+    state.player.facing = 'E';
+    step(state, { type: 'action' }, telemetry); // SOL 1 -> 0, weak sol activation
+    step(state, { type: 'action' }, telemetry); // SOL 0: insufficient, no activation
+    const summary = computeRunSummary(telemetry, state);
+    expect(summary.solAndElements.elementActivations.byElement.sol.count).toBe(1);
+    expect(summary.solAndElements.elementActivations.byElement.sol.requestedTotal).toBe(3); // fixed weak bonus
+    expect(summary.solAndElements.elementActivations.byAffinity.weak).toBe(1);
+    expect(summary.solAndElements.elementActivations.insufficientSolCount).toBe(1);
+  });
+
+  it('computeRunSummary tracks sol.start/gained/consumed/end and mirrors the pre-existing resources totals', () => {
+    const state = freshState({
+      enemies: [],
+      solarEnergy: 3,
+      maxSolarEnergy: 15,
+      inventory: { ...createEmptyInventory(), sun_fruit: 1 },
+    });
+    const telemetry = createRunTelemetry(state);
+    step(state, { type: 'use_item', itemId: 'sun_fruit' }, telemetry); // 3 -> 8
+    const summary = computeRunSummary(telemetry, state);
+    expect(summary.solAndElements.sol.start).toBe(3);
+    expect(summary.solAndElements.sol.gained).toBe(summary.resources.solGained);
+    expect(summary.solAndElements.sol.consumed).toBe(summary.resources.solConsumed);
+    expect(summary.solAndElements.sol.end).toBe(state.solarEnergy);
+  });
+
+  it('computeRunSummary tracks per-ability allocation counts and mind/power bonus damage totals', () => {
+    const state = freshState({
+      equippedWeaponId: 'sword',
+      inventory: { ...createEmptyInventory(), sword: 1 },
+      unspentAbilityPoints: 2,
+      abilities: { body: 0, mind: 0, power: 0, speed: 0 },
+      enemies: [createInitialEnemy('spider', { x: 3, y: 1 }, 1000, 1)],
+    });
+    const telemetry = createRunTelemetry(state);
+    const allocResult = allocateAbilityPoint(state, 'power');
+    if (allocResult.success) {
+      recordAbilityAllocation(telemetry, state, 'power', allocResult.previousValue, allocResult.newValue, allocResult.remainingAbilityPoints);
+    }
+    state.player.facing = 'E';
+    step(state, { type: 'action' }, telemetry);
+    const summary = computeRunSummary(telemetry, state);
+    expect(summary.solAndElements.abilities.allocationsByAbility.power).toBe(1);
+    expect(summary.solAndElements.abilities.powerBonusDamageTotal).toBe(POWER_DAMAGE_PER_RANK);
   });
 });

@@ -51,14 +51,15 @@
  */
 
 import { GameEvent } from './events';
-import { EnemyType, GameState, PlayerAction, WeaponId, ArmorId, ItemId, AbilityId, AbilityValues } from './types';
+import { EnemyType, GameState, PlayerAction, WeaponId, ArmorId, ItemId, AbilityId, AbilityValues, ElementId, ElementalAffinity } from './types';
 import type { TurnResult } from './turn';
-import { getEffectivePlayerDefense, REGEN_AMOUNT_PER_TICK } from './turn';
+import { getEffectivePlayerDefense, REGEN_AMOUNT_PER_TICK, SUNLIGHT_CHARGE_AMOUNT } from './turn';
 import { ITEM_DEFINITIONS } from './item-def';
 import { getExperience, getLevel, getUnspentAbilityPoints } from './progression';
-import { getAbilities } from './ability';
+import { getAbilities, getElementalMindBonus, getPowerDamageBonus } from './ability';
 import { getHunger } from './hunger';
 import { getActiveEffect } from './effects';
+import { ELEMENTAL_AFFINITY_BONUS_DAMAGE } from './combat';
 
 // ---------------------------------------------------------------------
 // Event schema (event_model / event_types / event_requirements)
@@ -75,8 +76,9 @@ export type RunEventPayload =
   // Phase 15.2 recovery/satiety/status rebalance: `satiety` captures the
   // run's starting satiety value (schemaVersion bump not required since
   // this only adds a field, never changes an existing one's meaning) —
-  // see computeRunSummary's satiety.start.
-  | { type: 'run_started'; seed: number; satiety: number }
+  // see computeRunSummary's satiety.start. Phase 15.3 adds `sol`
+  // identically for the starting SOL value.
+  | { type: 'run_started'; seed: number; satiety: number; sol: number }
   | { type: 'floor_started'; floor: number }
   | { type: 'floor_completed'; floor: number }
   | { type: 'run_completed'; result: 'clear' | 'death'; cause: string; finalFloor: number; finalPosition: { x: number; y: number }; finalHp: number; finalSol: number }
@@ -122,6 +124,14 @@ export type RunEventPayload =
       // this file's existing validAttacks/combatByWeapon convention of
       // counting attempts rather than only hits) with this field true.
       attackUpActive: boolean;
+      // Phase 15.3 SOL/element/ability rebalance: the power-ability
+      // direct-attack bonus in effect for this attack (ability.ts's
+      // getPowerDamageBonus, already baked into physicalDamage) —
+      // exposed separately so computeRunSummary's abilities.
+      // powerBonusDamageTotal can attribute how much of the total
+      // damage dealt came specifically from the power ability, without
+      // re-deriving POWER_DAMAGE_PER_RANK here.
+      powerBonus: number;
     }
   | {
       type: 'enemy_attack';
@@ -178,7 +188,23 @@ export type RunEventPayload =
   | { type: 'item_acquired'; itemId: ItemId }
   | { type: 'item_used'; itemId: ItemId; effect: string; amount: number }
   | { type: 'item_discarded'; itemId: ItemId }
-  | { type: 'sol_changed'; before: number; after: number; amount: number; reason: 'solar_gun' | 'melee_enchantment' | 'solar_charge' | 'item' | 'other' }
+  | {
+      type: 'sol_changed';
+      before: number;
+      after: number;
+      amount: number;
+      reason: 'solar_gun' | 'melee_enchantment' | 'solar_charge' | 'item' | 'other';
+      // Phase 15.3 SOL/element/ability rebalance: the raw, pre-clamp
+      // amount this recovery *asked for* (e.g. ITEM_DEFINITIONS.sun_
+      // fruit.solarAmount, or SUNLIGHT_CHARGE_AMOUNT) — only meaningful
+      // for recovery reasons ('item'/'solar_charge'); undefined for
+      // consumption reasons, where `amount` (always negative) already
+      // is the exact, never-clamped-from-below cost. Distinct from
+      // `amount`, which is always the real, maxSolarEnergy-clamped delta
+      // (after - before) — mirrors player_healed's requestedAmount/
+      // actualHealing distinction.
+      requestedAmount?: number;
+    }
   | { type: 'solar_charge'; recovered: number }
   // Phase 10.3.3: renamed from 'healed' to 'player_healed', and `source`
   // is now one of a small fixed set (allowed_sources) rather than a raw
@@ -213,6 +239,32 @@ export type RunEventPayload =
   // reconstruct satiety.min and satiety.naturalLoss without re-deriving
   // HUNGER_DECREASE_INTERVAL/HUNGER_DECREASE_AMOUNT itself.
   | { type: 'satiety_decreased'; amount: number; satietyAfter: number }
+  // Phase 15.3 SOL/element/ability rebalance: one record per successful
+  // element enchantment activation (sol included), covering both the
+  // requested (pre-clamp) and actual (post-overkill-clamp) elemental
+  // damage, the affinity that produced it, and how much of it came from
+  // the mind-ability bonus specifically. `actualElementalDamage` is
+  // derived from the same targetHpBefore/targetHpAfter-based actualDamage
+  // already computed for the enriched player_attack RunEvent, minus the
+  // physical portion, floored at 0 and capped at the requested amount —
+  // physical damage is treated as applying first (turn.ts computes
+  // `damage = baseDamage; ...; damage += elementalDamage` in that order),
+  // so any overkill clamp is attributed to the elemental portion last.
+  | {
+      type: 'element_activation';
+      element: ElementId;
+      affinity: ElementalAffinity;
+      weapon: WeaponId;
+      requestedElementalDamage: number;
+      actualElementalDamage: number;
+      mindBonusPortion: number;
+      solConsumed: number;
+    }
+  // Phase 15.3 SOL/element/ability rebalance: pushed instead of nothing
+  // when an eligible, selected, unlocked element lacks enough SOL for a
+  // specific hit — see events.ts's element_activation_failed doc comment
+  // and turn.ts's applyPlayerAttackToEnemy for the exact trigger.
+  | { type: 'element_activation_failed'; element: ElementId; reason: 'insufficient_sol' }
   | { type: 'exit_reached'; floor: number }
   // Phase 13.1 experience/level/ability-point progression foundation.
   | { type: 'experience_gained'; amount: number; enemyId: number; enemyType: EnemyType; level: number; experience: number }
@@ -259,7 +311,7 @@ export function createRunTelemetry(state: GameState): RunTelemetry {
     events: [],
     finalized: false,
   };
-  pushEvent(telemetry, state, false, { type: 'run_started', seed: state.runSeed, satiety: getHunger(state) });
+  pushEvent(telemetry, state, false, { type: 'run_started', seed: state.runSeed, satiety: getHunger(state), sol: state.solarEnergy });
   pushEvent(telemetry, state, false, { type: 'floor_started', floor: state.floor });
   return telemetry;
 }
@@ -280,6 +332,48 @@ const ARMOR_IDS: ArmorId[] = ['armor'];
 
 function weaponOrUnarmed(id: WeaponId | null): WeaponId | 'unarmed' {
   return id ?? 'unarmed';
+}
+
+/**
+ * Pushes an 'element_activation' RunEvent (Phase 15.3), computing
+ * actualElementalDamage/mindBonusPortion from already-known values —
+ * see the 'element_activation' RunEventPayload doc comment for the
+ * exact overkill-attribution convention (physical applies first, so any
+ * clamp from an overkill hit is attributed to the elemental portion
+ * last). `state` is only used for the mind-rank read (getElementalMindBonus);
+ * mind rank never changes mid-attack, so `after` is always safe here.
+ */
+function pushElementActivation(
+  telemetry: RunTelemetry,
+  state: GameState,
+  turnConsumed: boolean,
+  args: {
+    element: ElementId;
+    affinity: ElementalAffinity;
+    weapon: WeaponId;
+    requestedElementalDamage: number;
+    physicalDamage: number;
+    actualTotalDamage: number;
+    solConsumed: number;
+  },
+): void {
+  const mindBonusPortion = ELEMENTAL_AFFINITY_BONUS_DAMAGE[args.affinity] === args.requestedElementalDamage
+    ? 0
+    : getElementalMindBonus(state);
+  const actualElementalDamage = Math.min(
+    args.requestedElementalDamage,
+    Math.max(0, args.actualTotalDamage - args.physicalDamage),
+  );
+  pushEvent(telemetry, state, turnConsumed, {
+    type: 'element_activation',
+    element: args.element,
+    affinity: args.affinity,
+    weapon: args.weapon,
+    requestedElementalDamage: args.requestedElementalDamage,
+    actualElementalDamage,
+    mindBonusPortion,
+    solConsumed: args.solConsumed,
+  });
 }
 
 /**
@@ -469,6 +563,7 @@ function translateGameEvent(
         solConsumed: 0,
         knockbackApplied: false,
         attackUpActive: before.attackUpActive,
+        powerBonus: getPowerDamageBonus(after),
       });
       break;
     }
@@ -494,6 +589,7 @@ function translateGameEvent(
         solConsumed: 0,
         knockbackApplied: false,
         attackUpActive: before.attackUpActive,
+        powerBonus: getPowerDamageBonus(after),
       });
       break;
     }
@@ -501,6 +597,7 @@ function translateGameEvent(
       // Enriches the immediately-preceding player_attack RunEvent (same
       // turn, same target id) rather than pushing a separate event.
       const last = telemetry.events[telemetry.events.length - 1];
+      let actualDamageForSplit = 0;
       if (last && last.type === 'player_attack') {
         // physicalDamage/additionalDamage split into base vs sol bonus
         // (both raw, pre-clamp figures from turn.ts's own baseDamage/
@@ -512,6 +609,7 @@ function translateGameEvent(
         last.additionalDamage = event.bonusDamage;
         last.calculatedDamage = event.baseDamage + event.bonusDamage;
         last.solConsumed = event.solBefore - event.solAfter;
+        actualDamageForSplit = last.actualDamage;
       }
       pushEvent(telemetry, after, consumed, {
         type: 'sol_changed',
@@ -519,6 +617,15 @@ function translateGameEvent(
         after: event.solAfter,
         amount: event.solAfter - event.solBefore,
         reason: 'melee_enchantment',
+      });
+      pushElementActivation(telemetry, after, consumed, {
+        element: 'sol',
+        affinity: event.affinity,
+        weapon: event.weaponId,
+        requestedElementalDamage: event.bonusDamage,
+        physicalDamage: event.baseDamage,
+        actualTotalDamage: actualDamageForSplit,
+        solConsumed: event.solBefore - event.solAfter,
       });
       break;
     }
@@ -529,11 +636,13 @@ function translateGameEvent(
       // baseDamage/bonusDamage. No new RunEvent category, no schema
       // change — see required_correctness.
       const last = telemetry.events[telemetry.events.length - 1];
+      let actualDamageForSplit = 0;
       if (last && last.type === 'player_attack') {
         last.physicalDamage = event.physicalDamage;
         last.additionalDamage = event.elementalDamage;
         last.calculatedDamage = event.physicalDamage + event.elementalDamage;
         last.solConsumed = event.solBefore - event.solAfter;
+        actualDamageForSplit = last.actualDamage;
       }
       pushEvent(telemetry, after, consumed, {
         type: 'sol_changed',
@@ -541,6 +650,23 @@ function translateGameEvent(
         after: event.solAfter,
         amount: event.solAfter - event.solBefore,
         reason: 'melee_enchantment',
+      });
+      pushElementActivation(telemetry, after, consumed, {
+        element: event.element,
+        affinity: event.affinity,
+        weapon: event.weaponId,
+        requestedElementalDamage: event.elementalDamage,
+        physicalDamage: event.physicalDamage,
+        actualTotalDamage: actualDamageForSplit,
+        solConsumed: event.solBefore - event.solAfter,
+      });
+      break;
+    }
+    case 'element_activation_failed': {
+      pushEvent(telemetry, after, consumed, {
+        type: 'element_activation_failed',
+        element: event.element,
+        reason: event.reason,
       });
       break;
     }
@@ -715,6 +841,8 @@ function translateGameEvent(
         after: after.solarEnergy,
         amount: event.recovered,
         reason: 'item',
+        // Phase 15.3: raw pre-clamp request, vs `amount` (real clamped delta).
+        requestedAmount: ITEM_DEFINITIONS[event.itemId].solarAmount ?? event.recovered,
       });
       break;
     }
@@ -768,6 +896,7 @@ function translateGameEvent(
         after: after.solarEnergy,
         amount: event.recovered,
         reason: 'solar_charge',
+        requestedAmount: SUNLIGHT_CHARGE_AMOUNT,
       });
       break;
     }
@@ -1031,6 +1160,26 @@ export interface RunSummary {
     apple: { usedCount: number; requestedTotal: number; actualTotal: number };
     banana: { usedCount: number; attacksWhileActive: number };
   };
+  // Phase 15.3 SOL/element/ability rebalance additions — see
+  // computeRunSummary's aggregation loop and this file's history doc for
+  // the full derivation of each field. `resources.solGained`/
+  // `solConsumed`/`solarChargeActions` (pre-existing) remain the single
+  // source for those totals — sol.gained/consumed below simply mirror
+  // them for convenience within this grouped object, never recomputed
+  // from a second independent source.
+  solAndElements: {
+    sol: { start: number; gained: number; consumed: number; end: number };
+    elementActivations: {
+      byElement: Record<ElementId, { count: number; requestedTotal: number; actualTotal: number; mindBonusTotal: number }>;
+      byAffinity: Record<ElementalAffinity, number>;
+      insufficientSolCount: number;
+    };
+    abilities: {
+      allocationsByAbility: Record<AbilityId, number>;
+      mindBonusDamageTotal: number;
+      powerBonusDamageTotal: number;
+    };
+  };
   finalState: {
     floor: number;
     position: { x: number; y: number };
@@ -1106,6 +1255,21 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
       satietyMinInitialized = true;
     }
   };
+
+  // Phase 15.3 SOL/element/ability rebalance accumulators.
+  let solStart = 0;
+  const byElement: Record<ElementId, { count: number; requestedTotal: number; actualTotal: number; mindBonusTotal: number }> = {
+    sol: { count: 0, requestedTotal: 0, actualTotal: 0, mindBonusTotal: 0 },
+    flame: { count: 0, requestedTotal: 0, actualTotal: 0, mindBonusTotal: 0 },
+    frost: { count: 0, requestedTotal: 0, actualTotal: 0, mindBonusTotal: 0 },
+    cloud: { count: 0, requestedTotal: 0, actualTotal: 0, mindBonusTotal: 0 },
+    earth: { count: 0, requestedTotal: 0, actualTotal: 0, mindBonusTotal: 0 },
+  };
+  const byAffinity: Record<ElementalAffinity, number> = { weak: 0, neutral: 0, resist: 0 };
+  let insufficientSolCount = 0;
+  const allocationsByAbility: Record<AbilityId, number> = { body: 0, mind: 0, power: 0, speed: 0 };
+  let mindBonusDamageTotal = 0;
+  let powerBonusDamageTotal = 0;
 
   const getFloorStats = (floor: number): PerFloorStats => {
     let s = perFloorMap.get(floor);
@@ -1191,6 +1355,9 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
         // Phase 15.2: every attack attempt (hit or miss) while attack_up
         // was active counts — see the attackUpActive doc comment above.
         if (event.attackUpActive) bananaAttacksWhileActive++;
+        // Phase 15.3: power-ability contribution, only meaningful for a
+        // hit (a miss deals no damage regardless of the bonus present).
+        if (event.outcome !== 'miss') powerBonusDamageTotal += event.powerBonus;
         break;
       }
       case 'attack_invalid': {
@@ -1284,6 +1451,7 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
       case 'run_started':
         satietyStart = event.satiety;
         trackSatietyValue(event.satiety);
+        solStart = event.sol;
         break;
       case 'satiety_decreased':
         satietyNaturalLoss += event.amount;
@@ -1298,6 +1466,19 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
         poisonTickEvents++;
         poisonTotalDamage += event.actualDamage;
         break;
+      case 'element_activation': {
+        const stats = byElement[event.element];
+        stats.count++;
+        stats.requestedTotal += event.requestedElementalDamage;
+        stats.actualTotal += event.actualElementalDamage;
+        stats.mindBonusTotal += event.mindBonusPortion;
+        byAffinity[event.affinity]++;
+        mindBonusDamageTotal += event.mindBonusPortion;
+        break;
+      }
+      case 'element_activation_failed':
+        insufficientSolCount++;
+        break;
       case 'exit_reached':
         exitsReached++;
         break;
@@ -1309,6 +1490,7 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
         break;
       case 'ability_point_spent':
         abilityPointsSpent++;
+        allocationsByAbility[event.ability]++;
         break;
       default:
         break;
@@ -1381,6 +1563,11 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
         banana: { usedCount: bananaUsedCount, attacksWhileActive: bananaAttacksWhileActive },
       };
     })(),
+    solAndElements: {
+      sol: { start: solStart, gained: solGained, consumed: solConsumed, end: finalState.solarEnergy },
+      elementActivations: { byElement, byAffinity, insufficientSolCount },
+      abilities: { allocationsByAbility, mindBonusDamageTotal, powerBonusDamageTotal },
+    },
     finalState: {
       floor: finalState.floor,
       position: { ...finalState.player.pos },

@@ -161,18 +161,18 @@ describe('sol enchantment activation (Phase 10.1)', () => {
     });
   }
 
-  it('sword hit consumes 1 SOL and adds 10 bonus damage (Phase 15.1)', () => {
+  it('sword hit consumes 1 SOL and adds 2 bonus damage (Phase 15.3: neutral affinity, mind rank 0)', () => {
     const state = attackingState('sword', 5, 'spider');
     faceEastAtEnemy(state);
     const result = processTurn(state, { type: 'action' });
     expect(state.solarEnergy).toBe(4);
     expect(result.events.some((e) => e.type === 'sol_enchantment_used')).toBe(true);
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
-    // fixture player.attack 1 + sword bonus 2 - defense 0 = 3, + sol bonus 10 = 13
-    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(13);
+    // fixture player.attack 1 + sword bonus 2 - defense 0 = 3, + sol bonus 2 = 5
+    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(5);
   });
 
-  it('spear hit consumes 1 SOL and adds 10 bonus damage (Phase 10.2)', () => {
+  it('spear hit consumes 1 SOL and adds 2 bonus damage (Phase 15.3: neutral affinity, mind rank 0)', () => {
     const state = freshState({
       equippedWeaponId: 'spear',
       inventory: { ...createEmptyInventory(), spear: 1 },
@@ -186,18 +186,18 @@ describe('sol enchantment activation (Phase 10.1)', () => {
     const result = processTurn(state, { type: 'action' });
     expect(state.solarEnergy).toBe(4);
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
-    // fixture player.attack 1 + spear bonus 1 - defense 0 = 2, + sol bonus 10 = 12
-    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(12);
+    // fixture player.attack 1 + spear bonus 1 - defense 0 = 2, + sol bonus 2 = 4
+    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(4);
   });
 
-  it('hammer hit consumes 1 SOL and adds 10 bonus damage (Phase 15.1)', () => {
+  it('hammer hit consumes 1 SOL and adds 2 bonus damage (Phase 15.3: neutral affinity, mind rank 0)', () => {
     const state = attackingState('hammer', 5, 'spider');
     faceEastAtEnemy(state);
     const result = processTurn(state, { type: 'action' });
     expect(state.solarEnergy).toBe(4);
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
-    // fixture player.attack 1 + hammer bonus 3 - defense 0 = 4, + sol bonus 10 = 14
-    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(14);
+    // fixture player.attack 1 + hammer bonus 3 - defense 0 = 4, + sol bonus 2 = 6
+    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(6);
   });
 
   it('goes from SOL 1 to SOL 0 on a single activation', () => {

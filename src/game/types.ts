@@ -714,11 +714,11 @@ export type ItemId =
 export type ElementId = 'sol' | 'flame' | 'frost' | 'cloud' | 'earth';
 
 /**
- * Integer-percent multiplier applied to an element's base damage
- * (Phase 14.1): 'weak' (150%), 'neutral' (100%, the only value any
- * current EnemyDefinition uses — see enemy-def.ts), 'resist' (50%).
- * See combat.ts's ELEMENTAL_AFFINITY_PERCENT for the single source of
- * truth for these percentages.
+ * Damage-affinity classification for an element against a given enemy
+ * (Phase 14.1): 'weak', 'neutral', 'resist'. Phase 15.3 replaced the
+ * original percent-multiplier model with a small fixed additive bonus
+ * per affinity — see combat.ts's ELEMENTAL_AFFINITY_BONUS_DAMAGE for the
+ * single source of truth for these values.
  */
 export type ElementalAffinity = 'weak' | 'neutral' | 'resist';
 

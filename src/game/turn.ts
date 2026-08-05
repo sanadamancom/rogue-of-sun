@@ -70,20 +70,6 @@ export const ELEMENT_ENCHANTMENT_SOL_COST: Record<ElementId, number> = {
 };
 
 /**
- * Base elemental damage shared by every element (Phase 10.1 introduced
- * this at 1 for sol only; Phase 10.2 combat stat/scale redesign raised
- * it to 10; Phase 14.3 five-element combat effects extends the exact
- * same constant to flame/frost/cloud/earth and adds the mind-rank bonus
- * on top of it -- see getElementalMindBonus in ability.ts). Fed into
- * combat.ts's shared computeElementalDamage as
- * `ELEMENTAL_BASE_DAMAGE + getElementalMindBonus(state)`. At mind rank 0
- * against every current (all-'neutral') EnemyDefinition, this still
- * yields exactly 10 elemental damage for sol -- identical to every
- * pre-14.3 result.
- */
-const ELEMENTAL_BASE_DAMAGE = 10;
-
-/**
  * Maps each non-sol element's one-time-unlock ItemId to the ElementId it
  * unlocks (Phase 14.2 five-element acquisition). sol_enchantment is
  * deliberately excluded — it keeps its own dedicated branch above,
@@ -276,11 +262,22 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
   // condition without a redundant solUnlocked check.
   const selectedEnchantment = state.selectedEnchantment;
   const weaponEligible = weaponId !== null && ELEMENT_ENCHANT_ELIGIBLE_WEAPONS.includes(weaponId);
+  const elementSelectedAndUnlocked =
+    weaponEligible && selectedEnchantment !== 'none' && state.unlockedEnchantments[selectedEnchantment];
+  // Phase 15.3 SOL/element/ability rebalance: distinguishes "no element
+  // selected/unlocked" (activatedElement stays null, nothing pushed,
+  // unchanged from before) from "an eligible, selected, unlocked element
+  // simply didn't have enough SOL this hit" — the latter now pushes its
+  // own event (element_activation_failed, below) so the log and
+  // telemetry can identify SOL-insufficiency specifically (step_3's
+  // "SOL不足による属性不発をログとtelemetryで識別可能にする"), instead of
+  // being indistinguishable from "not selected" as before.
+  const insufficientSolElement: ElementId | null =
+    elementSelectedAndUnlocked && state.solarEnergy < ELEMENT_ENCHANTMENT_SOL_COST[selectedEnchantment]
+      ? selectedEnchantment
+      : null;
   const activatedElement: ElementId | null =
-    weaponEligible &&
-    selectedEnchantment !== 'none' &&
-    state.unlockedEnchantments[selectedEnchantment] &&
-    state.solarEnergy >= ELEMENT_ENCHANTMENT_SOL_COST[selectedEnchantment]
+    elementSelectedAndUnlocked && state.solarEnergy >= ELEMENT_ENCHANTMENT_SOL_COST[selectedEnchantment]
       ? selectedEnchantment
       : null;
 
@@ -290,12 +287,12 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
   if (activatedElement) {
     state.solarEnergy -= ELEMENT_ENCHANTMENT_SOL_COST[activatedElement];
     affinity = ENEMY_DEFINITIONS[target.type].elementalAffinities[activatedElement];
-    // Mind rank adds to the element's base damage before affinity is
-    // applied (confirmed_combat_spec.elemental_base_damage), identically
-    // for every element including sol — at mind rank 0 this is exactly
-    // ELEMENTAL_BASE_DAMAGE, matching every pre-14.3 sol result.
-    const elementalBaseDamage = ELEMENTAL_BASE_DAMAGE + getElementalMindBonus(state);
-    elementalDamage = computeElementalDamage(elementalBaseDamage, affinity);
+    // Phase 15.3: elemental damage is now a small fixed additive value
+    // per affinity (combat.ts's ELEMENTAL_AFFINITY_BONUS_DAMAGE), plus
+    // the mind-ability bonus (floor(mindRank/2)) added on top —
+    // identically for every element including sol. Never affected by
+    // enemy defense (computeElementalDamage never reads it).
+    elementalDamage = computeElementalDamage(affinity, getElementalMindBonus(state));
     damage += elementalDamage;
   }
 
@@ -308,6 +305,9 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
       ? { type: 'player_attack', enemyType: target.type, targetId, damage, targetHpBefore, targetHpAfter, weaponId: state.equippedWeaponId }
       : { type: 'player_attack', enemyType: target.type, targetId, damage, targetHpBefore, targetHpAfter },
   );
+  if (insufficientSolElement) {
+    events.push({ type: 'element_activation_failed', element: insufficientSolElement, reason: 'insufficient_sol' });
+  }
   if (activatedElement === 'sol') {
     // sol keeps its own Phase 10.1 event name/payload/field-meanings
     // unchanged — see existing_sol_compatibility.
@@ -861,14 +861,23 @@ function resolveSolarGunAttack(
 }
 
 /**
+ * Sunlight-charge SOL recovery amount (Phase 15.3 SOL/element/ability
+ * rebalance: previously an inline literal 1 — see docs/history/
+ * phase-15-3-sol-element-ability-rebalance.md). Single source of truth
+ * so telemetry.ts never duplicates it.
+ */
+export const SUNLIGHT_CHARGE_AMOUNT = 1;
+
+/**
  * Resolves the solar-charge branch of a contextual Space input (Phase
  * 09.3b correction): only ever called when the caller has already
  * confirmed the player is on a sunlit tile with SOL below
  * maxSolarEnergy, so this never re-checks either condition or fails.
- * Recovers exactly 1 SOL, pushes the same `solar_charge_used` event the
- * UI's charge-motion trigger already watches for, and consumes a turn
- * (so the caller's normal enemy-resolution/regen/floor-check pipeline
- * runs once, same as any other consumed action).
+ * Recovers exactly SUNLIGHT_CHARGE_AMOUNT SOL, pushes the same
+ * `solar_charge_used` event the UI's charge-motion trigger already
+ * watches for, and consumes a turn (so the caller's normal enemy-
+ * resolution/regen/floor-check pipeline runs once, same as any other
+ * consumed action).
  *
  * Deliberately does NOT touch `hammerRecovery`, unlike plain 'wait'
  * (which always clears it). Investigated against the existing
@@ -885,8 +894,8 @@ function resolveSolarGunAttack(
  * behavior rather than inventing a new rule.
  */
 function resolveSolarCharge(state: GameState, events: GameEvent[]): { consumed: boolean; attacked: boolean; defeated: boolean } {
-  state.solarEnergy = Math.min(state.maxSolarEnergy, state.solarEnergy + 1);
-  events.push({ type: 'solar_charge_used', recovered: 1 });
+  state.solarEnergy = Math.min(state.maxSolarEnergy, state.solarEnergy + SUNLIGHT_CHARGE_AMOUNT);
+  events.push({ type: 'solar_charge_used', recovered: SUNLIGHT_CHARGE_AMOUNT });
   return { consumed: true, attacked: false, defeated: false };
 }
 

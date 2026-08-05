@@ -160,6 +160,12 @@ export type GameEvent =
       physicalDamage: number;
       elementalDamage: number;
     }
+  // Phase 15.3 SOL/element/ability rebalance: pushed instead of a
+  // silent no-op when an eligible, selected, unlocked element simply
+  // lacks enough SOL for this specific hit — see turn.ts's
+  // applyPlayerAttackToEnemy for the exact trigger condition (distinct
+  // from "no element selected", which still pushes nothing at all).
+  | { type: 'element_activation_failed'; element: ElementId; reason: 'insufficient_sol' }
   // Phase 12.1 common temporary-effect foundation. 'effect_granted' fires
   // when banana grants attack_up with no prior instance active;
   // 'effect_refreshed' fires when banana renews an already-active

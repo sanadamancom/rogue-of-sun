@@ -88,7 +88,7 @@ describe('actual damage (Phase 10.3.3, confirmed_findings.damage_dealt)', () => 
       // Phase 14.4 enemy affinities: bok is now sol-weak; use spider
       // (still all-neutral) so calculatedDamage keeps the exact
       // pre-14.4 value asserted below.
-      enemies: [createInitialEnemy('spider', { x: 3, y: 1 }, 10, 10, 0, 0, 0, 90, 0)], // hammer(3)+sol(10)=13 raw, plus player.attack(10) = 23 raw >> 10 hp
+      enemies: [createInitialEnemy('spider', { x: 3, y: 1 }, 10, 10, 0, 0, 0, 90, 0)], // hammer(3)+sol(2)=5 raw, plus player.attack(10) = 15 raw >> 10 hp
     });
     const telemetry = createRunTelemetry(state);
     processTurn(state, { type: 'face', direction: 'E' });
@@ -102,8 +102,8 @@ describe('actual damage (Phase 10.3.3, confirmed_findings.damage_dealt)', () => 
     expect(attack.targetHpBefore).toBe(10);
     expect(attack.targetHpAfter).toBe(0);
     expect(attack.actualDamage).toBe(10);
-    // player.attack(10) + hammer bonus(3, Phase 15.1) + sol bonus(10) = 23 (raw, pre-clamp)
-    expect(attack.calculatedDamage).toBe(23);
+    // player.attack(10) + hammer bonus(3, Phase 15.1) + sol bonus(2, Phase 15.3) = 15 (raw, pre-clamp)
+    expect(attack.calculatedDamage).toBe(15);
   });
 
   it('an attack exactly matching remaining HP records the full amount (no discrepancy)', () => {

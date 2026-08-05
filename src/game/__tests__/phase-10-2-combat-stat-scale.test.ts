@@ -325,7 +325,7 @@ describe('sol enchantment at the new scale (Phase 10.2)', () => {
     expect(state.solarEnergy).toBe(4);
   });
 
-  it('a sol-eligible hit adds exactly 10 bonus damage on top of the base formula', () => {
+  it('a sol-eligible hit adds exactly 2 bonus damage on top of the base formula (Phase 15.3: neutral affinity, mind rank 0)', () => {
     // Phase 14.4 enemy affinities: bok is now sol-weak; use spider
     // (still all-neutral) so this test continues to verify the plain
     // neutral-affinity formula.
@@ -333,8 +333,8 @@ describe('sol enchantment at the new scale (Phase 10.2)', () => {
     faceEast(state);
     const result = processTurn(state, { type: 'action' });
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
-    // player.attack 10 + sword bonus 2 - defense 0 = 12, + sol bonus 10 = 22 (Phase 15.1)
-    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(22);
+    // player.attack 10 + sword bonus 2 - defense 0 = 12, + sol bonus 2 = 14 (Phase 15.3)
+    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(14);
   });
 
   it('a whiff still consumes the turn but never consumes SOL', () => {

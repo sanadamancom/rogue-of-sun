@@ -195,53 +195,53 @@ describe('Phase 14.4: definition table', () => {
 });
 
 describe('Phase 14.4: damage integration (weak enemies, real attack path)', () => {
-  it('bok + sol: weak multiplier (15) applied to the elemental portion', () => {
+  it('bok + sol: fixed weak bonus (3) applied to the elemental portion (Phase 15.3 rebalance)', () => {
     const { result } = attack({}, 'sword', 'sol', 'bok');
     const ev = result.events.find((e) => e.type === 'sol_enchantment_used');
     expect(ev).toBeDefined();
     if (ev && ev.type === 'sol_enchantment_used') {
       expect(ev.affinity).toBe('weak');
-      expect(ev.bonusDamage).toBe(15);
+      expect(ev.bonusDamage).toBe(3);
     }
   });
 
-  it('cockatrice + earth: weak multiplier (15) applied', () => {
+  it('cockatrice + earth: fixed weak bonus (3) applied (Phase 15.3 rebalance)', () => {
     const { result } = attack({}, 'sword', 'earth', 'cockatrice');
     const ev = result.events.find((e) => e.type === 'element_enchantment_used');
     expect(ev).toBeDefined();
     if (ev && ev.type === 'element_enchantment_used') {
       expect(ev.affinity).toBe('weak');
-      expect(ev.elementalDamage).toBe(15);
+      expect(ev.elementalDamage).toBe(3);
     }
   });
 
-  it('mummy + flame: weak multiplier (15) applied', () => {
+  it('mummy + flame: fixed weak bonus (3) applied (Phase 15.3 rebalance)', () => {
     const { result } = attack({}, 'sword', 'flame', 'mummy');
     const ev = result.events.find((e) => e.type === 'element_enchantment_used');
     expect(ev).toBeDefined();
     if (ev && ev.type === 'element_enchantment_used') {
       expect(ev.affinity).toBe('weak');
-      expect(ev.elementalDamage).toBe(15);
+      expect(ev.elementalDamage).toBe(3);
     }
   });
 
-  it('golem + cloud: weak multiplier (15) applied', () => {
+  it('golem + cloud: fixed weak bonus (3) applied (Phase 15.3 rebalance)', () => {
     const { result } = attack({}, 'sword', 'cloud', 'golem');
     const ev = result.events.find((e) => e.type === 'element_enchantment_used');
     expect(ev).toBeDefined();
     if (ev && ev.type === 'element_enchantment_used') {
       expect(ev.affinity).toBe('weak');
-      expect(ev.elementalDamage).toBe(15);
+      expect(ev.elementalDamage).toBe(3);
     }
   });
 
-  it('kraken + flame: weak multiplier (15) applied', () => {
+  it('kraken + flame: fixed weak bonus (3) applied (Phase 15.3 rebalance)', () => {
     const { result } = attack({}, 'sword', 'flame', 'kraken');
     const ev = result.events.find((e) => e.type === 'element_enchantment_used');
     expect(ev).toBeDefined();
     if (ev && ev.type === 'element_enchantment_used') {
       expect(ev.affinity).toBe('weak');
-      expect(ev.elementalDamage).toBe(15);
+      expect(ev.elementalDamage).toBe(3);
     }
   });
 
@@ -259,7 +259,7 @@ describe('Phase 14.4: damage integration (weak enemies, real attack path)', () =
     expect(neutralAttack).toBeDefined();
   });
 
-  it('mind rank bonus is included before the weak multiplier is applied (rank5 base 15 -> weak 22)', () => {
+  it('mind rank bonus is added on top of the fixed weak value (Phase 15.3: rank5 -> floor(5/2)=2, weak 3+2=5)', () => {
     const { result } = attack(
       { abilities: { body: 0, mind: 5, power: 0, speed: 0 } },
       'sword',
@@ -269,8 +269,7 @@ describe('Phase 14.4: damage integration (weak enemies, real attack path)', () =
     const ev = result.events.find((e) => e.type === 'element_enchantment_used');
     expect(ev).toBeDefined();
     if (ev && ev.type === 'element_enchantment_used') {
-      // floor(15 * 150 / 100) = 22
-      expect(ev.elementalDamage).toBe(22);
+      expect(ev.elementalDamage).toBe(5);
     }
   });
 
@@ -288,13 +287,13 @@ describe('Phase 14.4: damage integration (weak enemies, real attack path)', () =
 
 describe('Phase 14.4: neutral enemy examples', () => {
   for (const type of ['spider', 'bat', 'sword', 'axe'] as EnemyType[]) {
-    it(`${type}: sol attack yields neutral (10) elemental damage`, () => {
+    it(`${type}: sol attack yields neutral (2) elemental damage (Phase 15.3 rebalance)`, () => {
       const { result } = attack({}, 'sword', 'sol', type);
       const ev = result.events.find((e) => e.type === 'sol_enchantment_used');
       expect(ev).toBeDefined();
       if (ev && ev.type === 'sol_enchantment_used') {
         expect(ev.affinity).toBe('neutral');
-        expect(ev.bonusDamage).toBe(10);
+        expect(ev.bonusDamage).toBe(2);
       }
     });
   }
@@ -305,7 +304,7 @@ describe('Phase 14.4: neutral enemy examples', () => {
     expect(ev).toBeDefined();
     if (ev && ev.type === 'element_enchantment_used') {
       expect(ev.affinity).toBe('neutral');
-      expect(ev.elementalDamage).toBe(10);
+      expect(ev.elementalDamage).toBe(2);
     }
   });
 
@@ -315,7 +314,7 @@ describe('Phase 14.4: neutral enemy examples', () => {
     expect(ev).toBeDefined();
     if (ev && ev.type === 'element_enchantment_used') {
       expect(ev.affinity).toBe('neutral');
-      expect(ev.elementalDamage).toBe(10);
+      expect(ev.elementalDamage).toBe(2);
     }
   });
 
@@ -383,7 +382,7 @@ describe('Phase 14.4: events, log, and telemetry integration', () => {
     expect(ev).toBeDefined();
     if (ev && ev.type === 'element_enchantment_used') {
       expect(ev.affinity).toBe('weak');
-      expect(ev.elementalDamage).toBe(15);
+      expect(ev.elementalDamage).toBe(3);
       expect(ev.element).toBe('cloud');
     }
   });
@@ -434,8 +433,8 @@ describe('Phase 14.4: events, log, and telemetry integration', () => {
     const attackRunEvent = telemetry.events.find((e) => e.type === 'player_attack');
     expect(attackRunEvent).toBeDefined();
     if (attackRunEvent && attackRunEvent.type === 'player_attack') {
-      expect(attackRunEvent.additionalDamage).toBe(15);
-      expect(attackRunEvent.calculatedDamage).toBe(attackRunEvent.physicalDamage + 15);
+      expect(attackRunEvent.additionalDamage).toBe(3);
+      expect(attackRunEvent.calculatedDamage).toBe(attackRunEvent.physicalDamage + 3);
     }
   });
 

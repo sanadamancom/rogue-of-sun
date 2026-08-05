@@ -590,13 +590,13 @@ describe('regression: existing systems unaffected by Phase 11.3', () => {
     expect(state.player.hp).toBe(1 + ITEM_DEFINITIONS.apple.healAmount!);
   });
 
-  it('sun_fruit still restores solar energy by the existing amount', () => {
+  it('sun_fruit still restores solar energy by the existing amount (Phase 15.3: clamped to this fixture\'s max 5)', () => {
     const state = freshState({
       inventory: { ...createEmptyInventory(), sun_fruit: 1 },
       solarEnergy: 0,
     });
     processTurn(state, { type: 'use_item', itemId: 'sun_fruit' });
-    expect(state.solarEnergy).toBe(2);
+    expect(state.solarEnergy).toBe(5);
   });
 
   it('weapon equip/unequip via place-then-reequip still works', () => {

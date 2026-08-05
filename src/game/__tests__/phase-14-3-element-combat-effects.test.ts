@@ -85,25 +85,25 @@ describe('Phase 14.3: shared definition', () => {
   }
 });
 
-describe('Phase 14.3: mind rank scaling (pure)', () => {
+describe('Phase 14.3/15.3: mind rank scaling (pure)', () => {
   it('getElementalMindBonus is 0 at rank 0', () => {
     const state = freshState({ abilities: { body: 0, mind: 0, power: 0, speed: 0 } });
     expect(getElementalMindBonus(state)).toBe(0);
   });
 
-  it('getElementalMindBonus is 1 at rank 1', () => {
+  it('getElementalMindBonus is 0 at rank 1 (Phase 15.3: floor(mind/2))', () => {
     const state = freshState({ abilities: { body: 0, mind: 1, power: 0, speed: 0 } });
-    expect(getElementalMindBonus(state)).toBe(1);
+    expect(getElementalMindBonus(state)).toBe(0);
   });
 
-  it('getElementalMindBonus is 5 at rank 5', () => {
+  it('getElementalMindBonus is 2 at rank 5 (Phase 15.3: floor(mind/2))', () => {
     const state = freshState({ abilities: { body: 0, mind: 5, power: 0, speed: 0 } });
-    expect(getElementalMindBonus(state)).toBe(5);
+    expect(getElementalMindBonus(state)).toBe(2);
   });
 
-  it('getElementalMindBonus is 10 at rank 10', () => {
+  it('getElementalMindBonus is 5 at rank 10 (Phase 15.3: floor(mind/2))', () => {
     const state = freshState({ abilities: { body: 0, mind: 10, power: 0, speed: 0 } });
-    expect(getElementalMindBonus(state)).toBe(10);
+    expect(getElementalMindBonus(state)).toBe(5);
   });
 
   it('does not mutate GameState', () => {
@@ -113,15 +113,21 @@ describe('Phase 14.3: mind rank scaling (pure)', () => {
     expect(JSON.stringify(state.abilities)).toBe(before);
   });
 
-  for (const rank of [0, 1, 5, 10]) {
-    it(`10 + mind rank ${rank} feeds computeElementalDamage correctly at neutral affinity`, () => {
-      const base = 10 + rank;
-      expect(computeElementalDamage(base, 'neutral')).toBe(base);
-    });
-  }
+  it('mind ranks 0/2/4/6 feed computeElementalDamage correctly at neutral affinity (fixed base 2 + floor(mind/2))', () => {
+    const cases: Array<[number, number]> = [
+      [0, 2],
+      [2, 3],
+      [4, 4],
+      [6, 5],
+    ];
+    for (const [mindRank, expected] of cases) {
+      const mindBonus = Math.floor(mindRank / 2);
+      expect(computeElementalDamage('neutral', mindBonus)).toBe(expected);
+    }
+  });
 
-  it('rank 5 neutral elemental damage is 15 (base 15 * 100%)', () => {
-    expect(computeElementalDamage(15, 'neutral')).toBe(15);
+  it('mind rank 4 neutral elemental damage is 4 (fixed 2 + mind bonus 2)', () => {
+    expect(computeElementalDamage('neutral', 2)).toBe(4);
   });
 
   it('other ability ranks (body/power/speed) do not change getElementalMindBonus', () => {
@@ -287,7 +293,7 @@ describe('Phase 14.3: SOL cost and insufficient-SOL fallback', () => {
 });
 
 describe('Phase 14.3: damage', () => {
-  it('rank 0, all-neutral enemy: each element adds exactly 10 elemental damage', () => {
+  it('rank 0, all-neutral enemy: each element adds exactly 2 elemental damage (Phase 15.3 rebalance)', () => {
     for (const element of ALL_ELEMENTS) {
       // Phase 14.4 enemy affinities: bok is now sol-weak; use spider
       // (still all-neutral to every element) so this keeps testing the
@@ -302,21 +308,21 @@ describe('Phase 14.3: damage', () => {
       const ev = result.events.find((e) => e.type === 'sol_enchantment_used' || e.type === 'element_enchantment_used');
       expect(ev).toBeDefined();
       if (ev && ev.type === 'sol_enchantment_used') {
-        expect(ev.bonusDamage).toBe(10);
+        expect(ev.bonusDamage).toBe(2);
       } else if (ev && ev.type === 'element_enchantment_used') {
-        expect(ev.elementalDamage).toBe(10);
+        expect(ev.elementalDamage).toBe(2);
       }
     }
   });
 
-  it('rank 5, neutral: elemental damage is 15', () => {
+  it('rank 5 (mind bonus floor(5/2)=2), neutral: elemental damage is 4 (Phase 15.3 rebalance)', () => {
     const state = freshState({ selectedEnchantment: 'flame', abilities: { body: 0, mind: 5, power: 0, speed: 0 } });
     faceEastAtEnemy(state);
     const result = processTurn(state, { type: 'action' });
     const ev = result.events.find((e) => e.type === 'element_enchantment_used');
     expect(ev).toBeDefined();
     if (ev && ev.type === 'element_enchantment_used') {
-      expect(ev.elementalDamage).toBe(15);
+      expect(ev.elementalDamage).toBe(4);
     }
   });
 
@@ -331,7 +337,7 @@ describe('Phase 14.3: damage', () => {
     const ev = result.events.find((e) => e.type === 'element_enchantment_used');
     expect(ev).toBeDefined();
     if (ev && ev.type === 'element_enchantment_used') {
-      expect(ev.elementalDamage).toBe(10);
+      expect(ev.elementalDamage).toBe(2);
     }
   });
 
@@ -442,7 +448,7 @@ describe('Phase 14.3: events and log', () => {
         expect(ev.affinity).toBe('neutral');
         expect(ev.solBefore).toBe(5);
         expect(ev.solAfter).toBe(3);
-        expect(ev.elementalDamage).toBe(10);
+        expect(ev.elementalDamage).toBe(2);
       }
     });
   }
@@ -487,8 +493,8 @@ describe('Phase 14.3: telemetry', () => {
       const attackRunEvent = telemetry.events.find((e) => e.type === 'player_attack');
       expect(attackRunEvent).toBeDefined();
       if (attackRunEvent && attackRunEvent.type === 'player_attack') {
-        expect(attackRunEvent.additionalDamage).toBe(10);
-        expect(attackRunEvent.calculatedDamage).toBe(attackRunEvent.physicalDamage + 10);
+        expect(attackRunEvent.additionalDamage).toBe(2);
+        expect(attackRunEvent.calculatedDamage).toBe(attackRunEvent.physicalDamage + 2);
         expect(attackRunEvent.solConsumed).toBe(2);
       }
     });

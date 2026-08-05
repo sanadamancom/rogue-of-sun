@@ -85,27 +85,30 @@ export function resolvesAsHit(roll: number, hitChance: number): boolean {
 }
 
 /**
- * Integer-percent multiplier for each ElementalAffinity (Phase 14.1
- * five-element enchantment foundation) — the single source of truth for
- * these three percentages, so no call site repeats them inline.
+ * Fixed additive elemental-damage bonus for each ElementalAffinity
+ * (Phase 15.3 SOL/element/ability rebalance — replaces the previous
+ * percentage-multiplier model entirely; see docs/history/phase-15-3-sol-
+ * element-ability-rebalance.md). Single source of truth: no call site
+ * repeats these numbers inline.
  */
-export const ELEMENTAL_AFFINITY_PERCENT: Record<ElementalAffinity, number> = {
-  weak: 150,
-  neutral: 100,
-  resist: 50,
+export const ELEMENTAL_AFFINITY_BONUS_DAMAGE: Record<ElementalAffinity, number> = {
+  resist: 1,
+  neutral: 2,
+  weak: 3,
 };
 
 /**
- * Pure, common elemental-damage calculation (Phase 14.1): floor(
- * baseElementalDamage * affinityPercent / 100). Deliberately state-free
- * — no GameState, EnemyActor, RNG, or events — mirroring
- * computeAttackDamage/computeIncomingDamage above. Physical defense is
- * never applied here; only the caller (turn.ts's
+ * Pure, common elemental-damage calculation (Phase 14.1 foundation;
+ * Phase 15.3 replaces the percentage-of-base-damage formula with a
+ * small fixed additive value per affinity, plus the mind-ability bonus
+ * added separately on top — see ability.ts's getElementalMindBonus,
+ * which already applies floor(mindRank/2) before calling this).
+ * Deliberately state-free — no GameState, EnemyActor, RNG, or events —
+ * mirroring computeAttackDamage/computeIncomingDamage above. Physical
+ * defense is never applied here; only the caller (turn.ts's
  * applyPlayerAttackToEnemy) combines this with the separately-computed
- * physical damage. Shared by every element (currently only sol calls
- * this in play; future elements reuse the same function per Phase
- * 14.1's confirmed_element_model).
+ * physical damage. Shared by every element identically.
  */
-export function computeElementalDamage(baseElementalDamage: number, affinity: ElementalAffinity): number {
-  return Math.floor((baseElementalDamage * ELEMENTAL_AFFINITY_PERCENT[affinity]) / 100);
+export function computeElementalDamage(affinity: ElementalAffinity, mindBonus: number): number {
+  return ELEMENTAL_AFFINITY_BONUS_DAMAGE[affinity] + mindBonus;
 }

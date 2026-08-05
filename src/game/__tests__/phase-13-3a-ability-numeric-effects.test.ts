@@ -115,8 +115,8 @@ describe('Phase 13.3a ability numeric effects', () => {
   });
 
   describe('body', () => {
-    it('maxHp for rank 0/1/3/5/10 matches 30 + 4*rank', () => {
-      const expected: Record<number, number> = { 0: 30, 1: 34, 3: 42, 5: 50, 10: 70 };
+    it('maxHp for rank 0/1/3/5/10 matches 30 + 2*rank (Phase 15.3 rebalance)', () => {
+      const expected: Record<number, number> = { 0: 30, 1: 32, 3: 36, 5: 40, 10: 50 };
       for (const [rank, maxHp] of Object.entries(expected)) {
         const state = freshState();
         allocateRanks(state, 'body', Number(rank));
@@ -134,12 +134,12 @@ describe('Phase 13.3a ability numeric effects', () => {
       expect(state.player.hp).toBe(hpBefore + BODY_MAX_HP_PER_RANK);
     });
 
-    it('while damaged, current HP still recovers by 4 (clamped to the new max)', () => {
+    it('while damaged, current HP still recovers by 2 (clamped to the new max) (Phase 15.3 rebalance)', () => {
       const state = freshState(1);
       state.player.hp = 5; // damaged, well below maxHp 30
       allocateAbilityPoint(state, 'body');
-      expect(state.player.maxHp).toBe(34);
-      expect(state.player.hp).toBe(9);
+      expect(state.player.maxHp).toBe(32);
+      expect(state.player.hp).toBe(7);
     });
 
     it('current HP never exceeds the updated max HP', () => {
@@ -147,7 +147,7 @@ describe('Phase 13.3a ability numeric effects', () => {
       state.player.hp = state.player.maxHp; // already full
       allocateAbilityPoint(state, 'body');
       expect(state.player.hp).toBe(state.player.maxHp);
-      expect(state.player.hp).toBe(34);
+      expect(state.player.hp).toBe(32);
     });
 
     it('rank 10 rejects further allocation and leaves points/HP unchanged', () => {
@@ -166,8 +166,8 @@ describe('Phase 13.3a ability numeric effects', () => {
   });
 
   describe('mind', () => {
-    it('maxSOL for rank 0/1/3/5/10 matches 5 + rank', () => {
-      const expected: Record<number, number> = { 0: 5, 1: 6, 3: 8, 5: 10, 10: 15 };
+    it('maxSOL for rank 0/1/3/5/10 matches 5 + 2*rank (Phase 15.3 rebalance)', () => {
+      const expected: Record<number, number> = { 0: 5, 1: 7, 3: 11, 5: 15, 10: 25 };
       for (const [rank, maxSol] of Object.entries(expected)) {
         const state = freshState();
         allocateRanks(state, 'mind', Number(rank));
@@ -176,29 +176,30 @@ describe('Phase 13.3a ability numeric effects', () => {
       }
     });
 
-    it('a successful allocation increases maxSOL and current SOL by 1 each', () => {
+    it('a successful allocation increases maxSOL but never restores current SOL (Phase 15.3 rebalance)', () => {
       const state = freshState(1);
       const solBefore = state.solarEnergy;
       const maxSolBefore = state.maxSolarEnergy;
       allocateAbilityPoint(state, 'mind');
       expect(state.maxSolarEnergy).toBe(maxSolBefore + MIND_MAX_SOL_PER_RANK);
-      expect(state.solarEnergy).toBe(solBefore + MIND_MAX_SOL_PER_RANK);
+      expect(state.solarEnergy).toBe(solBefore);
     });
 
-    it('while SOL is depleted, current SOL still recovers by 1 (clamped to the new max)', () => {
+    it('while SOL is depleted, current SOL stays depleted after allocation (Phase 15.3 rebalance)', () => {
       const state = freshState(1);
       state.solarEnergy = 0;
       allocateAbilityPoint(state, 'mind');
-      expect(state.maxSolarEnergy).toBe(6);
-      expect(state.solarEnergy).toBe(1);
+      expect(state.maxSolarEnergy).toBe(7);
+      expect(state.solarEnergy).toBe(0);
     });
 
-    it('current SOL never exceeds the updated max SOL', () => {
+    it('current SOL never exceeds the updated max SOL (Phase 15.3: no longer restored, so it stays below the new max)', () => {
       const state = freshState(1);
-      state.solarEnergy = state.maxSolarEnergy; // already full
+      state.solarEnergy = state.maxSolarEnergy; // already full (5)
       allocateAbilityPoint(state, 'mind');
-      expect(state.solarEnergy).toBe(state.maxSolarEnergy);
-      expect(state.solarEnergy).toBe(6);
+      expect(state.maxSolarEnergy).toBe(7);
+      expect(state.solarEnergy).toBe(5);
+      expect(state.solarEnergy).toBeLessThanOrEqual(state.maxSolarEnergy);
     });
 
     it('rank 10 rejects further allocation and leaves points/SOL unchanged', () => {
@@ -217,8 +218,8 @@ describe('Phase 13.3a ability numeric effects', () => {
   });
 
   describe('power (strength)', () => {
-    it('direct-attack bonus for rank 0/1/3/5/10 matches 2*rank', () => {
-      const expected: Record<number, number> = { 0: 0, 1: 2, 3: 6, 5: 10, 10: 20 };
+    it('direct-attack bonus for rank 0/1/3/5/10 matches 1*rank (Phase 15.3 rebalance)', () => {
+      const expected: Record<number, number> = { 0: 0, 1: 1, 3: 3, 5: 5, 10: 10 };
       for (const [rank, bonus] of Object.entries(expected)) {
         const state = freshState();
         allocateRanks(state, 'power', Number(rank));
@@ -273,7 +274,7 @@ describe('Phase 13.3a ability numeric effects', () => {
 
     it('preserves the existing relative damage gap between weapons', () => {
       const state = freshState(3);
-      allocateRanks(state, 'power', 3); // +6 bonus, applies uniformly
+      allocateRanks(state, 'power', 3); // +3 bonus (Phase 15.3), applies uniformly
       const unarmedState = freshState();
       unarmedState.abilities = { ...state.abilities! };
       const swordState = freshState();

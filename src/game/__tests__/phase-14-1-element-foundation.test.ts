@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeElementalDamage, ELEMENTAL_AFFINITY_PERCENT } from '../combat';
+import { computeElementalDamage, ELEMENTAL_AFFINITY_BONUS_DAMAGE } from '../combat';
 import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER } from '../enemy-def';
 import { createEmptyInventory } from '../item-def';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
@@ -92,39 +92,37 @@ describe('Phase 14.1 element foundation: ElementId type', () => {
   });
 });
 
-describe('Phase 14.1 element foundation: computeElementalDamage (pure)', () => {
-  it('base 10, weak -> 15', () => {
-    expect(computeElementalDamage(10, 'weak')).toBe(15);
+describe('Phase 14.1/15.3 element foundation: computeElementalDamage (pure)', () => {
+  it('resist -> 1 (mind bonus 0)', () => {
+    expect(computeElementalDamage('resist', 0)).toBe(1);
   });
 
-  it('base 10, neutral -> 10', () => {
-    expect(computeElementalDamage(10, 'neutral')).toBe(10);
+  it('neutral -> 2 (mind bonus 0)', () => {
+    expect(computeElementalDamage('neutral', 0)).toBe(2);
   });
 
-  it('base 10, resist -> 5', () => {
-    expect(computeElementalDamage(10, 'resist')).toBe(5);
+  it('weak -> 3 (mind bonus 0)', () => {
+    expect(computeElementalDamage('weak', 0)).toBe(3);
   });
 
-  it('floors fractional results', () => {
-    // 7 * 150% = 10.5 -> floor 10
-    expect(computeElementalDamage(7, 'weak')).toBe(10);
-    // 7 * 50% = 3.5 -> floor 3
-    expect(computeElementalDamage(7, 'resist')).toBe(3);
+  it('mind bonus adds on top of the fixed affinity value', () => {
+    expect(computeElementalDamage('weak', 2)).toBe(5);
+    expect(computeElementalDamage('resist', 3)).toBe(4);
   });
 
-  it('does not mutate the affinity percent table or any input', () => {
-    const before = { ...ELEMENTAL_AFFINITY_PERCENT };
-    computeElementalDamage(10, 'weak');
-    expect(ELEMENTAL_AFFINITY_PERCENT).toEqual(before);
+  it('does not mutate the affinity bonus table or any input', () => {
+    const before = { ...ELEMENTAL_AFFINITY_BONUS_DAMAGE };
+    computeElementalDamage('weak', 0);
+    expect(ELEMENTAL_AFFINITY_BONUS_DAMAGE).toEqual(before);
   });
 
   it('is deterministic and RNG-free (same inputs always produce the same output)', () => {
     const results = new Set<number>();
     for (let i = 0; i < 20; i++) {
-      results.add(computeElementalDamage(10, 'weak'));
+      results.add(computeElementalDamage('weak', 0));
     }
     expect(results.size).toBe(1);
-    expect(results.has(15)).toBe(true);
+    expect(results.has(3)).toBe(true);
   });
 });
 
@@ -199,7 +197,7 @@ describe('Phase 14.1 element foundation: player enchantment state', () => {
 });
 
 describe('Phase 14.1 element foundation: sol combat (neutral, unchanged results)', () => {
-  it('deals physical + 10 elemental damage against a neutral-affinity enemy', () => {
+  it('deals physical + 2 elemental damage against a neutral-affinity enemy (Phase 15.3 rebalance)', () => {
     // combatRngState 304 with this fixture's accuracy/evasion resolves
     // as a hit deterministically (mirrors phase-10-1's fixture setup).
     // Phase 14.4 enemy affinities: bok is now sol-weak; use spider
@@ -215,9 +213,9 @@ describe('Phase 14.1 element foundation: sol combat (neutral, unchanged results)
     if (solEvent && solEvent.type === 'sol_enchantment_used') {
       expect(solEvent.affinity).toBe('neutral');
       expect(solEvent.element).toBe('sol');
-      expect(solEvent.bonusDamage).toBe(10);
+      expect(solEvent.bonusDamage).toBe(2);
       if (attackEvent && attackEvent.type === 'player_attack') {
-        expect(attackEvent.damage).toBe(solEvent.baseDamage + 10);
+        expect(attackEvent.damage).toBe(solEvent.baseDamage + 2);
       }
     }
   });
@@ -273,7 +271,7 @@ describe('Phase 14.1 element foundation: telemetry compatibility', () => {
     expect(telemetry.schemaVersion).toBe(7);
   });
 
-  it('records neutral sol additionalDamage as 10, calculatedDamage as physical+10', () => {
+  it('records neutral sol additionalDamage as 2, calculatedDamage as physical+2 (Phase 15.3 rebalance)', () => {
     // Phase 14.4 enemy affinities: bok is now sol-weak; use spider
     // (still all-neutral) so this keeps testing the plain neutral
     // result.
@@ -284,8 +282,8 @@ describe('Phase 14.1 element foundation: telemetry compatibility', () => {
     const attackRunEvent = telemetry.events.find((e) => e.type === 'player_attack');
     expect(attackRunEvent).toBeDefined();
     if (attackRunEvent && attackRunEvent.type === 'player_attack') {
-      expect(attackRunEvent.additionalDamage).toBe(10);
-      expect(attackRunEvent.calculatedDamage).toBe(attackRunEvent.physicalDamage + 10);
+      expect(attackRunEvent.additionalDamage).toBe(2);
+      expect(attackRunEvent.calculatedDamage).toBe(attackRunEvent.physicalDamage + 2);
       expect(attackRunEvent.solConsumed).toBe(1);
     }
   });

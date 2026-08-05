@@ -209,6 +209,15 @@ export function formatEvent(event: GameEvent): string {
       if (event.affinity === 'resist') return `${name}の力が軽減された。`;
       return `${name}の力が攻撃に宿った。`;
     }
+    // Phase 15.3 SOL/element/ability rebalance: step_3's "SOL不足による
+    // 属性不発をログとtelemetryで識別可能にする" — a dedicated line,
+    // distinct from a plain unenchanted hit (which has no line of its
+    // own at all), so the player can tell "I meant to enchant this but
+    // couldn't afford it" from "I simply have no element selected".
+    case 'element_activation_failed': {
+      const name = ELEMENT_DISPLAY_NAMES[event.element];
+      return `SOLが足りず、${name}の力を発動できなかった。`;
+    }
     case 'effect_granted': {
       // Phase 12.2/12.3: movement_slow's and poison's grant messages are
       // fixed wording (fixed_specification.messages.applied for each

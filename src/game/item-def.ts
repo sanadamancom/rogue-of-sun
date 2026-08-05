@@ -90,7 +90,9 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     category: 'consumable',
     consumable: true,
     stackable: true,
-    solarAmount: 2,
+    // Phase 15.3 recovery-scale rebalance: 2->5 (see docs/history/
+    // phase-15-3-sol-element-ability-rebalance.md), matching max SOL 15.
+    solarAmount: 5,
   },
   solar_gun: {
     id: 'solar_gun',

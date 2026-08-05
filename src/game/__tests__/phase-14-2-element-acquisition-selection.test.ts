@@ -371,7 +371,7 @@ describe('Phase 14.2/14.3: other-element combat activation (superseded boundary,
     });
   }
 
-  it('sol selection continues to add 10 damage and consume 1 SOL exactly as before', () => {
+  it('sol selection continues to add 2 damage and consume 1 SOL exactly as before (Phase 15.3: neutral affinity, mind rank 0)', () => {
     // Phase 14.4 enemy affinities: bok is now sol-weak; use spider
     // (still all-neutral) so this keeps testing the plain neutral
     // result.
@@ -382,7 +382,7 @@ describe('Phase 14.2/14.3: other-element combat activation (superseded boundary,
     const solEvent = result.events.find((e) => e.type === 'sol_enchantment_used');
     expect(solEvent).toBeDefined();
     if (solEvent && solEvent.type === 'sol_enchantment_used') {
-      expect(solEvent.bonusDamage).toBe(10);
+      expect(solEvent.bonusDamage).toBe(2);
     }
   });
 });
@@ -403,8 +403,9 @@ describe('Phase 14.2: telemetry compatibility', () => {
 
   // Phase 14.3 note: originally asserted additionalDamage 0 (no combat
   // effect yet); Phase 14.3 implements flame's combat effect, so this
-  // now asserts the new additionalDamage value (10 at mind rank 0
-  // against a neutral-affinity enemy) instead.
+  // now asserts the additionalDamage value (2 at mind rank 0 against a
+  // neutral-affinity enemy, per Phase 15.3's fixed-additive rebalance)
+  // instead.
   it('records additionalDamage for a normal attack while flame is selected (Phase 14.3 combat effect)', () => {
     const state = freshState({
       unlockedEnchantments: { sol: true, flame: true, frost: false, cloud: false, earth: false },
@@ -416,7 +417,8 @@ describe('Phase 14.2: telemetry compatibility', () => {
     const attackRunEvent = telemetry.events.find((e) => e.type === 'player_attack');
     expect(attackRunEvent).toBeDefined();
     if (attackRunEvent && attackRunEvent.type === 'player_attack') {
-      expect(attackRunEvent.additionalDamage).toBe(10);
+      // bok is neutral to flame (Phase 15.3: fixed neutral bonus 2, mind rank 0)
+      expect(attackRunEvent.additionalDamage).toBe(2);
       expect(attackRunEvent.solConsumed).toBe(2);
     }
   });

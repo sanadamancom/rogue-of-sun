@@ -123,6 +123,18 @@ describe('Phase 13.3c ability effect display', () => {
         expect(display.nextValue).toBe(5 + MIND_MAX_SOL_PER_RANK * (rank + 1));
       }
     });
+
+    it('states the 2-points-per-+1 elemental bonus rule explicitly (Phase 15.3 step_7 requirement)', () => {
+      const state = freshState();
+      const line = formatAbilityEffectLine(state, 'mind');
+      expect(line).toMatch(/2ポイントごとに属性追加\+1/);
+    });
+
+    it('never implies current SOL is restored on allocation (Phase 15.3: only maxSolarEnergy increases)', () => {
+      const state = freshState();
+      const line = formatAbilityEffectLine(state, 'mind');
+      expect(line).not.toMatch(/回復/);
+    });
   });
 
   describe('power', () => {

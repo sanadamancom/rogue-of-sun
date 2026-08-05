@@ -64,13 +64,13 @@ function freshState(overrides?: Partial<GameState>): GameState {
 }
 
 describe('sun fruit item definition (Phase 09.1)', () => {
-  it('registers sun_fruit as a consumable with a solarAmount of 2', () => {
+  it('registers sun_fruit as a consumable with a solarAmount of 5 (Phase 15.3 rebalance)', () => {
     expect(ITEM_IDS_IN_ORDER).toContain('sun_fruit');
     expect(ITEM_DEFINITIONS.sun_fruit.displayName).toBe('太陽の実');
     expect(ITEM_DEFINITIONS.sun_fruit.category).toBe('consumable');
     expect(ITEM_DEFINITIONS.sun_fruit.consumable).toBe(true);
     expect(ITEM_DEFINITIONS.sun_fruit.stackable).toBe(true);
-    expect(ITEM_DEFINITIONS.sun_fruit.solarAmount).toBe(2);
+    expect(ITEM_DEFINITIONS.sun_fruit.solarAmount).toBe(5);
   });
 
   it('createEmptyInventory starts sun_fruit at 0', () => {
@@ -167,10 +167,10 @@ describe('sun fruit use (Phase 09.1)', () => {
     expect(state.inventory.sun_fruit).toBe(1);
   });
 
-  it('using sun fruit at SOL 0 raises it to 2', () => {
+  it('using sun fruit at SOL 0 raises it to 5 (Phase 15.3: clamped to this fixture\'s max 5)', () => {
     const state = freshState({ solarEnergy: 0, inventory: { ...createEmptyInventory(), sun_fruit: 1 } });
     processTurn(state, { type: 'use_item', itemId: 'sun_fruit' });
-    expect(state.solarEnergy).toBe(2);
+    expect(state.solarEnergy).toBe(5);
   });
 
   it('using sun fruit at SOL 3 raises it to 5', () => {
@@ -344,7 +344,7 @@ describe('sun fruit inventory identification (Phase 09.1)', () => {
     state.selectedItemIndex = 0;
     const result = useSelectedInventoryItem(state);
     expect(result.consumed).toBe(true);
-    expect(state.solarEnergy).toBe(2);
+    expect(state.solarEnergy).toBe(5);
   });
 
   it('equipping weapon/armor is unaffected by sun fruit presence in inventory', () => {

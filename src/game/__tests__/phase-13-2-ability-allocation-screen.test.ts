@@ -393,22 +393,22 @@ describe('Phase 13.2 ability point allocation foundation', () => {
     // below are unaffected by Phase 13.3a (power's bonus is derived on
     // demand at the damage-computation point, never stored on
     // player.attack/defense; speed has no numeric effect yet).
-    it('allocating body increases maxHp by 4 and current HP by 4 (Phase 13.3a)', () => {
+    it('allocating body increases maxHp by 2 and current HP by 2 (Phase 15.3 rebalance)', () => {
       const state = freshState(1);
       const hpBefore = state.player.hp;
       const maxHpBefore = state.player.maxHp;
       allocateAbilityPoint(state, 'body');
-      expect(state.player.hp).toBe(hpBefore + 4);
-      expect(state.player.maxHp).toBe(maxHpBefore + 4);
+      expect(state.player.hp).toBe(hpBefore + 2);
+      expect(state.player.maxHp).toBe(maxHpBefore + 2);
     });
 
-    it('allocating mind increases maxSOL by 1 and current SOL by 1 (Phase 13.3a)', () => {
+    it('allocating mind increases maxSOL by 2 but never restores current SOL (Phase 15.3 rebalance)', () => {
       const state = freshState(1);
       const solBefore = state.solarEnergy;
       const maxSolBefore = state.maxSolarEnergy;
       allocateAbilityPoint(state, 'mind');
-      expect(state.solarEnergy).toBe(solBefore + 1);
-      expect(state.maxSolarEnergy).toBe(maxSolBefore + 1);
+      expect(state.solarEnergy).toBe(solBefore);
+      expect(state.maxSolarEnergy).toBe(maxSolBefore + 2);
     });
 
     it('allocating power does not change attack or defense', () => {
