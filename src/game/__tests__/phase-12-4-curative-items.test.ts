@@ -432,7 +432,7 @@ describe('turn order and side-effect isolation (Phase 12.4)', () => {
     const state = freshState({ traps: [trap] });
     processTurn(state, { type: 'move', direction: 'E' });
     processTurn(state, { type: 'move', direction: 'E' });
-    expect(getActiveEffect(state, 'poison')).toEqual({ id: 'poison', strength: 3, remainingTurns: 10 });
+    expect(getActiveEffect(state, 'poison')).toEqual({ id: 'poison', strength: 1, remainingTurns: 10 });
   });
 });
 

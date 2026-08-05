@@ -428,7 +428,7 @@ describe('natural regeneration interaction (Phase 11.3)', () => {
     const state = freshState({ hunger: 50 });
     state.player.hp = state.player.maxHp - 10;
     waitN(state, REGEN_TURNS_PER_HP);
-    expect(state.player.hp).toBe(state.player.maxHp - 10 + 10);
+    expect(state.player.hp).toBe(state.player.maxHp - 10 + 1);
   });
 
   it('hunger 0 suspends natural regeneration entirely', () => {
@@ -464,7 +464,7 @@ describe('natural regeneration interaction (Phase 11.3)', () => {
     // the regen step runs this same turn, so this turn's regen tick
     // (the preserved REGEN_TURNS_PER_HP-1 + 1 this turn) should complete.
     processTurn(state, { type: 'use_item', itemId: 'chocolate' });
-    expect(state.player.hp).toBe(state.player.maxHp - 10 + 10);
+    expect(state.player.hp).toBe(state.player.maxHp - 10 + 1);
   });
 
   it('starvation damage and natural regen never both apply on the same turn', () => {
@@ -480,8 +480,8 @@ describe('natural regeneration interaction (Phase 11.3)', () => {
     expect(state.player.hp).toBe(state.player.maxHp - 10 - STARVATION_DAMAGE);
   });
 
-  it('existing regen amount and interval are unchanged', () => {
-    expect(REGEN_TURNS_PER_HP).toBe(5);
+  it('regen interval matches the Phase 15.2 rebalance', () => {
+    expect(REGEN_TURNS_PER_HP).toBe(10);
   });
 });
 

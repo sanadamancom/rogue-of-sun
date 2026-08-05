@@ -71,11 +71,11 @@ function freshState(overrides?: Partial<GameState>): GameState {
 }
 
 describe('effects.ts central definitions (Phase 12.1)', () => {
-  it('registers attack_up with strength 5 and duration 20', () => {
+  it('registers attack_up with strength 1 and duration 20 (Phase 15.2 rebalance)', () => {
     expect(EFFECT_DEFINITIONS.attack_up).toEqual({
       id: 'attack_up',
       displayName: '攻撃力上昇',
-      strength: 5,
+      strength: 1,
       duration: 20,
     });
   });
@@ -92,14 +92,14 @@ describe('effects.ts central definitions (Phase 12.1)', () => {
     const state = freshState();
     const result = grantOrRefreshEffect(state, 'attack_up');
     expect(result).toBe('granted');
-    expect(getActiveEffect(state, 'attack_up')).toEqual({ id: 'attack_up', strength: 5, remainingTurns: 20 });
+    expect(getActiveEffect(state, 'attack_up')).toEqual({ id: 'attack_up', strength: 1, remainingTurns: 20 });
   });
 
   it('grantOrRefreshEffect refreshes an existing record back to full duration without stacking strength', () => {
     const state = freshState({ activeEffects: [{ id: 'attack_up', strength: 5, remainingTurns: 3 }] });
     const result = grantOrRefreshEffect(state, 'attack_up');
     expect(result).toBe('refreshed');
-    expect(getActiveEffects(state)).toEqual([{ id: 'attack_up', strength: 5, remainingTurns: 20 }]);
+    expect(getActiveEffects(state)).toEqual([{ id: 'attack_up', strength: 1, remainingTurns: 20 }]);
     expect(getActiveEffects(state)).toHaveLength(1);
   });
 
@@ -190,13 +190,13 @@ describe('banana item definition and placement (Phase 12.1)', () => {
 });
 
 describe('banana use (Phase 12.1)', () => {
-  it('with no prior effect: consumes 1 banana, grants attack_up +5 remaining 20, consumes 1 turn', () => {
+  it('with no prior effect: consumes 1 banana, grants attack_up +1 remaining 20, consumes 1 turn (Phase 15.2 rebalance)', () => {
     const state = freshState({ inventory: { ...createEmptyInventory(), banana: 1 } });
     const before = state.turn;
     const result = processTurn(state, { type: 'use_item', itemId: 'banana' });
     expect(result.consumed).toBe(true);
     expect(state.inventory.banana).toBe(0);
-    expect(getActiveEffect(state, 'attack_up')).toEqual({ id: 'attack_up', strength: 5, remainingTurns: 20 });
+    expect(getActiveEffect(state, 'attack_up')).toEqual({ id: 'attack_up', strength: 1, remainingTurns: 20 });
     expect(state.turn).toBe(before + 1);
   });
 
@@ -205,7 +205,7 @@ describe('banana use (Phase 12.1)', () => {
     const result = processTurn(state, { type: 'use_item', itemId: 'banana' });
     const granted = result.events.filter((e) => e.type === 'effect_granted');
     expect(granted).toHaveLength(1);
-    expect(granted[0]).toEqual({ type: 'effect_granted', effectId: 'attack_up', strength: 5, remainingTurns: 20 });
+    expect(granted[0]).toEqual({ type: 'effect_granted', effectId: 'attack_up', strength: 1, remainingTurns: 20 });
   });
 
   it('the used turn itself does not decrement the freshly granted effect (remains 20)', () => {
@@ -222,7 +222,7 @@ describe('banana use (Phase 12.1)', () => {
     const result = processTurn(state, { type: 'use_item', itemId: 'banana' });
     expect(result.consumed).toBe(true);
     expect(state.inventory.banana).toBe(1);
-    expect(getActiveEffects(state)).toEqual([{ id: 'attack_up', strength: 5, remainingTurns: 20 }]);
+    expect(getActiveEffects(state)).toEqual([{ id: 'attack_up', strength: 1, remainingTurns: 20 }]);
     const refreshed = result.events.filter((e) => e.type === 'effect_refreshed');
     expect(refreshed).toHaveLength(1);
   });

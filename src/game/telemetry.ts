@@ -53,10 +53,12 @@
 import { GameEvent } from './events';
 import { EnemyType, GameState, PlayerAction, WeaponId, ArmorId, ItemId, AbilityId, AbilityValues } from './types';
 import type { TurnResult } from './turn';
-import { getEffectivePlayerDefense } from './turn';
+import { getEffectivePlayerDefense, REGEN_AMOUNT_PER_TICK } from './turn';
 import { ITEM_DEFINITIONS } from './item-def';
 import { getExperience, getLevel, getUnspentAbilityPoints } from './progression';
 import { getAbilities } from './ability';
+import { getHunger } from './hunger';
+import { getActiveEffect } from './effects';
 
 // ---------------------------------------------------------------------
 // Event schema (event_model / event_types / event_requirements)
@@ -70,7 +72,11 @@ export interface RunEventCommon {
 }
 
 export type RunEventPayload =
-  | { type: 'run_started'; seed: number }
+  // Phase 15.2 recovery/satiety/status rebalance: `satiety` captures the
+  // run's starting satiety value (schemaVersion bump not required since
+  // this only adds a field, never changes an existing one's meaning) —
+  // see computeRunSummary's satiety.start.
+  | { type: 'run_started'; seed: number; satiety: number }
   | { type: 'floor_started'; floor: number }
   | { type: 'floor_completed'; floor: number }
   | { type: 'run_completed'; result: 'clear' | 'death'; cause: string; finalFloor: number; finalPosition: { x: number; y: number }; finalHp: number; finalSol: number }
@@ -106,6 +112,16 @@ export type RunEventPayload =
       defeated: boolean;
       solConsumed: number;
       knockbackApplied: boolean;
+      // Phase 15.2 recovery/satiety/status rebalance: whether the banana
+      // attack_up effect was active at the moment this attack was
+      // resolved (read from the pre-action snapshot, since attack_up's
+      // bonus is already baked into physicalDamage and not otherwise
+      // separately observable after the fact) — see computeRunSummary's
+      // banana.attacksWhileActive, which counts every player_attack
+      // (hit, miss, or defeated — i.e. every attack attempt, matching
+      // this file's existing validAttacks/combatByWeapon convention of
+      // counting attempts rather than only hits) with this field true.
+      attackUpActive: boolean;
     }
   | {
       type: 'enemy_attack';
@@ -145,7 +161,15 @@ export type RunEventPayload =
   // "damaged by poison" without inventing a fake EnemyType. This is a
   // schema-meaning change, hence schemaVersion 3 -> 4 (see this file's
   // schemaVersion doc comment below).
-  | { type: 'player_damaged'; amount: number; source: EnemyType | 'poison' }
+  //
+  // Phase 15.2 recovery/satiety/status rebalance: widened again to allow
+  // 'starvation' — starvation_damage was previously never translated into
+  // any TelemetryEvent at all (a pre-existing gap this phase fixes), and
+  // follows the exact same "non-enemy damage source" precedent poison set.
+  // Purely additive (a new possible value alongside the existing ones,
+  // consistent with Phase 15.1's own precedent for enemy_attack/
+  // EnemyDamageStats additions) — no schemaVersion bump.
+  | { type: 'player_damaged'; amount: number; source: EnemyType | 'poison' | 'starvation' }
   | { type: 'player_defeated'; cause: string }
   | { type: 'equipment_acquired'; slot: 'weapon' | 'armor'; id: WeaponId | ArmorId }
   | { type: 'equipment_changed'; slot: 'weapon' | 'armor'; from: WeaponId | ArmorId | null; to: WeaponId | ArmorId; reason: string }
@@ -172,6 +196,23 @@ export type RunEventPayload =
   // event exists for anyone wanting poison-specific detail without
   // re-deriving it from player_damaged + a source filter.
   | { type: 'poison_damage'; actualDamage: number; hpBefore: number; hpAfter: number }
+  // Phase 15.2 recovery/satiety/status rebalance: previously
+  // starvation_damage had no TelemetryEvent translation at all (see
+  // translateGameEvent's 'starvation_damage' case) — mirrors
+  // poison_damage's shape exactly (STARVATION_DAMAGE is always 1, but
+  // this stays a full hpBefore/hpAfter record rather than a bare count
+  // for the same reasons poison_damage does: exact clamping visibility
+  // near 0 HP). Pushed alongside a generic 'player_damaged' (source:
+  // 'starvation') for the same tick, exactly like poison_damage.
+  | { type: 'starvation_damage'; damage: number; hpBefore: number; hpAfter: number }
+  // Phase 15.2 recovery/satiety/status rebalance: pushed only on the turn
+  // an actual 1-point *natural* satiety decrease happens (never for
+  // chocolate's recovery — see the 'chocolate_used' case below, which
+  // pushes its own 'item_used' instead) — mirrors satiety_decreased's
+  // GameEvent doc comment in events.ts. Used by computeRunSummary to
+  // reconstruct satiety.min and satiety.naturalLoss without re-deriving
+  // HUNGER_DECREASE_INTERVAL/HUNGER_DECREASE_AMOUNT itself.
+  | { type: 'satiety_decreased'; amount: number; satietyAfter: number }
   | { type: 'exit_reached'; floor: number }
   // Phase 13.1 experience/level/ability-point progression foundation.
   | { type: 'experience_gained'; amount: number; enemyId: number; enemyType: EnemyType; level: number; experience: number }
@@ -218,7 +259,7 @@ export function createRunTelemetry(state: GameState): RunTelemetry {
     events: [],
     finalized: false,
   };
-  pushEvent(telemetry, state, false, { type: 'run_started', seed: state.runSeed });
+  pushEvent(telemetry, state, false, { type: 'run_started', seed: state.runSeed, satiety: getHunger(state) });
   pushEvent(telemetry, state, false, { type: 'floor_started', floor: state.floor });
   return telemetry;
 }
@@ -305,7 +346,7 @@ export function recordTurn(
       pushEvent(telemetry, after, consumed, {
         type: 'player_healed',
         source: 'natural_regeneration',
-        requestedAmount: 10, // REGEN_TURNS_PER_HP's fixed per-tick amount (turn.ts)
+        requestedAmount: REGEN_AMOUNT_PER_TICK, // Phase 15.2: named constant, no longer a duplicated literal
         actualHealing,
         hpBefore: before.playerHp,
         hpAfter: after.player.hp,
@@ -332,6 +373,10 @@ export interface TurnSnapshot {
   equippedWeaponId: WeaponId | null;
   equippedArmorId: ArmorId | null;
   phase: GameState['phase'];
+  // Phase 15.2 recovery/satiety/status rebalance: whether attack_up
+  // (banana) was active going into this turn's action — see the
+  // 'player_attack' RunEventPayload's attackUpActive doc comment.
+  attackUpActive: boolean;
 }
 
 export function snapshotForTurn(state: GameState): TurnSnapshot {
@@ -343,6 +388,7 @@ export function snapshotForTurn(state: GameState): TurnSnapshot {
     equippedWeaponId: state.equippedWeaponId,
     equippedArmorId: state.equippedArmorId,
     phase: state.phase,
+    attackUpActive: getActiveEffect(state, 'attack_up') !== undefined,
   };
 }
 
@@ -422,6 +468,7 @@ function translateGameEvent(
         defeated: event.targetHpAfter === 0,
         solConsumed: 0,
         knockbackApplied: false,
+        attackUpActive: before.attackUpActive,
       });
       break;
     }
@@ -446,6 +493,7 @@ function translateGameEvent(
         defeated: false,
         solConsumed: 0,
         knockbackApplied: false,
+        attackUpActive: before.attackUpActive,
       });
       break;
     }
@@ -668,6 +716,48 @@ function translateGameEvent(
         amount: event.recovered,
         reason: 'item',
       });
+      break;
+    }
+    // Phase 15.2 recovery/satiety/status rebalance: chocolate_used
+    // previously had no TelemetryEvent translation at all (a pre-existing
+    // gap this phase fixes) — reuses item_used's existing extensible
+    // effect:string/amount:number shape (the same precedent antidote_used/
+    // panacea_used below already follow), so itemsUsedByType picks up
+    // chocolate for free via the existing generic item_used aggregation.
+    // Never pushes satiety_decreased: that event is reserved for the
+    // natural HUNGER_DECREASE_INTERVAL tick only, so chocolate's recovery
+    // is never counted as "natural loss" going negative.
+    case 'chocolate_used': {
+      pushEvent(telemetry, after, consumed, { type: 'item_used', itemId: event.itemId, effect: 'satiety', amount: event.recovered });
+      break;
+    }
+    // Phase 15.2 recovery/satiety/status rebalance: pushed only on the
+    // turn an actual natural 1-point satiety decrease happens — see this
+    // event's RunEventPayload doc comment above.
+    case 'satiety_decreased': {
+      pushEvent(telemetry, after, consumed, {
+        type: 'satiety_decreased',
+        amount: event.amount,
+        satietyAfter: event.satietyAfter,
+      });
+      break;
+    }
+    // Phase 15.2 recovery/satiety/status rebalance: starvation_damage
+    // previously had no TelemetryEvent translation at all (a pre-existing
+    // gap this phase fixes) — mirrors poison_damage's own two-event
+    // pattern exactly (detailed record + generic player_damaged for the
+    // existing damageTaken/endCause aggregation machinery), using the new
+    // 'starvation' player_damaged source rather than reusing 'poison'.
+    case 'starvation_damage': {
+      pushEvent(telemetry, after, consumed, {
+        type: 'starvation_damage',
+        damage: event.damage,
+        hpBefore: before.playerHp,
+        hpAfter: after.player.hp,
+      });
+      if (event.damage > 0) {
+        pushEvent(telemetry, after, consumed, { type: 'player_damaged', amount: event.damage, source: 'starvation' });
+      }
       break;
     }
     case 'solar_charge_used': {
@@ -930,6 +1020,17 @@ export interface RunSummary {
     endingAbilityRanks: AbilityValues;
   };
   perFloor: PerFloorStats[];
+  // Phase 15.2 recovery/satiety/status rebalance additions — see
+  // computeRunSummary's aggregation loop and this file's history doc for
+  // the full derivation of each field.
+  recoveryAndSatiety: {
+    satiety: { start: number; min: number; end: number; naturalLoss: number; foodRecovered: number };
+    starvation: { turnsAtZero: number; damageEvents: number; totalDamage: number };
+    naturalRegen: { occurrences: number; requestedTotal: number; actualTotal: number };
+    poison: { tickEvents: number; totalDamage: number };
+    apple: { usedCount: number; requestedTotal: number; actualTotal: number };
+    banana: { usedCount: number; attacksWhileActive: number };
+  };
   finalState: {
     floor: number;
     position: { x: number; y: number };
@@ -979,6 +1080,32 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
   let experienceGained = 0;
   let levelsGained = 0;
   let abilityPointsSpent = 0;
+
+  // Phase 15.2 recovery/satiety/status rebalance accumulators.
+  let satietyStart = 0;
+  let satietyMin = 0;
+  let satietyMinInitialized = false;
+  let satietyNaturalLoss = 0;
+  let foodRecovered = 0;
+  let starvationTurnsAtZero = 0;
+  let starvationDamageEvents = 0;
+  let starvationTotalDamage = 0;
+  let naturalRegenOccurrences = 0;
+  let naturalRegenRequestedTotal = 0;
+  let naturalRegenActualTotal = 0;
+  let poisonTickEvents = 0;
+  let poisonTotalDamage = 0;
+  let appleUsedCount = 0;
+  let appleRequestedTotal = 0;
+  let appleActualTotal = 0;
+  let bananaUsedCount = 0;
+  let bananaAttacksWhileActive = 0;
+  const trackSatietyValue = (value: number): void => {
+    if (!satietyMinInitialized || value < satietyMin) {
+      satietyMin = value;
+      satietyMinInitialized = true;
+    }
+  };
 
   const getFloorStats = (floor: number): PerFloorStats => {
     let s = perFloorMap.get(floor);
@@ -1061,6 +1188,9 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
           getFloorStats(event.floor).damageDealt += event.actualDamage;
           if (event.actualDamage === 0) stats.zeroDamageHits++;
         }
+        // Phase 15.2: every attack attempt (hit or miss) while attack_up
+        // was active counts — see the attackUpActive doc comment above.
+        if (event.attackUpActive) bananaAttacksWhileActive++;
         break;
       }
       case 'attack_invalid': {
@@ -1083,8 +1213,10 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
         // no attacking enemy — telemetry.forbidden's "仮の敵種を追加して
         // damageTakenByEnemyへ記録する"), but still counts toward the
         // overall and per-floor totals (telemetry.required's "総damageTaken
-        // とフロア別damageTakenへactualDamageを加算する").
-        if (event.source !== 'poison') {
+        // とフロア別damageTakenへactualDamageを加算する"). Phase 15.2
+        // extends the same exclusion to 'starvation' for the identical
+        // reason (also not an attacking enemy).
+        if (event.source !== 'poison' && event.source !== 'starvation') {
           const stats = getEnemyStats(event.source);
           stats.damage += event.amount;
         }
@@ -1125,9 +1257,46 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
       case 'player_healed':
         healingBySource[event.source] = (healingBySource[event.source] ?? 0) + event.actualHealing;
         getFloorStats(event.floor).healing += event.actualHealing;
+        // Phase 15.2 recovery/satiety/status rebalance: natural regen and
+        // apple-specific aggregates, read from the same events rather
+        // than re-deriving REGEN_TURNS_PER_HP/REGEN_AMOUNT_PER_TICK or
+        // ITEM_DEFINITIONS.apple.healAmount here.
+        if (event.source === 'natural_regeneration') {
+          naturalRegenOccurrences++;
+          naturalRegenRequestedTotal += event.requestedAmount;
+          naturalRegenActualTotal += event.actualHealing;
+        } else if (event.source === 'item' && event.itemId === 'apple') {
+          appleRequestedTotal += event.requestedAmount;
+          appleActualTotal += event.actualHealing;
+        }
         break;
       case 'item_used':
         itemsUsedByType[event.itemId] = (itemsUsedByType[event.itemId] ?? 0) + 1;
+        // Phase 15.2: apple's usedCount and chocolate's satiety recovery
+        // total are derived here from the same generic item_used events
+        // that already feed itemsUsedByType above — never double-counted,
+        // since each is its own separate accumulator read from the same
+        // single event.
+        if (event.itemId === 'apple') appleUsedCount++;
+        if (event.itemId === 'banana') bananaUsedCount++;
+        if (event.itemId === 'chocolate' && event.effect === 'satiety') foodRecovered += event.amount;
+        break;
+      case 'run_started':
+        satietyStart = event.satiety;
+        trackSatietyValue(event.satiety);
+        break;
+      case 'satiety_decreased':
+        satietyNaturalLoss += event.amount;
+        trackSatietyValue(event.satietyAfter);
+        break;
+      case 'starvation_damage':
+        starvationDamageEvents++;
+        starvationTurnsAtZero++; // Phase 15.2: STARVATION_INTERVAL is 1, so every damage event is itself one full turn spent at satiety 0
+        starvationTotalDamage += event.damage;
+        break;
+      case 'poison_damage':
+        poisonTickEvents++;
+        poisonTotalDamage += event.actualDamage;
         break;
       case 'exit_reached':
         exitsReached++;
@@ -1200,6 +1369,18 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
       endingAbilityRanks: getAbilities(finalState),
     },
     perFloor: Array.from(perFloorMap.values()).sort((a, b) => a.floor - b.floor),
+    recoveryAndSatiety: (() => {
+      const satietyEnd = getHunger(finalState);
+      trackSatietyValue(satietyEnd);
+      return {
+        satiety: { start: satietyStart, min: satietyMin, end: satietyEnd, naturalLoss: satietyNaturalLoss, foodRecovered },
+        starvation: { turnsAtZero: starvationTurnsAtZero, damageEvents: starvationDamageEvents, totalDamage: starvationTotalDamage },
+        naturalRegen: { occurrences: naturalRegenOccurrences, requestedTotal: naturalRegenRequestedTotal, actualTotal: naturalRegenActualTotal },
+        poison: { tickEvents: poisonTickEvents, totalDamage: poisonTotalDamage },
+        apple: { usedCount: appleUsedCount, requestedTotal: appleRequestedTotal, actualTotal: appleActualTotal },
+        banana: { usedCount: bananaUsedCount, attacksWhileActive: bananaAttacksWhileActive },
+      };
+    })(),
     finalState: {
       floor: finalState.floor,
       position: { ...finalState.player.pos },

@@ -82,7 +82,7 @@ describe('player_healed field name (Phase 10.3.3a)', () => {
     }
     const healed = telemetry.events.find((e) => e.type === 'player_healed') as unknown as Record<string, unknown>;
     expect(healed).toBeDefined();
-    expect(healed.actualHealing).toBe(10);
+    expect(healed.actualHealing).toBe(1);
     expect('actualAmount' in healed).toBe(false);
   });
 
@@ -93,7 +93,7 @@ describe('player_healed field name (Phase 10.3.3a)', () => {
     step(state, { type: 'use_item', itemId: 'apple' }, telemetry);
     const healed = telemetry.events.find((e) => e.type === 'player_healed') as unknown as Record<string, unknown>;
     expect(healed).toBeDefined();
-    expect(healed.actualHealing).toBe(20);
+    expect(healed.actualHealing).toBe(5);
     expect('actualAmount' in healed).toBe(false);
   });
 
@@ -117,7 +117,7 @@ describe('player_healed field name (Phase 10.3.3a)', () => {
 
   it('near max HP, only the real increase is recorded as actualHealing', () => {
     const state = freshState({ enemies: [], inventory: { ...createEmptyInventory(), apple: 1 } });
-    state.player.hp = 25; // maxHp 30, apple heals 20 raw -> actual 5
+    state.player.hp = 25; // maxHp 30, apple heals 5 raw -> actual 5 (no clamp needed)
     const telemetry = createRunTelemetry(state);
     step(state, { type: 'use_item', itemId: 'apple' }, telemetry);
     const healed = telemetry.events.find((e) => e.type === 'player_healed') as { actualHealing: number; hpAfter: number };

@@ -390,6 +390,7 @@ describe('Phase 13.3b speed ability and enemy action gauge scheduler', () => {
       state.player.maxHp = 100_000;
       state.enemies[0].actionGauge = 250; // forces multiple due actions this pass
       state.activeEffects = [{ id: 'poison', strength: 3, remainingTurns: 5 }];
+      state.poisonTickProgress = 1; // Phase 15.2: primed so this turn ticks
       const result = processTurn(state, { type: 'wait' });
       const poisonEvents = result.events.filter((e) => e.type === 'poison_damage');
       expect(poisonEvents).toHaveLength(1);

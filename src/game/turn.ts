@@ -17,7 +17,7 @@ import {
 import { WEAPON_DEFINITIONS } from './weapon-def';
 import { ARMOR_DEFINITIONS } from './armor-def';
 import { computeAttackDamage, computeIncomingDamage, computeHitChance, resolvesAsHit, computeElementalDamage } from './combat';
-import { advanceEffectDurations, EFFECT_DEFINITIONS, getActiveEffect, getEffectStrength, grantOrRefreshEffect, isEffectAtMaxDuration, removeEffect, removeStatusAilment, STATUS_AILMENT_IDS } from './effects';
+import { advanceEffectDurations, EFFECT_DEFINITIONS, getActiveEffect, getEffectStrength, getPoisonTickProgress, grantOrRefreshEffect, isEffectAtMaxDuration, POISON_TICK_INTERVAL, removeEffect, removeStatusAilment, STATUS_AILMENT_IDS } from './effects';
 import { rollPercent } from './rng';
 import { canPlaceWebNow, expireWebs, placeWeb } from './web';
 import { isSunlitAt } from './sunlight';
@@ -118,8 +118,10 @@ function getEnchantmentCycleCandidates(state: GameState): EnchantmentId[] {
   );
 }
 
-/** Consumed player actions required for one natural HP tick (Phase 04 initial setting). */
-export const REGEN_TURNS_PER_HP = 5;
+/** Consumed player actions required for one natural HP tick (Phase 15.2 recovery/satiety/status rebalance: 5->10 — see docs/history/phase-15-2-recovery-satiety-status-rebalance.md). */
+export const REGEN_TURNS_PER_HP = 10;
+/** HP restored per natural regen tick (Phase 15.2: previously an inline literal 10, now a named single source of truth so telemetry.ts never duplicates it). */
+export const REGEN_AMOUNT_PER_TICK = 1;
 
 /**
  * The equipped weapon's attack bonus over bare hands (Phase 10.2 combat
@@ -623,6 +625,14 @@ function applyPlayerAction(
       const effectId = trap.trapType === 'slow_trap' ? 'movement_slow' : 'poison';
       const def = EFFECT_DEFINITIONS[effectId];
       const result = grantOrRefreshEffect(state, effectId);
+      // Phase 15.2 recovery/satiety/status rebalance: a fresh grant or
+      // refresh of poison always restarts its own 2/4/6/8/10-turn tick
+      // schedule from this turn, matching the existing "refresh resets
+      // strength/remainingTurns fully, never stacks" rule this phase
+      // preserves — see effects.ts's getPoisonTickProgress doc comment.
+      if (effectId === 'poison') {
+        state.poisonTickProgress = 0;
+      }
       events.push(
         result === 'granted'
           ? { type: 'effect_granted', effectId, strength: def.strength, remainingTurns: def.duration }
@@ -2212,6 +2222,10 @@ function applyHungerProgression(state: GameState, events: GameEvent[]): void {
     if (progress >= HUNGER_DECREASE_INTERVAL) {
       state.hunger = Math.max(0, hunger - HUNGER_DECREASE_AMOUNT);
       state.hungerDecreaseProgress = 0;
+      // Phase 15.2 recovery/satiety/status rebalance: pushed only on the
+      // turn an actual 1-point decrease happens (never every turn) — see
+      // events.ts's satiety_decreased doc comment.
+      events.push({ type: 'satiety_decreased', amount: hunger - state.hunger, satietyAfter: state.hunger });
     } else {
       state.hungerDecreaseProgress = progress;
     }
@@ -2290,7 +2304,28 @@ function updateHungerWarnings(state: GameState, events: GameEvent[]): void {
 function applyPoisonTick(state: GameState, events: GameEvent[], skipThisTurn: boolean): void {
   if (skipThisTurn) return;
   if (!state.player.alive || state.player.hp <= 0) return;
-  const strength = getEffectStrength(state, 'poison');
+  const active = getActiveEffect(state, 'poison');
+  if (!active) {
+    // Not currently poisoned: keep tick progress at 0 so a future grant
+    // always starts its schedule cleanly (defensive — grant/refresh above
+    // already resets this explicitly too).
+    state.poisonTickProgress = 0;
+    return;
+  }
+
+  // Phase 15.2 recovery/satiety/status rebalance: poison no longer ticks
+  // every successful player turn — only once every POISON_TICK_INTERVAL
+  // turns (see effects.ts's POISON_TICK_INTERVAL/getPoisonTickProgress).
+  // A turn that only advances progress (without reaching the interval)
+  // pushes no event and deals no damage.
+  const progress = getPoisonTickProgress(state) + 1;
+  if (progress < POISON_TICK_INTERVAL) {
+    state.poisonTickProgress = progress;
+    return;
+  }
+  state.poisonTickProgress = 0;
+
+  const strength = active.strength;
   if (strength <= 0) return;
 
   const hpBefore = state.player.hp;
@@ -2490,11 +2525,11 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
     if (getHunger(state) >= 1 && state.player.hp < state.player.maxHp) {
       state.regenProgress += 1;
       if (state.regenProgress >= REGEN_TURNS_PER_HP) {
-        // Phase 10.2 combat stat/scale redesign: scaled 10x (1->10)
-        // alongside player maxHp, preserving the same regen rate
-        // relative to max HP (still 1/REGEN_TURNS_PER_HP of maxHp per
-        // interval, at the new scale).
-        state.player.hp = Math.min(state.player.maxHp, state.player.hp + 10);
+        // Phase 15.2 recovery/satiety/status rebalance: amount is now the
+        // named REGEN_AMOUNT_PER_TICK constant (previously an inline
+        // literal 10) — see docs/history/phase-15-2-recovery-satiety-
+        // status-rebalance.md.
+        state.player.hp = Math.min(state.player.maxHp, state.player.hp + REGEN_AMOUNT_PER_TICK);
         state.regenProgress = 0;
         playerRegenerated = true;
       }

@@ -249,6 +249,7 @@ describe('Phase 13.3a ability numeric effects', () => {
       const state = freshState();
       allocateRanks(state, 'power', 5);
       state.activeEffects = [{ id: 'poison', strength: 3, remainingTurns: 5 }];
+      state.poisonTickProgress = 1; // Phase 15.2: primed so this turn ticks
       const result = processTurn(state, { type: 'wait' });
       const poisonEvent = result.events.find((e) => e.type === 'poison_damage');
       expect(poisonEvent).toBeDefined();

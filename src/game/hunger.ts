@@ -11,7 +11,8 @@ export const HUNGER_DECREASE_AMOUNT = 1;
 export const HUNGER_DECREASE_INTERVAL = 4;
 export const CHOCOLATE_HUNGER_RECOVERY = 30;
 export const STARVATION_DAMAGE = 1;
-export const STARVATION_INTERVAL = 5;
+/** Phase 15.2 core combat/recovery rebalance: 5->1 (see docs/history/phase-15-2-recovery-satiety-status-rebalance.md) — every consumed turn at satiety 0 now deals starvation damage, rather than once every 5 turns. */
+export const STARVATION_INTERVAL = 1;
 /** Below-or-equal threshold for the one-time "low hunger" warning. */
 export const HUNGER_LOW_THRESHOLD = 20;
 

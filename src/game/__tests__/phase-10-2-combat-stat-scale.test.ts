@@ -265,14 +265,14 @@ describe('HP and recovery at the new scale (Phase 15.1 rebalance)', () => {
     expect(ENEMY_DEFINITIONS.axe.hp).toBe(12);
   });
 
-  it('apple heals 20 HP, clamped to maxHp', () => {
+  it('apple heals 5 HP, clamped to maxHp (Phase 15.2 rebalance)', () => {
     const state = freshState({
       inventory: { ...createEmptyInventory(), apple: 1 },
       enemies: [],
     });
     state.player.hp = 5;
     processTurn(state, { type: 'use_item', itemId: 'apple' });
-    expect(state.player.hp).toBe(25);
+    expect(state.player.hp).toBe(10);
   });
 
   it('healing never exceeds max HP', () => {
@@ -282,7 +282,7 @@ describe('HP and recovery at the new scale (Phase 15.1 rebalance)', () => {
     expect(state.player.hp).toBe(30); // clamped, not 45
   });
 
-  it('natural regen heals 10 HP after REGEN_TURNS_PER_HP consumed turns', () => {
+  it('natural regen heals 1 HP after REGEN_TURNS_PER_HP consumed turns (Phase 15.2 rebalance)', () => {
     const state = freshState({ enemies: [] });
     state.player.hp = 5;
     let result;
@@ -290,7 +290,7 @@ describe('HP and recovery at the new scale (Phase 15.1 rebalance)', () => {
       result = processTurn(state, { type: 'wait' });
     }
     expect(result!.playerRegenerated).toBe(true);
-    expect(state.player.hp).toBe(15);
+    expect(state.player.hp).toBe(6);
   });
 
   it('a brand new run re-initializes at the new max HP', () => {

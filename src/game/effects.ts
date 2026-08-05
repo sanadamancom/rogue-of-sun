@@ -25,7 +25,10 @@ export const EFFECT_DEFINITIONS: Record<EffectId, EffectDefinition> = {
   attack_up: {
     id: 'attack_up',
     displayName: '攻撃力上昇',
-    strength: 5,
+    // Phase 15.2 recovery/satiety/status rebalance: 5->1 (see
+    // docs/history/phase-15-2-recovery-satiety-status-rebalance.md),
+    // matching the Phase 15 balance draft's low-integer combat scale.
+    strength: 1,
     duration: 20,
   },
   // Phase 12.2 slow trap: `strength` here does not mean a flat numeric
@@ -42,18 +45,51 @@ export const EFFECT_DEFINITIONS: Record<EffectId, EffectDefinition> = {
     duration: 10,
   },
   // Phase 12.3 poison trap: `strength` here means "HP damage applied per
-  // successful player turn while this effect is active" (fixed_
-  // specification.effect.meaning_of_strength). turn.ts's poison-tick
-  // logic (applyPoisonTick) reads it with that meaning; effects.ts
-  // itself stays a generic id/strength/duration container and does not
-  // interpret it, exactly like movement_slow's strength above.
+  // tick while this effect is active" (fixed_specification.effect.
+  // meaning_of_strength). turn.ts's poison-tick logic (applyPoisonTick)
+  // reads it with that meaning; effects.ts itself stays a generic
+  // id/strength/duration container and does not interpret it, exactly
+  // like movement_slow's strength above.
+  //
+  // Phase 15.2 recovery/satiety/status rebalance: strength 3->1, and a
+  // tick no longer fires every successful player turn — see
+  // POISON_TICK_INTERVAL below and turn.ts's applyPoisonTick. duration
+  // stays 10 (unchanged), but ticks now land only on turns 2/4/6/8/10
+  // after grant/refresh (5 ticks total, 1 damage each = 5 total, down
+  // from the old every-turn/3-damage/30-total). See docs/history/
+  // phase-15-2-recovery-satiety-status-rebalance.md for the derivation.
   poison: {
     id: 'poison',
     displayName: '毒',
-    strength: 3,
+    strength: 1,
     duration: 10,
   },
 };
+
+/**
+ * Poison-specific tick interval (Phase 15.2 recovery/satiety/status
+ * rebalance): a poison tick (see turn.ts's applyPoisonTick) only applies
+ * damage once every POISON_TICK_INTERVAL consumed player turns, rather
+ * than every turn — the single source of truth for this number, so nothing
+ * else (telemetry, UI, tests) duplicates it. With duration 10, this
+ * produces exactly 10 / POISON_TICK_INTERVAL = 5 damage ticks per full
+ * poison duration.
+ */
+export const POISON_TICK_INTERVAL = 2;
+
+/**
+ * Progress toward the next poison damage tick (0..POISON_TICK_INTERVAL-1,
+ * default 0 when absent) — mirrors hunger.ts's getHungerDecreaseProgress/
+ * getStarvationProgress pattern. Reset to 0 whenever poison is granted or
+ * refreshed (turn.ts's move handler) or whenever it triggers a tick or is
+ * not currently active (turn.ts's applyPoisonTick), so a re-applied
+ * poison always ticks on the same 2/4/6/8/10 schedule from its own grant
+ * turn, matching the existing "refresh resets strength/remainingTurns
+ * fully" rule this phase preserves rather than changes.
+ */
+export function getPoisonTickProgress(state: GameState): number {
+  return state.poisonTickProgress ?? 0;
+}
 
 /**
  * The player's current active effects, or [] if the field is absent

@@ -144,6 +144,16 @@ export function formatEvent(event: GameEvent): string {
       return '空腹で力が入らない…このままでは危険だ。';
     case 'starvation_damage':
       return `空腹でLIFEが${event.damage}減った。`;
+    // Phase 15.2 recovery/satiety/status rebalance: satiety_decreased is a
+    // background bookkeeping event with no dedicated user-facing message
+    // — hunger_low_warning/hunger_zero_warning above already communicate
+    // the meaningful satiety-status changes to the player, and surfacing
+    // every routine 1-point decrease (once every HUNGER_DECREASE_INTERVAL
+    // turns) would spam the log with no new information. formatEvents
+    // filters out this empty string before returning, so it never shows
+    // as a blank line.
+    case 'satiety_decreased':
+      return '';
     case 'solar_gun_insufficient_solar':
       return '太陽エネルギーが足りない。';
     case 'solar_charge_used':
@@ -294,7 +304,11 @@ export function formatEvent(event: GameEvent): string {
  * output of this function is deduplicated.
  */
 export function formatEvents(events: GameEvent[]): string[] {
-  const lines = events.map(formatEvent);
+  // Phase 15.2 recovery/satiety/status rebalance: filters out empty
+  // strings (currently only satiety_decreased returns one — see its
+  // formatEvent case above) before dedup/display, so a silent
+  // bookkeeping-only event never appears as a blank log line.
+  const lines = events.map(formatEvent).filter((line) => line.length > 0);
   const deduped: string[] = [];
   for (const line of lines) {
     if (deduped.length > 0 && deduped[deduped.length - 1] === line) continue;

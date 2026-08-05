@@ -96,6 +96,16 @@ export type GameEvent =
   | { type: 'hunger_low_warning' }
   | { type: 'hunger_zero_warning' }
   | { type: 'starvation_damage'; damage: number }
+  // Phase 15.2 recovery/satiety/status rebalance: pushed each time
+  // HUNGER_DECREASE_INTERVAL ticks over into an actual 1-point satiety
+  // decrease (mirrors starvation_damage's own per-trigger-only shape
+  // above) — a background bookkeeping event with no dedicated user-facing
+  // message (message-log.ts's hunger_low_warning/hunger_zero_warning
+  // already communicate the meaningful satiety-status changes to the
+  // player), used by telemetry.ts to reconstruct satiety's minimum value
+  // and total natural consumption over a run without re-deriving
+  // HUNGER_DECREASE_INTERVAL/HUNGER_DECREASE_AMOUNT itself.
+  | { type: 'satiety_decreased'; amount: number; satietyAfter: number }
   | { type: 'solar_gun_insufficient_solar' }
   | { type: 'solar_charge_used'; recovered: number }
   | { type: 'weapon_equipped'; weaponId: WeaponId }

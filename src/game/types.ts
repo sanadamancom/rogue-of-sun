@@ -409,6 +409,19 @@ export interface GameState {
    */
   starvationProgress?: number;
   /**
+   * Phase 15.2 recovery/satiety/status rebalance: progress toward the
+   * next poison damage tick (0..POISON_TICK_INTERVAL-1, default 0 when
+   * absent) — see effects.ts's getPoisonTickProgress/POISON_TICK_INTERVAL
+   * and turn.ts's applyPoisonTick. Incremented by exactly 1 per
+   * successfully consumed player turn while poison is active and not the
+   * grant/refresh turn itself; reset to 0 whenever it triggers a tick,
+   * whenever poison is granted/refreshed, or whenever poison is not
+   * currently active. Persists across floor transitions like
+   * activeEffects; resets to 0 on a new run/retry (poison itself is never
+   * carried into a new run/retry either).
+   */
+  poisonTickProgress?: number;
+  /**
    * Phase 11.3 hunger: whether the "hunger reached 20 or below" warning
    * has already been shown for the current low-hunger dip (cleared once
    * hunger rises back above 20, so a later dip warns again). Optional,

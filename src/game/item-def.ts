@@ -43,9 +43,11 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     category: 'consumable',
     consumable: true,
     stackable: true,
-    // Phase 10.2 combat stat/scale redesign: scaled 10x (2->20) alongside
-    // player maxHp, preserving the same ~2/3-of-old-maxHp heal fraction.
-    healAmount: 20,
+    // Phase 15.2 recovery/satiety/status rebalance: 20->5 (see
+    // docs/history/phase-15-2-recovery-satiety-status-rebalance.md),
+    // matching the Phase 15 balance draft's low-integer LIFE scale (LIFE
+    // 15 basis, apple recovers 1/3 of max LIFE).
+    healAmount: 5,
   },
   sword: {
     id: 'sword',

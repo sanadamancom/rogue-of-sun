@@ -187,18 +187,18 @@ describe('natural regeneration healing (Phase 10.3.3, confirmed_findings.unobser
     }
     expect(lastResult!.playerRegenerated).toBe(true);
     const healed = telemetry.events.find((e) => e.type === 'player_healed');
-    expect(healed).toMatchObject({ source: 'natural_regeneration', hpBefore: 5, hpAfter: 15, actualHealing: 10 });
+    expect(healed).toMatchObject({ source: 'natural_regeneration', hpBefore: 5, hpAfter: 6, actualHealing: 1 });
   });
 
   it('actualHealing is clamped near max HP and never exceeds the real HP delta', () => {
     const state = freshState({ enemies: [] });
-    state.player.hp = 25; // maxHp 30, regen would add 10 -> clamped to 5
+    state.player.hp = 29; // maxHp 30, regen would add 1 -> clamped to 1
     const telemetry = createRunTelemetry(state);
     for (let i = 0; i < REGEN_TURNS_PER_HP; i++) {
       step(state, { type: 'wait' }, telemetry);
     }
     const healed = telemetry.events.find((e) => e.type === 'player_healed');
-    expect((healed as { actualHealing: number }).actualHealing).toBe(5);
+    expect((healed as { actualHealing: number }).actualHealing).toBe(1);
     expect((healed as { hpAfter: number }).hpAfter).toBe(30);
   });
 
@@ -228,7 +228,7 @@ describe('natural regeneration healing (Phase 10.3.3, confirmed_findings.unobser
     const telemetry = createRunTelemetry(state);
     step(state, { type: 'use_item', itemId: 'apple' }, telemetry);
     const healed = telemetry.events.find((e) => e.type === 'player_healed');
-    expect(healed).toMatchObject({ source: 'item', itemId: 'apple', actualHealing: 20, hpBefore: 5, hpAfter: 25 });
+    expect(healed).toMatchObject({ source: 'item', itemId: 'apple', actualHealing: 5, hpBefore: 5, hpAfter: 10 });
   });
 
   it('a floor transition with no HP change never generates a player_healed event', () => {
@@ -247,21 +247,22 @@ describe('natural regeneration healing (Phase 10.3.3, confirmed_findings.unobser
     const state = freshState({ enemies: [], inventory: { ...createEmptyInventory(), apple: 1 } });
     state.player.hp = 5;
     const telemetry = createRunTelemetry(state);
-    step(state, { type: 'use_item', itemId: 'apple' }, telemetry); // hp 5 -> 25; also ticks regenProgress by 1 (hp<maxHp)
+    step(state, { type: 'use_item', itemId: 'apple' }, telemetry); // hp 5 -> 10; also ticks regenProgress by 1 (hp<maxHp)
     for (let i = 0; i < REGEN_TURNS_PER_HP; i++) {
       step(state, { type: 'wait' }, telemetry);
     }
     // The apple-use turn already counted toward regenProgress (natural
     // regen ticks on every turn where hp<maxHp, regardless of action
-    // type), so the regen tick actually lands after 4 more waits, not 5
-    // — and by then hp is 25, so the +10 tick clamps to +5 (25->30).
+    // type), so the regen tick actually lands after REGEN_TURNS_PER_HP-1
+    // more waits, not REGEN_TURNS_PER_HP — and by then hp is 10, well
+    // under maxHp, so the +1 tick is never clamped (10->11).
     const summary = computeRunSummary(telemetry, state);
     const healEvents = telemetry.events.filter((e) => e.type === 'player_healed') as Array<{ source: string; actualHealing: number }>;
     const totalFromEvents = healEvents.reduce((s, e) => s + e.actualHealing, 0);
     const totalFromSummary = Object.values(summary.resources.healingBySource).reduce((s, v) => s + v, 0);
     expect(totalFromSummary).toBe(totalFromEvents);
-    expect(summary.resources.healingBySource.item).toBe(20);
-    expect(summary.resources.healingBySource.natural_regeneration).toBe(5);
+    expect(summary.resources.healingBySource.item).toBe(5);
+    expect(summary.resources.healingBySource.natural_regeneration).toBe(1);
   });
 });
 

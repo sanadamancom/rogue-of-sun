@@ -209,12 +209,12 @@ describe('poison_trap trigger (Phase 12.3)', () => {
     expect(state.traps?.[0].triggered).toBe(false);
   });
 
-  it('stepping onto it triggers: revealed, grants poison at strength 3, remaining 10', () => {
+  it('stepping onto it triggers: revealed, grants poison at strength 1, remaining 10 (Phase 15.2 rebalance)', () => {
     const state = poisonTrapState();
     processTurn(state, { type: 'move', direction: 'E' });
     processTurn(state, { type: 'move', direction: 'E' });
     expect(state.traps?.[0].triggered).toBe(true);
-    expect(getActiveEffect(state, 'poison')).toEqual({ id: 'poison', strength: 3, remainingTurns: 10 });
+    expect(getActiveEffect(state, 'poison')).toEqual({ id: 'poison', strength: 1, remainingTurns: 10 });
   });
 
   it('re-stepping onto an already-triggered poison_trap does not re-trigger', () => {
@@ -244,12 +244,15 @@ describe('poison_trap trigger (Phase 12.3)', () => {
 });
 
 describe('poison tick (Phase 12.3)', () => {
-  it('deals 3 damage on the next successful turn after the trigger, remaining goes to 9', () => {
-    const state = freshState({ activeEffects: [{ id: 'poison', strength: 3, remainingTurns: 10 }] });
+  it('deals no damage on the 1st successful turn, then 1 damage on the 2nd (Phase 15.2: POISON_TICK_INTERVAL=2), remaining goes to 8', () => {
+    const state = freshState({ activeEffects: [{ id: 'poison', strength: 1, remainingTurns: 10 }] });
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' });
-    expect(hpBefore - state.player.hp).toBe(3);
+    expect(state.player.hp).toBe(hpBefore); // turn 1: progress only, no tick yet
     expect(getActiveEffect(state, 'poison')?.remainingTurns).toBe(9);
+    processTurn(state, { type: 'wait' });
+    expect(hpBefore - state.player.hp).toBe(1); // turn 2: tick fires
+    expect(getActiveEffect(state, 'poison')?.remainingTurns).toBe(8);
   });
 
   it('deals damage exactly once per successful turn even with an additional enemy phase (movement_slow active too)', () => {
@@ -258,6 +261,11 @@ describe('poison tick (Phase 12.3)', () => {
         { id: 'poison', strength: 3, remainingTurns: 10 },
         { id: 'movement_slow', strength: 1, remainingTurns: 5 },
       ],
+      // Phase 15.2: primed one tick away so this single successful turn
+      // (not two) produces exactly one poison tick, matching this test's
+      // "exactly once per successful turn" focus regardless of the
+      // interval's own length.
+      poisonTickProgress: 1,
     });
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'move', direction: 'E' });
@@ -267,8 +275,11 @@ describe('poison tick (Phase 12.3)', () => {
   it('hunger/starvation and effect decrement each run exactly once on a poisoned turn', () => {
     const state = freshState({
       activeEffects: [{ id: 'poison', strength: 3, remainingTurns: 10 }],
+      // Phase 15.2: primed one tick away so this single turn produces
+      // exactly one poison tick (see the analogous note above).
+      poisonTickProgress: 1,
       hunger: 0,
-      starvationProgress: 999, // about to tick on this very turn
+      starvationProgress: 0, // Phase 15.2: STARVATION_INTERVAL is now 1, so progress 0 -> 1 already ticks this turn
     });
     processTurn(state, { type: 'wait' });
     // starvation (STARVATION_DAMAGE=1) + poison (3) = 4, applied as two
@@ -295,8 +306,12 @@ describe('poison tick (Phase 12.3)', () => {
   });
 
   it('progresses on attack, wait, item use, spider web slow, and petrified skip', () => {
+    // Phase 15.2: each fixture is primed one tick away (poisonTickProgress:
+    // 1) so a single successful turn of each action type produces exactly
+    // one poison tick, keeping this test focused on "which action types
+    // count as a successful turn" rather than the interval's own length.
     // wait
-    const s1 = freshState({ activeEffects: [{ id: 'poison', strength: 3, remainingTurns: 10 }] });
+    const s1 = freshState({ activeEffects: [{ id: 'poison', strength: 3, remainingTurns: 10 }], poisonTickProgress: 1 });
     processTurn(s1, { type: 'wait' });
     expect(30 - s1.player.hp).toBe(3);
 
@@ -304,6 +319,7 @@ describe('poison tick (Phase 12.3)', () => {
     const s2 = freshState({
       player: { ...createInitialActor({ x: 2, y: 3 }, 30, 10, 0, 90, 0), slowed: true },
       activeEffects: [{ id: 'poison', strength: 3, remainingTurns: 10 }],
+      poisonTickProgress: 1,
     });
     processTurn(s2, { type: 'move', direction: 'E' });
     expect(30 - s2.player.hp).toBe(3);
@@ -312,6 +328,7 @@ describe('poison tick (Phase 12.3)', () => {
     const s3 = freshState({
       player: { ...createInitialActor({ x: 2, y: 3 }, 30, 10, 0, 90, 0), petrified: true },
       activeEffects: [{ id: 'poison', strength: 3, remainingTurns: 10 }],
+      poisonTickProgress: 1,
     });
     processTurn(s3, { type: 'wait' });
     expect(30 - s3.player.hp).toBe(3);
@@ -323,6 +340,7 @@ describe('poison tick (Phase 12.3)', () => {
       enemies: [],
       exit: { x: 7, y: 3 },
       activeEffects: [{ id: 'poison', strength: 3, remainingTurns: 10 }],
+      poisonTickProgress: 1, // Phase 15.2: primed so this one turn ticks
     });
     processTurn(state, { type: 'move', direction: 'E' });
     expect(state.phase).not.toBe('playing');
@@ -330,7 +348,10 @@ describe('poison tick (Phase 12.3)', () => {
   });
 
   it('applies damage on the final (remaining 1) turn, then expires', () => {
-    const state = freshState({ activeEffects: [{ id: 'poison', strength: 3, remainingTurns: 1 }] });
+    const state = freshState({
+      activeEffects: [{ id: 'poison', strength: 3, remainingTurns: 1 }],
+      poisonTickProgress: 1, // Phase 15.2: primed so this final turn ticks
+    });
     const hpBefore = state.player.hp;
     const result = processTurn(state, { type: 'wait' });
     expect(hpBefore - state.player.hp).toBe(3);
@@ -342,6 +363,7 @@ describe('poison tick (Phase 12.3)', () => {
     const state = freshState({
       player: { ...createInitialActor({ x: 2, y: 3 }, 30, 10, 0, 90, 0), hp: 2 },
       activeEffects: [{ id: 'poison', strength: 3, remainingTurns: 10 }],
+      poisonTickProgress: 1, // Phase 15.2: primed so this turn ticks
     });
     const result = processTurn(state, { type: 'wait' });
     expect(state.player.hp).toBe(0);
@@ -354,9 +376,24 @@ describe('poison tick (Phase 12.3)', () => {
     const state = freshState({
       player: { ...createInitialActor({ x: 2, y: 3 }, 30, 10, 999, 90, 100), hp: 30 },
       activeEffects: [{ id: 'poison', strength: 3, remainingTurns: 10 }],
+      poisonTickProgress: 1, // Phase 15.2: primed so this turn ticks
     });
     processTurn(state, { type: 'wait' });
     expect(30 - state.player.hp).toBe(3);
+  });
+
+  it('a full 10-turn poison duration (real values) ticks exactly on turns 2/4/6/8/10, for 5 total damage (Phase 15.2)', () => {
+    const state = freshState({ activeEffects: [{ id: 'poison', strength: 1, remainingTurns: 10 }] });
+    const hpBefore = state.player.hp;
+    const damagePerTurn: number[] = [];
+    for (let i = 0; i < 10; i++) {
+      const before = state.player.hp;
+      processTurn(state, { type: 'wait' });
+      damagePerTurn.push(before - state.player.hp);
+    }
+    expect(damagePerTurn).toEqual([0, 1, 0, 1, 0, 1, 0, 1, 0, 1]);
+    expect(hpBefore - state.player.hp).toBe(5);
+    expect(getActiveEffect(state, 'poison')).toBeUndefined(); // expired exactly at turn 10
   });
 
   it('does not use combatRngState', () => {
@@ -536,11 +573,11 @@ describe('compatibility: attack_up, movement_slow, poison simultaneously (Phase 
 });
 
 describe('HUD label content (Phase 12.3, via EFFECT_DEFINITIONS)', () => {
-  it('poison is registered with displayName 毒, strength 3, duration 10', () => {
+  it('poison is registered with displayName 毒, strength 1, duration 10 (Phase 15.2 rebalance)', () => {
     expect(EFFECT_DEFINITIONS.poison).toEqual({
       id: 'poison',
       displayName: '毒',
-      strength: 3,
+      strength: 1,
       duration: 10,
     });
   });

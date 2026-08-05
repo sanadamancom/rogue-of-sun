@@ -39,6 +39,8 @@ interface CarryOverStats {
   hunger: number;
   hungerDecreaseProgress: number;
   starvationProgress: number;
+  /** Phase 15.2 recovery/satiety/status rebalance: carried across floor transitions like hungerDecreaseProgress/starvationProgress — see types.ts's GameState.poisonTickProgress doc comment. */
+  poisonTickProgress: number;
   hungerLowWarned: boolean;
   hungerZeroWarned: boolean;
   activeEffects: ActiveEffect[];
@@ -611,6 +613,11 @@ function buildFloorState(
     hunger: carry ? carry.hunger : HUNGER_MAX,
     hungerDecreaseProgress: carry ? carry.hungerDecreaseProgress : 0,
     starvationProgress: carry ? carry.starvationProgress : 0,
+    // Phase 15.2 recovery/satiety/status rebalance: carried across floor
+    // transitions like hungerDecreaseProgress/starvationProgress; a brand
+    // new run or a post-death retry always starts at 0 (poison itself is
+    // never carried into either case — see activeEffects below).
+    poisonTickProgress: carry ? carry.poisonTickProgress : 0,
     hungerLowWarned: carry ? carry.hungerLowWarned : false,
     hungerZeroWarned: carry ? carry.hungerZeroWarned : false,
     // Active temporary status effects (Phase 12.1): carried over across
@@ -688,6 +695,7 @@ export function advanceToNextFloor(state: GameState): GameState {
     hunger: state.hunger ?? HUNGER_MAX,
     hungerDecreaseProgress: state.hungerDecreaseProgress ?? 0,
     starvationProgress: state.starvationProgress ?? 0,
+    poisonTickProgress: state.poisonTickProgress ?? 0,
     hungerLowWarned: state.hungerLowWarned ?? false,
     hungerZeroWarned: state.hungerZeroWarned ?? false,
     activeEffects: state.activeEffects ?? [],

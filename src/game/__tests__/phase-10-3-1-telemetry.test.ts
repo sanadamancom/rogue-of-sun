@@ -634,3 +634,119 @@ describe('enemy_attack raw/reduction/floor fields (Phase 15.1 core combat rebala
     expect(bokStats.defeated).toBe(1);
   });
 });
+
+describe('Phase 15.2 recovery/satiety/status rebalance telemetry', () => {
+  it('run_started records the true starting satiety', () => {
+    const state = createInitialState(1);
+    const telemetry = createRunTelemetry(state);
+    const started = telemetry.events.find((e) => e.type === 'run_started') as { satiety: number };
+    expect(started.satiety).toBe(100);
+    const summary = computeRunSummary(telemetry, state);
+    expect(summary.recoveryAndSatiety.satiety.start).toBe(100);
+  });
+
+  it('satiety_decreased fires only on an actual natural decrease, never for chocolate', () => {
+    const state = freshState({ hunger: 5, inventory: { ...createEmptyInventory(), chocolate: 1 } });
+    const telemetry = createRunTelemetry(state);
+    step(state, { type: 'use_item', itemId: 'chocolate' }, telemetry);
+    expect(telemetry.events.some((e) => e.type === 'satiety_decreased')).toBe(false);
+    const chocolateEvent = telemetry.events.find((e) => e.type === 'item_used' && e.itemId === 'chocolate') as { effect: string; amount: number };
+    expect(chocolateEvent).toMatchObject({ effect: 'satiety', amount: 30 });
+    const summary = computeRunSummary(telemetry, state);
+    expect(summary.recoveryAndSatiety.satiety.naturalLoss).toBe(0);
+    expect(summary.recoveryAndSatiety.satiety.foodRecovered).toBe(30);
+  });
+
+  it('starvation_damage is translated into both a detailed record and a starvation-sourced player_damaged', () => {
+    const state = freshState({ enemies: [], hunger: 0, starvationProgress: 0 });
+    const telemetry = createRunTelemetry(state);
+    step(state, { type: 'wait' }, telemetry);
+    const detailed = telemetry.events.find((e) => e.type === 'starvation_damage') as { damage: number; hpBefore: number; hpAfter: number };
+    expect(detailed).toBeDefined();
+    expect(detailed.damage).toBe(1);
+    const generic = telemetry.events.find((e) => e.type === 'player_damaged' && e.source === 'starvation') as { amount: number };
+    expect(generic.amount).toBe(1);
+    const summary = computeRunSummary(telemetry, state);
+    expect(summary.recoveryAndSatiety.starvation).toEqual({ turnsAtZero: 1, damageEvents: 1, totalDamage: 1 });
+    // Excluded from damageTakenByEnemy (no attacking enemy), same as poison.
+    expect(summary.damageTakenByEnemy.bok).toBeUndefined();
+  });
+
+  it('starvation damage and poison damage are never confused with each other', () => {
+    const state = freshState({
+      enemies: [],
+      hunger: 0,
+      starvationProgress: 0,
+      activeEffects: [{ id: 'poison', strength: 1, remainingTurns: 10 }],
+      poisonTickProgress: 1,
+    });
+    const telemetry = createRunTelemetry(state);
+    step(state, { type: 'wait' }, telemetry);
+    const summary = computeRunSummary(telemetry, state);
+    expect(summary.recoveryAndSatiety.starvation.totalDamage).toBe(1);
+    expect(summary.recoveryAndSatiety.poison.totalDamage).toBe(1);
+    expect(summary.recoveryAndSatiety.poison.tickEvents).toBe(1);
+  });
+
+  it('natural regen requested/actual totals reflect the real per-tick amount, distinct from apple', () => {
+    const state = freshState({ enemies: [], inventory: { ...createEmptyInventory(), apple: 1 } });
+    state.player.hp = 5;
+    const telemetry = createRunTelemetry(state);
+    step(state, { type: 'use_item', itemId: 'apple' }, telemetry); // hp 5 -> 10 (apple heals 5)
+    for (let i = 0; i < 10; i++) {
+      step(state, { type: 'wait' }, telemetry); // REGEN_TURNS_PER_HP=10; ticks once, +1
+    }
+    const summary = computeRunSummary(telemetry, state);
+    expect(summary.recoveryAndSatiety.apple).toEqual({ usedCount: 1, requestedTotal: 5, actualTotal: 5 });
+    expect(summary.recoveryAndSatiety.naturalRegen.occurrences).toBe(1);
+    expect(summary.recoveryAndSatiety.naturalRegen.requestedTotal).toBe(1);
+    expect(summary.recoveryAndSatiety.naturalRegen.actualTotal).toBe(1);
+  });
+
+  it('apple actualTotal reflects LIFE-cap rounding, distinct from requestedTotal', () => {
+    const state = freshState({ enemies: [], inventory: { ...createEmptyInventory(), apple: 1 } });
+    state.player.hp = 27; // maxHp 30: apple requests 5, actual clamps to 3
+    const telemetry = createRunTelemetry(state);
+    step(state, { type: 'use_item', itemId: 'apple' }, telemetry);
+    const summary = computeRunSummary(telemetry, state);
+    expect(summary.recoveryAndSatiety.apple).toEqual({ usedCount: 1, requestedTotal: 5, actualTotal: 3 });
+  });
+
+  it('apple aggregation and the generic item-used count are not double counted', () => {
+    const state = freshState({ enemies: [], inventory: { ...createEmptyInventory(), apple: 1 } });
+    state.player.hp = 5;
+    const telemetry = createRunTelemetry(state);
+    step(state, { type: 'use_item', itemId: 'apple' }, telemetry);
+    const summary = computeRunSummary(telemetry, state);
+    expect(summary.resources.itemsUsedByType.apple).toBe(1);
+    expect(summary.recoveryAndSatiety.apple.usedCount).toBe(1);
+  });
+
+  it('banana attacksWhileActive counts every attack attempt (hit and miss) while attack_up is active, matching the existing attempt-based attack convention', () => {
+    const state = freshState({
+      player: createInitialActor({ x: 2, y: 1 }, 30, 10, 0, 100, 0),
+      equippedWeaponId: 'sword',
+      inventory: { ...createEmptyInventory(), sword: 1 },
+      activeEffects: [{ id: 'attack_up', strength: 1, remainingTurns: 20 }],
+      enemies: [createInitialEnemy('bok', { x: 3, y: 1 }, 1000, 0, 0, 0, 0, 90, 0)],
+    });
+    const telemetry = createRunTelemetry(state);
+    state.player.facing = 'E';
+    step(state, { type: 'action' }, telemetry);
+    const summary = computeRunSummary(telemetry, state);
+    expect(summary.recoveryAndSatiety.banana.attacksWhileActive).toBe(1);
+  });
+
+  it('satiety.min tracks the lowest value reached over the run, even after later recovery', () => {
+    const state = freshState({ enemies: [], hunger: 4, inventory: { ...createEmptyInventory(), chocolate: 1 } });
+    const telemetry = createRunTelemetry(state);
+    for (let i = 0; i < 4; i++) {
+      step(state, { type: 'wait' }, telemetry); // 4 -> 3 on the 4th (HUNGER_DECREASE_INTERVAL=4)
+    }
+    step(state, { type: 'use_item', itemId: 'chocolate' }, telemetry); // 3 -> 33
+    const summary = computeRunSummary(telemetry, state);
+    expect(summary.recoveryAndSatiety.satiety.start).toBe(4);
+    expect(summary.recoveryAndSatiety.satiety.min).toBe(3);
+    expect(summary.recoveryAndSatiety.satiety.end).toBe(33);
+  });
+});
