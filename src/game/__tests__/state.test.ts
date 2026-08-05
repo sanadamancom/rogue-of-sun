@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createInitialState } from '../state';
 import { processTurn } from '../turn';
+import { ENEMY_COUNT_BY_FLOOR } from '../mapgen';
 
 describe('restart', () => {
   it('returns to the initial state values after progressing the game', () => {
@@ -15,7 +16,7 @@ describe('restart', () => {
     expect(state.turn).toBe(0);
     expect(state.phase).toBe('playing');
     expect(state.player.hp).toBe(state.player.maxHp);
-    expect(state.enemies).toHaveLength(2);
+    expect(state.enemies).toHaveLength(ENEMY_COUNT_BY_FLOOR[1]); // Phase 15.5
     for (const enemy of state.enemies) {
       expect(enemy.hp).toBe(enemy.maxHp);
       expect(enemy.alive).toBe(true);

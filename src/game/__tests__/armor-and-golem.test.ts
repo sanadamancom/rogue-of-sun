@@ -3,6 +3,7 @@ import { closeInventory, inventoryEntries, toggleInventory, useSelectedInventory
 import { createEmptyInventory, getGroundItemPoolForFloor, ITEM_DEFINITIONS } from '../item-def';
 import { ARMOR_DEFINITIONS } from '../armor-def';
 import { getEnemyPoolForFloor } from '../enemy-def';
+import { ENEMY_COUNT_BY_FLOOR } from '../mapgen';
 import { advanceToNextFloor, createInitialState, randomSeed } from '../state';
 import {
   createInitialActor,
@@ -352,13 +353,13 @@ describe('floor 2 golem availability (Phase 08.4)', () => {
     }
   });
 
-  it("2F total enemy count is unchanged (still 2)", () => {
+  it("2F total enemy count matches ENEMY_COUNT_BY_FLOOR[2] (Phase 15.5: 7, previously a flat 2)", () => {
     let state: GameState = createInitialState(7);
     state.enemies.forEach((e) => (e.alive = false));
     state.player.pos = { ...state.exit };
     processTurn(state, { type: 'wait' });
     state = advanceToNextFloor(state);
-    expect(state.enemies).toHaveLength(2);
+    expect(state.enemies).toHaveLength(ENEMY_COUNT_BY_FLOOR[2]);
   });
 
   it('golem stats are unchanged when it appears on 2F (HP10, attack 12, slow_melee) (Phase 15.1 rebalance)', () => {

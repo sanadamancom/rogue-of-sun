@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from '../enemy-def';
 import { advanceToNextFloor, createInitialState } from '../state';
+import { ENEMY_COUNT_BY_FLOOR } from '../mapgen';
 import { EnemyType, GameState } from '../types';
 
 const asSet = (types: EnemyType[]) => new Set(types);
@@ -121,10 +122,10 @@ describe('floor-based enemy pools: real generation stays within the floor pool (
     }
   });
 
-  it('enemy count per floor is unchanged (still 2)', () => {
+  it('enemy count per floor matches ENEMY_COUNT_BY_FLOOR (Phase 15.5, previously a flat 2)', () => {
     for (const runSeed of RUN_SEEDS) {
       const state = createInitialState(runSeed);
-      expect(state.enemies).toHaveLength(2);
+      expect(state.enemies).toHaveLength(ENEMY_COUNT_BY_FLOOR[state.floor]);
     }
   });
 

@@ -1,4 +1,14 @@
-import { choosePlacement, chooseGroundItemPosition, chooseTrapPosition, roomIndexContaining, createRng, generateMap, MAP_GEN_PARAMS } from './mapgen';
+import {
+  choosePlacement,
+  chooseGroundItemPosition,
+  chooseTrapPosition,
+  roomIndexContaining,
+  createRng,
+  generateMap,
+  MAP_GEN_PARAMS,
+  ENEMY_COUNT_BY_FLOOR,
+  ENEMY_COUNT_PER_FLOOR,
+} from './mapgen';
 import { createInitialActor, createInitialEnemy } from './turn';
 import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
 import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
@@ -132,7 +142,15 @@ function buildFloorState(
 
   const map = result.map;
   const placementRng = createRng(floorSeed ^ 0x51ed270b);
-  const placement = choosePlacement(map, placementRng, enemyCount);
+  // Phase 15.5: an explicit enemyCount override (roster preview, tests)
+  // always wins; otherwise resolve this floor's normal-play count from
+  // mapgen.ts's ENEMY_COUNT_BY_FLOOR, falling back to the flat
+  // ENEMY_COUNT_PER_FLOOR for any floor number that table doesn't define
+  // (defensive only — TOTAL_FLOORS is 3, so every normal floor is
+  // covered). This is the only place normal generation resolves enemy
+  // count; choosePlacement itself is unaware of floor numbers.
+  const resolvedEnemyCount = enemyCount ?? ENEMY_COUNT_BY_FLOOR[floor] ?? ENEMY_COUNT_PER_FLOOR;
+  const placement = choosePlacement(map, placementRng, resolvedEnemyCount);
 
   const player: Actor = carry
     ? createInitialActor(placement.start, carry.maxHp, carry.attack, carry.defense, carry.accuracy, carry.evasion)

@@ -1,16 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { ENEMY_DEFINITIONS, getEnemyPoolForFloor } from '../enemy-def';
 import { advanceToNextFloor, createInitialState } from '../state';
+import { ENEMY_COUNT_BY_FLOOR } from '../mapgen';
 import { createInitialEnemy, processTurn } from '../turn';
 import { EnemyType, GameMap, GameState, Tile } from '../types';
 
 const RUN_SEEDS = Array.from({ length: 100 }, (_, i) => i * 17 + 5);
 
 describe('enemy species assignment', () => {
-  it('always generates exactly 2 enemies per floor, each within that floor\'s unlocked pool', () => {
+  it('always generates ENEMY_COUNT_BY_FLOOR[floor] enemies per floor (Phase 15.5), each within that floor\'s unlocked pool', () => {
     for (const runSeed of RUN_SEEDS) {
       const state = createInitialState(runSeed);
-      expect(state.enemies).toHaveLength(2);
+      expect(state.enemies).toHaveLength(ENEMY_COUNT_BY_FLOOR[state.floor]);
       const pool = getEnemyPoolForFloor(state.floor);
       for (const enemy of state.enemies) {
         expect(pool).toContain(enemy.type);
@@ -298,14 +299,18 @@ describe('combat and progression with mixed enemy types', () => {
     expect(bok.hp).toBe(bok.maxHp);
   });
 
-  it('keeps the stairs locked until both enemies are defeated', () => {
+  it('keeps the stairs locked until all enemies are defeated (Phase 15.5: floor 1 has 6, not 2)', () => {
     const state = createInitialState(11);
-    state.enemies[0].alive = false; // only one defeated
-    state.player.pos = { ...state.exit };
-    processTurn(state, { type: 'wait' });
-    expect(state.phase).toBe('playing');
-
-    state.enemies[1].alive = false; // both defeated now
+    expect(state.enemies.length).toBe(ENEMY_COUNT_BY_FLOOR[1]);
+    // Defeat all but the last one; stairs must remain locked throughout.
+    for (let i = 0; i < state.enemies.length - 1; i++) {
+      state.enemies[i].alive = false;
+      state.player.pos = { ...state.exit };
+      processTurn(state, { type: 'wait' });
+      expect(state.phase).toBe('playing');
+    }
+    // Defeat the last enemy: stairs unlock.
+    state.enemies[state.enemies.length - 1].alive = false;
     state.player.pos = { ...state.exit };
     processTurn(state, { type: 'wait' });
     expect(state.phase).toBe('floor_cleared');

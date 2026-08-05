@@ -3,6 +3,7 @@ import { advanceToNextFloor, createInitialState } from '../state';
 import { processTurn } from '../turn';
 import { GameState } from '../types';
 import { deriveFloorSeed } from '../floor';
+import { ENEMY_COUNT_BY_FLOOR } from '../mapgen';
 
 /** Steps the player directly onto the exit tile without pathing (unit-level shortcut). */
 function stepOntoExit(state: GameState): void {
@@ -69,7 +70,7 @@ describe('multi-floor progression', () => {
     expect(state.phase).toBe('playing');
     expect(state.player.hp).toBe(2);
     expect(state.player.maxHp).toBe(3);
-    expect(state.enemies).toHaveLength(2);
+    expect(state.enemies).toHaveLength(ENEMY_COUNT_BY_FLOOR[2]); // Phase 15.5
     expect(state.enemies.every((e) => e.alive)).toBe(true);
     // A new floor's map should use the deterministic floor seed.
     expect(state.seed).toBe(deriveFloorSeed(2780624551, 2));
@@ -136,12 +137,12 @@ describe('multi-floor progression', () => {
     expect(state.phase).toBe('gameover');
   });
 
-  it('generates a fresh pair of living enemies on the next floor', () => {
+  it('generates a fresh set of living enemies on the next floor (Phase 15.5: 7 on floor 2, not 2)', () => {
     let state = createInitialState(2780624551);
     killAllEnemies(state);
     stepOntoExit(state);
     state = advanceToNextFloor(state);
-    expect(state.enemies).toHaveLength(2);
+    expect(state.enemies).toHaveLength(ENEMY_COUNT_BY_FLOOR[2]);
     expect(state.enemies.every((e) => e.alive)).toBe(true);
   });
 

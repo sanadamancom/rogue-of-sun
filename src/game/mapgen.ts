@@ -576,6 +576,25 @@ export interface Placement {
 export const ENEMY_COUNT_PER_FLOOR = 2;
 
 /**
+ * Phase 15.5: per-floor normal-play enemy count — the single source of
+ * truth for "how many enemies spawn on floor N" (see docs/history/
+ * phase-15-5-enemy-count-by-floor.md). Deliberately owned here, not in
+ * enemy-def.ts: mapgen.ts already owns enemy *placement count*
+ * (ENEMY_COUNT_PER_FLOOR/choosePlacement above), while enemy-def.ts owns
+ * the separate concern of which *species* are eligible per floor
+ * (ENEMY_FIRST_APPEARANCE_FLOOR/getEnemyPoolForFloor) — this keeps that
+ * split intact rather than blending the two responsibilities. Floor
+ * numbers not present here fall back to ENEMY_COUNT_PER_FLOOR (state.ts's
+ * buildFloorState resolves this precedence); TOTAL_FLOORS is 3, so that
+ * fallback is purely defensive and never exercised in normal play.
+ */
+export const ENEMY_COUNT_BY_FLOOR: Record<number, number> = {
+  1: 6,
+  2: 7,
+  3: 8,
+};
+
+/**
  * Chooses start (in the first room), exit (in the room whose center is
  * farthest by floor-path distance from start, guaranteed to be a
  * different room), and `count` enemy tiles that are each reachable, not on

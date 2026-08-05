@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER } from '../enemy-def';
 import { buildRosterPreviewFloorState, createInitialState } from '../state';
+import { ENEMY_COUNT_BY_FLOOR } from '../mapgen';
 import { processTurn } from '../turn';
 import { GameState } from '../types';
 
@@ -13,9 +14,9 @@ describe('enemy roster foundation (Phase 06 + density correction)', () => {
     }
   });
 
-  it('normal play (createInitialState) spawns exactly 2 enemies, not all 9', () => {
+  it('normal play (createInitialState) spawns ENEMY_COUNT_BY_FLOOR[1] enemies (Phase 15.5: 6), not all 9', () => {
     const state = createInitialState(42);
-    expect(state.enemies).toHaveLength(2);
+    expect(state.enemies).toHaveLength(ENEMY_COUNT_BY_FLOOR[1]);
   });
 
   it('normal-floor enemies always use common-table hp/attack for whatever species they rolled', () => {
