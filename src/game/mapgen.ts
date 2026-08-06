@@ -17,14 +17,19 @@ import { GameMap, Room, Tile, Vec2 } from './types';
 // and gameplay rules.
 
 export const MAP_GEN_PARAMS = {
-  width: 40,
-  height: 30,
+  // Phase 16 early-game combat/space rebalance enlarges the map (40x30 ->
+  // 48x36) and each room's interior (width 4-9 -> 6-11, height 4-7 -> 5-9)
+  // so rooms leave room to maneuver — see docs/history/phase-16-early-
+  // game-balance.md. roomCount, sectionColumns/Rows, sectionMargin,
+  // extraConnections, and the generation-attempt limits are unchanged.
+  width: 48,
+  height: 36,
   outerWall: 1,
   sectionColumns: 3,
   sectionRows: 3,
   roomCount: { min: 6, max: 9 },
-  roomWidth: { min: 4, max: 9 },
-  roomHeight: { min: 4, max: 7 },
+  roomWidth: { min: 6, max: 11 },
+  roomHeight: { min: 5, max: 9 },
   sectionMargin: 1, // buffer kept between a room and its section's border
   extraConnections: { min: 1, max: 2 },
   maxGenerationAttempts: 50, // whole-map retries (new internal attempt number, same seed)

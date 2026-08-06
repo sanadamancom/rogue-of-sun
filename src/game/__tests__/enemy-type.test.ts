@@ -89,17 +89,19 @@ describe('bok regression (unchanged 8-direction behavior)', () => {
     expect(state.player.hp).toBe(hpBefore - bok.attack);
   });
 
-  it('bok spawns with the common-table hp (6) and attack (6) values (Phase 15.1 rebalance)', () => {
+  it('bok spawns with the common-table hp (6) and attack (3) values (Phase 16 early-game rebalance)', () => {
     // enemy-def.ts defines bok's stats directly; verify the definition
     // itself (imported, not re-derived) and that a freshly created bok
-    // enemy actually carries those values.
+    // enemy actually carries those values. Attack lowered from 6 to 3 in
+    // Phase 16 (see docs/history/phase-16-early-game-balance.md); hp
+    // unchanged.
     const bokDef = ENEMY_DEFINITIONS.bok;
     expect(bokDef.hp).toBe(6);
-    expect(bokDef.attack).toBe(6);
+    expect(bokDef.attack).toBe(3);
     const bok = createInitialEnemy('bok', { x: 0, y: 0 }, bokDef.hp, bokDef.attack);
     expect(bok.hp).toBe(6);
     expect(bok.maxHp).toBe(6);
-    expect(bok.attack).toBe(6);
+    expect(bok.attack).toBe(3);
   });
 
   it('bok is defeated by a total of 6 damage (matching its hp) (Phase 15.1 rebalance)', () => {

@@ -158,7 +158,13 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     displayName: 'ボク',
     spriteKey: 'bok_lv1',
     hp: 6,
-    attack: 6,
+    // Phase 16 early-game combat/space rebalance lowers bok's attack from 6
+    // to 3 (attack was the sole source of the reported 6 real-damage hit at
+    // initial player defense 0 — see docs/history/phase-16-early-game-
+    // balance.md), so a fresh player's first bok hit now costs half as much
+    // LIFE. Only bok's own attack changes; hp/defense/accuracy/evasion and
+    // every other species' attack are untouched.
+    attack: 3,
     defense: 0,
     accuracy: 90,
     evasion: 0,
