@@ -77,6 +77,11 @@ export function isEnchantSwitchKey(key: string): boolean {
   return key.toLowerCase() === 'r';
 }
 
+/** New-seed restart key, only meaningful in the 'gameover' context (see routeKeyDown). */
+export function isNewSeedKey(key: string): boolean {
+  return key.toLowerCase() === 'n';
+}
+
 export function isTurnOnlyModifierKey(key: string): boolean {
   return key.toLowerCase() === 'f';
 }
@@ -96,7 +101,10 @@ export type RouterAction =
   | { kind: 'menu_cursor'; direction: Direction8 }
   | { kind: 'menu_confirm' }
   | { kind: 'menu_back' }
-  | { kind: 'enchant_switch' };
+  | { kind: 'enchant_switch' }
+  | { kind: 'gameover_restart_same' }
+  | { kind: 'gameover_restart_new' }
+  | { kind: 'gameover_dismiss_overlay' };
 
 /**
  * Decides the single immediate action (if any) for one keydown event,
@@ -108,10 +116,15 @@ export type RouterAction =
  * context exclusivity (spec 11.1's "終了画面、レベルアップ、能力画面、
  * 各ダイアログでも入力先を一つに限定する"): 'field' is the only context
  * that can ever produce a `{ kind: 'game' }` PlayerAction; 'menu' only
- * ever produces menu_* actions; 'dialog' and 'gameover' produce at most
- * menu_confirm/menu_back (dialogs reuse the same confirm/cancel keys)
- * and are otherwise inert — no field action or menu-list navigation
- * leaks through.
+ * ever produces menu_* actions; 'dialog' produces at most menu_confirm/
+ * menu_back (dialogs reuse the same confirm/cancel keys); 'gameover'
+ * produces at most gameover_restart_same/gameover_restart_new (the end
+ * screen has no menu list to confirm/back through, so its own confirm
+ * key restarts the same seed and 'n' starts a new one — see spec 3's
+ * "Enter: 同じシードで再開　N: 新しいシードで開始" and Phase 03's
+ * original Enter/N restart behavior, reconnected here after Phase 14.5's
+ * router refactor dropped the wiring). Every context is otherwise inert
+ * — no field action or menu-list navigation leaks through.
  */
 export function routeKeyDown(
   context: InputContext,
@@ -131,7 +144,21 @@ export function routeKeyDown(
     return null;
   }
 
-  if (context === 'dialog' || context === 'gameover') {
+  if (context === 'gameover') {
+    // Restart keys (spec: "Enter: 同じシードで再開　N: 新しいシードで開始")
+    // take priority over the generic confirm/cancel routing dialogs share,
+    // since the end screen has no menu list to confirm/back through.
+    if (isConfirmKey(key)) return { kind: 'gameover_restart_same' };
+    if (isNewSeedKey(key)) return { kind: 'gameover_restart_new' };
+    // Escape/Backspace only dismisses the DOM end-screen overlay so the
+    // underlying canvas (and its Enter/N restart handling, unaffected by
+    // the overlay's visibility) can be inspected directly — it never
+    // changes game state or phase.
+    if (isCancelKey(key)) return { kind: 'gameover_dismiss_overlay' };
+    return null;
+  }
+
+  if (context === 'dialog') {
     if (isConfirmKey(key)) return { kind: 'menu_confirm' };
     if (isCancelKey(key)) return { kind: 'menu_back' };
     return null;

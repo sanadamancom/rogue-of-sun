@@ -169,3 +169,25 @@ source定義だけを読む既存テストでは検出できなかった「正�
 ### 16.5 実ブラウザ確認について
 
 このタスク実行環境ではPlaywrightのブラウザバイナリ取得元にネットワークアクセスできないため、今回も実ブラウザでの目視確認・試遊は実施できていない。上記の統合テストと生成スクリプトのメタデータ検証によるコードレベルの保証に留まる。ユーザー側での実ブラウザ再試遊（ボク1回攻撃でLIFE15→12、ログが3ダメージ表示）を依頼する。
+
+## 17. Phase 16.1：試遊で見つかった3件のランタイム不具合の統合修正
+
+Phase 16の試遊中に見つかった以下3件を、`fix-floor-transition-sprite-crash`ブランチ（`clearMessages`修正）と`fix-gameover-restart-keys`ブランチ（Enter/N/Escape修正、`main`から誤って分岐していたため個別にcherry-pickでこのブランチ系統へ統合）から取り込んだ。単一HTML生成元の取り違えについては、既に`scripts/build-single-html.mjs`（本ファイル16章）で対応済み。
+
+### 17.1 終了画面のEnter/N再開キー未配線
+
+`input-router.ts`のgameoverコンテキストがconfirm/cancelキーしか処理しておらず、`N`キーのルーティングも`handleMenuConfirm`側の受け皿も存在しなかった。`isNewSeedKey`と`gameover_restart_same`/`gameover_restart_new`/`gameover_dismiss_overlay`アクションを追加し、`main.ts`の`handleRoutedKey`で`restart()`・`hideEndScreen()`へ接続した。詳細な原因分析と対応箇所は本commitの`src/game/input-router.ts`・`src/main.ts`の該当差分を参照。
+
+### 17.2 clearMessages()の自己再帰によるフロア移行クラッシュ（根本原因）
+
+`clearMessages()`が`this.messageLog.clear()`ではなく`this.clearMessages()`と自分自身を呼ぶタイポになっており、フロア移行のたびに無限再帰で`RangeError: Maximum call stack size exceeded`が発生していた。この例外により、直後に控えていた`resetSceneToCurrentState()`（敵スプライトの再構築を含む）が実行されずに関数全体が中断し、`enemySprites`が前フロアの敵数のまま取り残される二次被害（`TypeError: Cannot read properties of undefined (reading 'setPosition')`）を引き起こしていた。`this.messageLog.clear()`への1行修正で解消。
+
+あわせて、根本原因とは別に、こうした不整合が再発しても致命的クラッシュにならないよう`rebuildEnemySprites()`・`snapAllEnemies()`・`applyTurnResult`の敵スプライト同期処理へ防御的なガード（未存在スプライトのスキップ、生成失敗時のプレースホルダー、destroy＋全再生成をやめてスプライトを使い回す方式への変更）を追加した。
+
+### 17.3 単一HTML生成元のbranch取り違え（再掲）
+
+初回のPhase 16単一HTMLがボク攻撃6のまま提示された件。原因は生成元ブランチの取り違えであり、`enemy-def.ts`自体は常に正しかった。`scripts/build-single-html.mjs`（working tree clean必須・毎回`vite build`再実行・生成物へのcommitハッシュ埋め込み・外部sprite参照の残存チェック）で再発を防止している（詳細は16章）。
+
+### 17.4 統合方法
+
+`phase-16-early-game-balance`ブランチへ、`fix-floor-transition-sprite-crash`（直接の子孫だったためfast-forward）と`fix-gameover-restart-keys`（`main`から分岐していたため該当commitの差分のみをcherry-pick）を取り込み、1件の"fix: repair restart and floor transition runtime errors"commitとして記録した。個別修正時に作成していた`docs/history/fix-floor-transition-sprite-crash.md`・`docs/history/fix-gameover-restart-keys.md`は本ファイルへ統合し、削除した。

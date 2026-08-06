@@ -193,8 +193,13 @@ describe('Phase 14.5 UI overhaul: routeKeyDown (dialog / gameover context)', () 
     expect(routeKeyDown('dialog', ' ', noMods)).toBeNull();
   });
 
-  it('gameover: only confirm and cancel are routed, no field or menu actions', () => {
-    expect(routeKeyDown('gameover', 'j', noMods)).toEqual({ kind: 'menu_confirm' });
+  it('gameover: Enter/j restarts the same seed, N starts a new seed, Escape dismisses the overlay only, no field or menu actions leak through (playtest-blocking fix)', () => {
+    expect(routeKeyDown('gameover', 'j', noMods)).toEqual({ kind: 'gameover_restart_same' });
+    expect(routeKeyDown('gameover', 'Enter', noMods)).toEqual({ kind: 'gameover_restart_same' });
+    expect(routeKeyDown('gameover', 'n', noMods)).toEqual({ kind: 'gameover_restart_new' });
+    expect(routeKeyDown('gameover', 'N', noMods)).toEqual({ kind: 'gameover_restart_new' });
+    expect(routeKeyDown('gameover', 'Escape', noMods)).toEqual({ kind: 'gameover_dismiss_overlay' });
+    expect(routeKeyDown('gameover', 'k', noMods)).toEqual({ kind: 'gameover_dismiss_overlay' });
     expect(routeKeyDown('gameover', 'w', noMods)).toBeNull();
     expect(routeKeyDown('gameover', 'i', noMods)).toBeNull();
   });

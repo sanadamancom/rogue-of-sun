@@ -242,7 +242,7 @@ class MainScene extends Phaser.Scene {
     for (const line of lines) this.pushMessage(line);
   }
   private clearMessages(): void {
-    this.clearMessages();
+    this.messageLog.clear();
     this.messageHistory = [];
   }
   private logPanelBg!: Phaser.GameObjects.Graphics;
@@ -701,29 +701,104 @@ class MainScene extends Phaser.Scene {
     this.textures.get(spriteKey).setFilter(Phaser.Textures.FilterMode.NEAREST);
   }
 
-  /** (Re)creates one sprite per current enemy, using each enemy's own texture, discarding any previous sprites/tweens. */
+  /**
+   * Syncs `this.enemySprites` to the current roster by *resizing* the
+   * existing sprite pool (re-texturing sprites that are kept, destroying
+   * only the surplus, creating only the shortfall) instead of destroying
+   * every sprite and creating a full fresh batch on every floor
+   * transition. Bulk destroy-then-recreate of the whole roster in one
+   * synchronous tick was the pattern present when floor transitions
+   * started throwing an unexplained "Maximum call stack size exceeded"
+   * from `this.add.sprite` (root cause not confirmed — this could not be
+   * reproduced with a real browser in this environment — but the sheer
+   * volume of GameObject churn per transition was the one clear
+   * difference from the very first, successful call in create()).
+   * Reducing that churn to just the per-floor enemy-count delta (Phase
+   * 15.5's 6/7/8) removes most of the risk regardless of the exact
+   * cause. Also still guarantees
+   * `this.enemySprites.length === this.state.enemies.length` even if
+   * sprite creation itself starts failing outright, so a later
+   * `snapActor`/`animateMove` can never read `.setPosition` off
+   * `undefined` again (see docs/history/fix-floor-transition-sprite-
+   * crash.md).
+   */
   private rebuildEnemySprites(): void {
-    for (const sprite of this.enemySprites) {
-      this.tweens.killTweensOf(sprite);
-      sprite.destroy();
+    const enemies = this.state.enemies;
+
+    while (this.enemySprites.length > enemies.length) {
+      const sprite = this.enemySprites.pop()!;
+      try {
+        this.tweens.killTweensOf(sprite);
+        sprite.destroy();
+      } catch (error) {
+        console.error('rebuildEnemySprites: failed to tear down a surplus enemy sprite', error);
+      }
     }
-    this.enemySprites = this.state.enemies.map((enemy) => {
-      const sprite = this.add.sprite(0, 0, textureKeyForEnemyType(enemy.type), idleFrame('S'));
-      sprite.setScale(SPRITE_SCALE_X, SPRITE_SCALE_Y);
-      return sprite;
+
+    enemies.forEach((enemy, i) => {
+      if (i >= this.enemySprites.length) return; // handled by the growth loop below
+      try {
+        this.tweens.killTweensOf(this.enemySprites[i]); // clear any in-flight move animation left over from the previous floor
+        this.enemySprites[i].setTexture(textureKeyForEnemyType(enemy.type), idleFrame('S'));
+        this.enemySprites[i].setScale(SPRITE_SCALE_X, SPRITE_SCALE_Y);
+        this.enemySprites[i].setVisible(true);
+      } catch (error) {
+        console.error(`rebuildEnemySprites: failed to retexture sprite ${i} for '${enemy.type}'`, error);
+      }
     });
+
+    while (this.enemySprites.length < enemies.length) {
+      const enemy = enemies[this.enemySprites.length];
+      try {
+        const sprite = this.add.sprite(0, 0, textureKeyForEnemyType(enemy.type), idleFrame('S'));
+        sprite.setScale(SPRITE_SCALE_X, SPRITE_SCALE_Y);
+        this.enemySprites.push(sprite);
+      } catch (error) {
+        console.error(`rebuildEnemySprites: failed to create a new sprite for '${enemy.type}' at index ${this.enemySprites.length}`, error);
+        try {
+          const placeholder = this.add.sprite(0, 0, '__DEFAULT');
+          placeholder.setVisible(false);
+          this.enemySprites.push(placeholder);
+        } catch (fallbackError) {
+          // Sprite creation itself is broken (not just this texture) —
+          // further attempts in this loop will fail identically, so
+          // stop instead of looping forever. Every index this leaves
+          // unfilled is caught by the `!sprite` guards in
+          // snapAllEnemies/applyTurnResult, which skip it instead of
+          // crashing; enemySprites.length will stay short until the
+          // next successful rebuild (next floor/restart).
+          console.error('rebuildEnemySprites: even the placeholder sprite failed; giving up on filling the remaining roster this rebuild', fallbackError);
+          break;
+        }
+      }
+    }
+
     // uiCamera doesn't exist yet the very first time this runs (called
     // from create() before the camera split is set up); the initial
     // ignoreForUiCamera batch in create() covers that first roster
     // instead. Every later call (floor change/restart) re-applies it here
-    // since these are brand-new GameObjects each time.
+    // since sprites may be new GameObjects created by the growth loop
+    // above (re-adding an already-ignored sprite is a harmless no-op).
     if (this.uiCamera) this.ignoreForUiCamera(this.enemySprites);
   }
 
+  /**
+   * Runs `snapActor` for every current enemy against its matching
+   * sprite. Guards against `this.enemySprites` being shorter than
+   * `this.state.enemies` (should not happen after the rebuildEnemySprites
+   * fix above, but this keeps a mismatch from ever being a hard crash)
+   * by skipping and logging rather than calling `.setPosition` on
+   * `undefined`.
+   */
   private snapAllEnemies(): void {
-    this.state.enemies.forEach((enemy, i) =>
-      this.snapActor(this.enemySprites[i], enemy, textureKeyForEnemyType(enemy.type)),
-    );
+    this.state.enemies.forEach((enemy, i) => {
+      const sprite = this.enemySprites[i];
+      if (!sprite) {
+        console.error(`snapAllEnemies: no sprite at index ${i} for ${this.state.enemies.length} enemies (enemySprites has ${this.enemySprites.length}); skipping instead of crashing`);
+        return;
+      }
+      this.snapActor(sprite, enemy, textureKeyForEnemyType(enemy.type));
+    });
   }
 
   private createWalkAnimations(spriteKey: string): void {
@@ -1346,6 +1421,15 @@ class MainScene extends Phaser.Scene {
       case 'enchant_switch':
         this.dispatchGameAction({ type: 'toggle_enchantment' });
         return;
+      case 'gameover_restart_same':
+        this.restart(this.state.runSeed);
+        return;
+      case 'gameover_restart_new':
+        this.restart(randomSeed());
+        return;
+      case 'gameover_dismiss_overlay':
+        this.hideEndScreen();
+        return;
     }
   }
 
@@ -1853,6 +1937,10 @@ class MainScene extends Phaser.Scene {
     this.state.enemies.forEach((enemy, i) => {
       const before = enemiesBefore[i];
       const sprite = this.enemySprites[i];
+      if (!sprite) {
+        console.error(`applyTurnResult: no sprite at index ${i} for ${this.state.enemies.length} enemies (enemySprites has ${this.enemySprites.length}); skipping instead of crashing`);
+        return;
+      }
       const spriteKey = textureKeyForEnemyType(enemy.type);
       const moved = enemy.pos.x !== before.x || enemy.pos.y !== before.y;
       if (moved) {
