@@ -116,3 +116,56 @@ Phase 15試遊で、初期状態のプレイヤーが1階の基本敵「ボク�
 ## 15. Phase 26の最終調整とは別工程であること
 
 本Phase 16は、Phase 15試遊で判明した序盤の個別バランス問題（ボクの初撃ダメージ、序盤マップの空間の狭さ）に限定した調整であり、完成版全体の階層数・敵・装備・イベントを含む最終調整（Phase 26）とは別工程である。
+
+## 16. 追加修正：単一HTMLプレビューがボク攻撃6を表示していた不具合
+
+### 16.1 発生した事象
+
+Phase 16完了として最初に提示した単一HTMLプレビューを試遊したところ、戦闘ログに「ボクの攻撃！ 6ダメージを受けた。」と表示され、目標の3ダメージになっていなかった。
+
+### 16.2 原因の切り分け
+
+- `src/game/enemy-def.ts`（このブランチ`phase-16-early-game-balance`、HEAD `d0e0519`）上のボクの`attack`は**3で正しかった**
+- `enemy-type.test.ts`のsourceレベルの単体テスト（`ENEMY_DEFINITIONS.bok.attack === 3`）は当branchで一貫してパスしていた
+- 問題は、その後Enter/N再開キーの不具合を修正するために作成した別ブランチ`fix-gameover-restart-keys`を、誤って`phase-16-early-game-balance`（ボク修正・マップ拡張済み）ではなく**`main`（`371e0861`、Phase 16着手前）から分岐**させたことに起因する
+- 2回目・3回目に提示した単一HTMLプレビューは、この`fix-gameover-restart-keys`ブランチのビルドから生成しており、そのブランチの`enemy-def.ts`は`main`由来のためボクの`attack`が**6のまま**だった
+- `git merge-base fix-gameover-restart-keys phase-16-early-game-balance`が`371e0861`（Phase 16着手前のcommit）であることで、分岐元の取り違えを直接確認した
+
+結論として、リポジトリの実装（`phase-16-early-game-balance`ブランチ）自体に不具合はなく、**単一HTMLプレビューの生成元ブランチを取り違えた**ことが直接原因だった（`stale_single_html`・`old_artifact_only`の複合）。このため、`enemy-def.ts`・`combat.ts`・`mapgen.ts`への追加のコード修正は行っていない。
+
+### 16.3 再発防止として追加したもの
+
+**実戦経路の統合テスト**（`src/game/__tests__/phase-16-runtime-combat.test.ts`、新規）：
+`ENEMY_DEFINITIONS.bok`の値を直接使い、実際の`createInitialEnemy`→`processTurn`→`formatEvents`という実戦経路を通して、以下を検証する。
+
+- 実際のボクEnemyインスタンス1体・初期状態のプレイヤー（LIFE15・attack2・defense0）で、通常攻撃1回の実ダメージが3であること
+- LIFEが15→12になること
+- メッセージログが正確に「ボクの攻撃！ 3ダメージを受けた。」になること
+- 2回攻撃でLIFEが15→9になること
+- `computeIncomingDamage(ENEMY_DEFINITIONS.bok.attack, 0)`が3であること
+- ボク撃破に必要な実ダメージ合計が引き続き6（HP・プレイヤー攻撃力とも無変更）であること
+- コウモリなど他の敵の実ダメージがボク修正の影響を受けていないこと（スポットチェック）
+
+source定義だけを読む既存テストでは検出できなかった「正しいsourceから間違った成果物が作られる」という失敗モードを、実戦経路レベルで再現できるようにした。
+
+**単一HTML生成スクリプト**（`scripts/build-single-html.mjs`、新規）：
+今回の直接原因（生成元ブランチの取り違え）を機械的に防ぐため、単一HTML生成を手順化した。
+
+- 実行前に`git status --porcelain`でworking treeがcleanであることを要求し、汚れていれば失敗させる
+- 実行の度に`dist/`を削除して`vite build`を必ず再実行し、古い`dist`を絶対に使わない
+- ビルド直後のファイルだけをディスクから読み直して埋め込む
+- 出力ファイル名に短縮commit hashを含める（例: `rogue-of-sun-preview-d0e0519...html`）
+- 出力HTMLの`<head>`内に`<meta name="build-commit">`・`<meta name="build-branch">`を埋め込み、どのcommit/branchから生成したかを事後にも確認できるようにする
+- 埋め込み後、`assets/sprites/`への外部参照が残っていないことを自己検証する
+- スクリプトタグの差し替えに文字列replacerではなく関数replacerを使う（`$&`等の特殊置換パターンによる事故を防ぐ、前回発生した構文エラーの再発防止も兼ねる）
+
+### 16.4 検証
+
+- `npx vitest run`：72ファイル・1812件すべて成功（新規6件を含む）
+- `npx tsc -b --noEmit`：成功
+- `npx vite build`：成功
+- `scripts/build-single-html.mjs`を`phase-16-early-game-balance`のHEADに対して実行し、生成物の`<meta name="build-commit">`が実際のHEAD hashと一致すること、埋め込みbundle中にボクattack6の痕跡がないことを確認
+
+### 16.5 実ブラウザ確認について
+
+このタスク実行環境ではPlaywrightのブラウザバイナリ取得元にネットワークアクセスできないため、今回も実ブラウザでの目視確認・試遊は実施できていない。上記の統合テストと生成スクリプトのメタデータ検証によるコードレベルの保証に留まる。ユーザー側での実ブラウザ再試遊（ボク1回攻撃でLIFE15→12、ログが3ダメージ表示）を依頼する。
