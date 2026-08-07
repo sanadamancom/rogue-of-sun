@@ -316,3 +316,85 @@ Phase 17.1を正式承認（`status: accepted`）。以下を維持する：
 ### 10.6 Phase 17.2
 
 暗い区画の生成・配置・出現率、視界半径2/3の正式決定は未着手のまま。`computeCorridorVisibility`の半径引数はすでに対応済みのため、Phase 17.2ではこの半径決定と暗い区画そのものの生成・配置ロジックに着手する。
+
+## 11. Phase 17.2: 暗い区画（暗い部屋）の実装
+
+作成日: 2026-08-08
+対象: `phase-17-2-dark-areas`ブランチ、main HEAD `1ca9f5fe481f87c1e84ac55f1ed469dff56a6532`から分岐
+
+### 11.1 実装単位
+
+暗い区画は既存の部屋の一部を暗い部屋として指定する方式とし、新しい部屋形状やマップ構造は追加していない。1フロアにつき原則1室。
+
+### 11.2 開始部屋・出口部屋の除外
+
+`src/game/dark-rooms.ts`の`chooseDarkRoomIndex`が、`roomIndexContaining`で開始位置・出口位置が属する部屋indexを求め、両方を候補から除外する。除外後の候補が0室の場合は`null`を返し、そのフロアには暗い部屋を配置しない（開始部屋・出口部屋を暗い部屋へ変更することは構造上不可能）。
+
+### 11.3 決定方法・既存PRNGへの非干渉
+
+`floorSeed`と`floor`番号から、専用の32bit整数ハッシュ関数（`deterministicRoomHash`、Murmur3風の一般的なbit-mix手法、外部ライブラリのコード非流用）で候補室のインデックスを一意に決定する。`rng()`・`createRng()`を一切呼ばないため、既存のマップ生成・配置（`placementRng`）・種族選択（`speciesRng`）・アイテム・罠のRNGストリームを一切消費せず、既存のRNG消費順・seed決定論に影響を与えない。`state.ts`の`buildFloorState`内で、`choosePlacement`の直後（`placement.start`/`placement.exit`が確定した直後）に`map.darkRoomIndex`へ結果を代入するだけの純粋な追加ステップとして接続した。
+
+### 11.4 視界規則
+
+`src/game/visibility.ts`の`computeCurrentVisibility`を拡張：
+
+- 通常部屋（`map.darkRoomIndex`と一致しない室）：Phase 17.1の「部屋全体＋正規入口1マス」規則を無変更のまま維持
+- 暗い部屋（`map.darkRoomIndex`と一致する室）：`computeCorridorVisibility`（symmetric shadowcasting ∩ 角抜け禁止規則）をそのまま再利用し、半径だけを4から3（`DARK_ROOM_VISIBILITY_RADIUS`）に変更
+- 通路（どの部屋にも属さない）：Phase 17.1の半径4を無変更のまま維持
+
+暗い部屋専用の遮蔽アルゴリズムは新規実装していない。Phase 17.1のsymmetric shadowcasting・角抜け禁止規則をそのまま再利用しているため、壁越し非表示・L字角の奥の非表示・二重壁の斜め非透過・片側壁の既存規則・対称性のいずれもPhase 17.1の実装からそのまま継承される。
+
+### 11.5 半径3を採用した理由
+
+タスク指定により半径2は不採用、半径3をPhase 17.2の試遊基準として固定した。
+
+### 11.6 doorway transitionの確定仕様
+
+`computeCurrentVisibility`はプレイヤー座標から`isInRoomBounds`で毎ターン所属室を再計算する純粋関数であるため、入口遷移は特別なステートマシンなしに自然に成立する：
+
+- 通常通路（入口タイル含む、部屋矩形の外側）に立っている間は常に半径4の通路視界
+- 部屋矩形の内部床に入った瞬間、暗い部屋なら即座に半径3視界、通常部屋なら即座に全体表示へ切り替わる
+- 暗い部屋から通路へ出た瞬間、通常の半径4通路視界へ即座に戻る
+- 暗い部屋から通常部屋へ入った瞬間、通常部屋の全体表示へ即座に戻る
+- 判定はプレイヤー座標の純粋関数であり、ターンごとの不安定な切り替わりは発生しない（同じ座標なら常に同じ結果）
+
+### 11.7 exploration memoryとの関係
+
+`main.ts`の`exploredTiles`蓄積ロジック（`updateVisibility`）はPhase 17.1から無変更。`computeCurrentVisibility`が返す座標集合（暗い部屋なら半径3の可視集合のみ）だけが`exploredTiles`へ加算されるため、暗い部屋へ一度入っただけで部屋全体がexploredになることはなく、視界外になった箇所は自然に`explored_not_visible`として記憶される。暗い部屋専用の探索状態は追加していない（unexplored / explored_not_visible / currently_visibleの3状態を維持）。
+
+### 11.8 描画
+
+`main.ts`の`drawTerrain`に、`currently_visible`かつ暗い部屋矩形内（`isInRoomBounds`で判定）の場合だけ適用する専用の暗色（壁`0x262626`、床`0x141414`）を追加した。通常のcurrently_visible色（壁`0x333333`、床`0x1c1c1c`）より暗いが、Phase 17.1のexplored_not_visible色（壁`0x161616`、床`0x0a0a0a`）よりは明るく、黒い仮タイル環境でも判別可能な明度差を残した。新しいUI・アイコン・テキスト通知は追加していない。敵・床アイテム・出口の表示は既存の`currentVisible`判定をそのまま使用しており、変更していない。ミニマップも`exploredTiles`/`currentVisible`をそのまま参照する既存実装のままで変更していない。
+
+### 11.9 implementation gateの結果
+
+`src/game/__tests__/dark-rooms.test.ts`（新規19件）ですべて確認・合格：
+
+- 配置：同一seed/floorでの決定論、seed/floorによる選択の実際の変動、開始部屋非選択、出口部屋非選択、候補1室での確定選択、候補0室でのnull、ハッシュ関数の範囲内保証、既存RNG非干渉（構造的に`rng()`を呼ばない設計＋繰り返し呼び出しでの決定論確認）、実マップ生成との統合（60seed×3フロアで開始・出口部屋が常に除外されることを確認）
+- 視界：通常部屋は全体表示を維持、暗い部屋は半径3を超える座標（近い角から対角4マス先）が不可視、通路では暗い部屋の有無に関わらず半径4を維持
+- transition：入口タイルに立っただけでは暗い部屋の奥（半径4超）が見えない、暗い部屋矩形内に入った瞬間から半径3制限が有効、暗い部屋を出て通常部屋に入ると全体表示へ復帰
+
+### 11.10 変更ファイル一覧
+
+- 新規: `src/game/dark-rooms.ts`
+- 新規: `src/game/__tests__/dark-rooms.test.ts`
+- 変更: `src/game/types.ts`（`GameMap`へ`darkRoomIndex?: number | null`追加、既存テスト・fixtureとの互換性のためoptional）
+- 変更: `src/game/visibility.ts`（`DARK_ROOM_VISIBILITY_RADIUS`定数、`computeCurrentVisibility`の暗い部屋分岐）
+- 変更: `src/game/state.ts`（`buildFloorState`内で`chooseDarkRoomIndex`を呼び、`map.darkRoomIndex`へ設定）
+- 変更: `src/main.ts`（`drawTerrain`に暗い部屋の`currently_visible`専用暗色を追加）
+
+### 11.11 テスト・tsc・build結果
+
+- `npx vitest run`：79ファイル、1900件全成功（Phase 17.0の25件、Phase 17.1の27件、Phase 17.2の19件を含む。既存のマップ生成・敵AI・バランス・回帰系テストもすべて成功）
+- `npx tsc -b --noEmit`：エラーなし
+- `npx vite build`：成功
+- seed決定論・RNG消費順：`multi-floor-robustness.test.ts`の既存決定論テストが引き続き成功していることに加え、`dark-rooms.test.ts`で暗い部屋選択が既存のstart/exit/enemies配置結果に影響しないことを60seed×3フロアで確認
+- `package.json`/`package-lock.json`：origin/mainとの差分なし（依存追加なし）
+
+### 11.12 実ブラウザ確認
+
+本commit後に単一HTML（`rogue-of-sun-phase17-2-dark-rooms-preview-<短縮HEAD>.html`）を別途生成予定。実施可否は最終報告に記載する。
+
+### 11.13 Phase 17.2の状態
+
+feature branch `phase-17-2-dark-areas` 上での実装完了、試遊待ち。mainへの統合は次の別タスクで判断する。Phase 18以降は未着手。

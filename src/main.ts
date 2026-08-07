@@ -63,7 +63,7 @@ import {
   RepeatTimer,
 } from './game/input-router';
 import { roomIndexContaining } from './game/mapgen';
-import { computeCurrentVisibility, pointKey as visibilityPointKey } from './game/visibility';
+import { computeCurrentVisibility, isInRoomBounds, pointKey as visibilityPointKey } from './game/visibility';
 
 // Phase 14.5 spec 5.2: 2 lines by default (was 3). Newest at the bottom,
 // oldest pushed out once over capacity; overflow history is available via
@@ -873,8 +873,20 @@ class MainScene extends Phaser.Scene {
    * create()/resetSceneToCurrentState()/refreshStaticView() pass that
    * leads here).
    */
+  /**
+   * Phase 17.2: dark-room `currently_visible` fill — a little darker than
+   * the ordinary currently_visible colors above, but still clearly
+   * lighter than the explored_not_visible memory colors (visual_design.
+   * required_states: "通常の現在視界より少し暗いが地形を判別可能"). No
+   * separate wall/floor distinction logic beyond reusing the same
+   * isWall check; only the color values differ from the normal case.
+   */
+  private readonly DARK_ROOM_VISIBLE_WALL_COLOR = 0x262626;
+  private readonly DARK_ROOM_VISIBLE_FLOOR_COLOR = 0x141414;
+
   private drawTerrain(): void {
     const { map, sunlight } = this.state;
+    const darkRoom = map.darkRoomIndex != null ? map.rooms[map.darkRoomIndex] : null;
     this.terrainGraphics.clear();
     for (let y = 0; y < map.height; y++) {
       const exploredRow = this.exploredTiles[y];
@@ -884,7 +896,10 @@ class MainScene extends Phaser.Scene {
         const visible = this.currentVisible.has(`${x},${y}`);
 
         if (visible) {
-          this.terrainGraphics.fillStyle(isWall ? 0x333333 : 0x1c1c1c, 1);
+          const inDarkRoom = darkRoom !== null && isInRoomBounds(darkRoom, { x, y });
+          const wallColor = inDarkRoom ? this.DARK_ROOM_VISIBLE_WALL_COLOR : 0x333333;
+          const floorColor = inDarkRoom ? this.DARK_ROOM_VISIBLE_FLOOR_COLOR : 0x1c1c1c;
+          this.terrainGraphics.fillStyle(isWall ? wallColor : floorColor, 1);
           this.terrainGraphics.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
           if (!isWall && sunlight[y]?.[x]) {
             this.terrainGraphics.fillStyle(this.SUNLIGHT_OVERLAY_COLOR, this.SUNLIGHT_OVERLAY_ALPHA);

@@ -41,6 +41,16 @@ export type TileVisibility = 'unexplored' | 'explored_not_visible' | 'currently_
 /** Default corridor FOV radius (Chebyshev), per Phase 17.1's fixed_specification. */
 export const CORRIDOR_VISIBILITY_RADIUS = 4;
 
+/**
+ * Phase 17.2: reduced FOV radius used inside this floor's dark room
+ * (fixed at 3, per dark_area_definition — radius 2 was evaluated in
+ * Phase 17.0's fixture comparison and not adopted). Uses the exact same
+ * `computeCorridorVisibility` (symmetric shadowcasting ∩ corner-rule
+ * reachability) as ordinary corridors, just with this smaller radius —
+ * no separate occlusion logic for dark rooms.
+ */
+export const DARK_ROOM_VISIBILITY_RADIUS = 3;
+
 export function pointKey(p: Vec2): string {
   return `${p.x},${p.y}`;
 }
@@ -276,12 +286,21 @@ export function roomVisibleTiles(map: GameMap, room: Room): Vec2[] {
 
 /**
  * The player's full currently-visible tile set for this turn: whole-room
- * visibility while standing inside a room's rectangle (`rooms` — Phase
- * 16.2's "room activation" rule), otherwise radius-based corridor
- * visibility centered on `playerPos`. Pure function, no side effects.
+ * visibility while standing inside an ordinary room's rectangle (Phase
+ * 16.2's "room activation" rule), radius-3 symmetric-shadowcasting FOV
+ * while standing inside this floor's dark room (Phase 17.2 — same
+ * shadowcasting/corner-rule machinery as a corridor, just a smaller
+ * radius and triggered by room membership instead of "not in any room"),
+ * or the ordinary radius-4 corridor FOV otherwise. Pure function, no
+ * side effects. `map.darkRoomIndex` (dark-rooms.ts's
+ * chooseDarkRoomIndex) is the single source of truth for which room, if
+ * any, is dark this floor — this function never re-derives it.
  */
 export function computeCurrentVisibility(map: GameMap, rooms: Room[], playerPos: Vec2, radius: number = CORRIDOR_VISIBILITY_RADIUS): Vec2[] {
-  const room = rooms.find((r) => isInRoomBounds(r, playerPos));
-  if (room) return roomVisibleTiles(map, room);
-  return computeCorridorVisibility(map, playerPos, radius);
+  const roomIndex = rooms.findIndex((r) => isInRoomBounds(r, playerPos));
+  if (roomIndex < 0) return computeCorridorVisibility(map, playerPos, radius);
+  if (map.darkRoomIndex != null && map.darkRoomIndex === roomIndex) {
+    return computeCorridorVisibility(map, playerPos, DARK_ROOM_VISIBILITY_RADIUS);
+  }
+  return roomVisibleTiles(map, rooms[roomIndex]);
 }

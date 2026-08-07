@@ -55,6 +55,15 @@ export interface GameMap {
   terrain: Tile[][];
   rooms: Room[];
   exit: Vec2;
+  /**
+   * Phase 17.2: index into `rooms` of this floor's single dark room, or
+   * `null`/`undefined` when no eligible room exists (start/exit rooms are
+   * never darkened — see dark-rooms.ts's chooseDarkRoomIndex). Optional
+   * so every pre-Phase-17.2 GameMap literal (tests, fixtures) stays valid
+   * without this field; a map without it behaves exactly like "no dark
+   * room this floor".
+   */
+  darkRoomIndex?: number | null;
 }
 
 export interface Actor {

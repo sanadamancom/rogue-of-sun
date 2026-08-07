@@ -10,6 +10,7 @@ import {
   ENEMY_COUNT_PER_FLOOR,
 } from './mapgen';
 import { createInitialActor, createInitialEnemy } from './turn';
+import { chooseDarkRoomIndex } from './dark-rooms';
 import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
 import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
 import { createEmptyInventory, drawGroundItemCount, drawGroundItemSelection, getGroundItemPoolForFloor } from './item-def';
@@ -151,6 +152,15 @@ function buildFloorState(
   // count; choosePlacement itself is unaware of floor numbers.
   const resolvedEnemyCount = enemyCount ?? ENEMY_COUNT_BY_FLOOR[floor] ?? ENEMY_COUNT_PER_FLOOR;
   const placement = choosePlacement(map, placementRng, resolvedEnemyCount);
+
+  // Phase 17.2: dark-room selection is a pure function of (floorSeed,
+  // floor, map.rooms, start, exit) — no rng() call, so it cannot perturb
+  // placementRng/speciesRng or any other stream's consumption count.
+  // Mutating `map` here (rather than threading a new field through
+  // generateMap's return type) keeps map generation itself untouched and
+  // matches this field's doc comment on GameMap (owned by the map/floor
+  // state, not derived ad hoc by the renderer).
+  map.darkRoomIndex = chooseDarkRoomIndex(map, floorSeed, floor, placement.start, placement.exit);
 
   const player: Actor = carry
     ? createInitialActor(placement.start, carry.maxHp, carry.attack, carry.defense, carry.accuracy, carry.evasion)
