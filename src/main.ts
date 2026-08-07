@@ -49,7 +49,7 @@ import {
 import { EFFECT_DEFINITIONS, getActiveEffects } from './game/effects';
 import { processTurn, TurnResult, ELEMENT_ENCHANTMENT_SOL_COST } from './game/turn';
 import { DIRECTION_VECTORS, EnemyType, GameState, Direction8 } from './game/types';
-import { CAMERA_VIEW_WIDTH, CAMERA_VIEW_HEIGHT, computeCameraWindow, isWithinCameraWindow } from './game/camera';
+import { CAMERA_VIEW_WIDTH, CAMERA_VIEW_HEIGHT } from './game/camera';
 import { canTakeDashStep, shouldStopDashAfterStep } from './game/dash';
 import {
   routeKeyDown,
@@ -62,7 +62,8 @@ import {
   tickRepeat,
   RepeatTimer,
 } from './game/input-router';
-import { getRoomCorridorEntrances, roomIndexContaining } from './game/mapgen';
+import { roomIndexContaining } from './game/mapgen';
+import { computeCurrentVisibility, pointKey as visibilityPointKey } from './game/visibility';
 
 // Phase 14.5 spec 5.2: 2 lines by default (was 3). Newest at the bottom,
 // oldest pushed out once over capacity; overflow history is available via
@@ -283,15 +284,23 @@ class MainScene extends Phaser.Scene {
   }
 
   /**
-   * Per-floor, scene-local "have I ever had this tile inside the 9x7
-   * camera window" record (Phase 14.5 spec section 7's persistent
-   * explored-map). Deliberately NOT part of GameState: it never affects
-   * gameplay, RNG, seeds, or telemetry (redesign direction's
-   * "gameplay、seed、telemetry、GameStateへ影響させない") — purely a
-   * rendering aid, reset whenever the floor changes or the run restarts.
-   * Sized to the current floor's map on each reset.
+   * Per-floor, scene-local exploration memory (Phase 17.1's
+   * `explored_not_visible` vs `unexplored` distinction, superseding the
+   * old Phase 14.5 "have I ever had this tile inside the 9x7 camera
+   * window" record). Deliberately NOT part of GameState: it never affects
+   * gameplay, RNG, seeds, or telemetry — purely a rendering aid, reset
+   * whenever the floor changes or the run restarts. Sized to the current
+   * floor's map on each reset.
    */
   private exploredTiles: boolean[][] = [];
+  /**
+   * Per-turn `currently_visible` set (Phase 17.1), recomputed by
+   * updateVisibility() from src/game/visibility.ts's pure
+   * computeCurrentVisibility. Keys are `${x},${y}` (visibilityPointKey).
+   * Rebuilt from scratch every call — never accumulated — since "currently
+   * visible" only ever describes this exact turn/frame.
+   */
+  private currentVisible: Set<string> = new Set();
   private minimapGraphics!: Phaser.GameObjects.Graphics;
 
   private resetExploredTiles(): void {
@@ -300,33 +309,28 @@ class MainScene extends Phaser.Scene {
   }
 
   /**
-   * Marks every tile inside the current camera window as explored, plus
-   * (Phase 16.2 corridor guidance — tester feedback: "大きな部屋に入った
-   * 際、進める通路の最初の1マスが見えると進みやすい") every corridor's
-   * first floor tile just outside the room the player is currently
-   * standing in, if any. Reuses the same exploredTiles bookkeeping as the
-   * camera window (per the redesign direction's existing visible-history
-   * spec — this is purely a rendering aid, not GameState), so a revealed
-   * doorway tile behaves exactly like any other explored tile: visible on
-   * the always-on explored map, but never affecting movement legality,
-   * pathing, or anything beyond that single tile (getRoomCorridorEntrances
-   * never returns more than the one doorway tile per connection).
+   * Recomputes this turn's `currently_visible` set (src/game/
+   * visibility.ts's computeCurrentVisibility — whole room + each
+   * connected corridor's first tile while standing in a room, or radius-4
+   * symmetric-shadowcasting FOV otherwise) and folds every one of those
+   * tiles into the per-floor exploration memory (`exploredTiles`), so a
+   * tile once seen stays `explored_not_visible` after the player moves
+   * away rather than reverting to `unexplored`. Pure-function visibility
+   * math lives entirely in visibility.ts; this method only owns the
+   * per-floor accumulation and the per-turn snapshot, matching Phase
+   * 17.1's separation_of_responsibilities (visibility_module vs
+   * exploration_owner vs renderer).
    */
-  private markCameraWindowExplored(): void {
-    const window = computeCameraWindow(this.state.player.pos, this.state.map.width, this.state.map.height);
-    for (let y = window.y0; y < window.y0 + window.height; y++) {
-      for (let x = window.x0; x < window.x0 + window.width; x++) {
-        if (this.exploredTiles[y]) this.exploredTiles[y][x] = true;
-      }
+  private updateVisibility(): void {
+    const visible = computeCurrentVisibility(this.state.map, this.state.map.rooms, this.state.player.pos);
+    this.currentVisible = new Set(visible.map(visibilityPointKey));
+    for (const p of visible) {
+      if (this.exploredTiles[p.y]) this.exploredTiles[p.y][p.x] = true;
     }
+  }
 
-    const currentRoomIndex = roomIndexContaining(this.state.map.rooms, this.state.player.pos);
-    if (currentRoomIndex >= 0) {
-      const room = this.state.map.rooms[currentRoomIndex];
-      for (const entrance of getRoomCorridorEntrances(this.state.map, room)) {
-        if (this.exploredTiles[entrance.y]) this.exploredTiles[entrance.y][entrance.x] = true;
-      }
-    }
+  private isCurrentlyVisible(pos: { x: number; y: number }): boolean {
+    return this.currentVisible.has(visibilityPointKey(pos));
   }
 
   // ----- Phase 14.5 input: dash / long-press repeat / F(turn-only) held state -----
@@ -377,6 +381,13 @@ class MainScene extends Phaser.Scene {
   create(): void {
     this.state = createInitialState(randomSeed());
     this.telemetry = createRunTelemetry(this.state);
+
+    // Phase 17.1: exploration memory and the current-turn visibility set
+    // must exist before the very first drawTerrain/drawExit/
+    // drawGroundItems call below, since those now read them (unexplored
+    // tiles are not drawn at all).
+    this.resetExploredTiles();
+    this.updateVisibility();
 
     this.terrainGraphics = this.add.graphics();
     this.exitGraphics = this.add.graphics();
@@ -440,9 +451,10 @@ class MainScene extends Phaser.Scene {
     // sub-rectangle and follows the player with bounds clamping — the
     // existing Phaser camera-follow system already does exactly the
     // "center on player, clamp at map edges" behavior spec 6.1 asks for,
-    // so no per-frame manual coordinate math is needed for it (camera.ts's
-    // computeCameraWindow is used only for the explored-map bookkeeping
-    // and stays the single source of truth for what "9x7" means).
+    // so no per-frame manual coordinate math is needed for it. Phase 17.1
+    // replaced the old camera-window-based explored-map bookkeeping with
+    // src/game/visibility.ts's real FOV (see updateVisibility()); camera.ts
+    // now only defines the 9x7 viewport itself (CAMERA_VIEW_WIDTH/HEIGHT).
     const mapPixelWidth = this.state.map.width * TILE_SIZE;
     const mapPixelHeight = this.state.map.height * TILE_SIZE;
     this.cameras.main.setViewport(0, HUD_HEIGHT, FIELD_PIXEL_WIDTH, FIELD_PIXEL_HEIGHT);
@@ -478,9 +490,6 @@ class MainScene extends Phaser.Scene {
       ...this.enemySprites,
       ...this.groundItemTexts,
     ]);
-
-    this.resetExploredTiles();
-    this.markCameraWindowExplored();
 
     // ----- Phase 14.5: input-router-driven keyboard handling -----
     // Tracks physical key-held state manually only for 'f' (turn-only
@@ -817,7 +826,7 @@ class MainScene extends Phaser.Scene {
         console.error(`snapAllEnemies: no sprite at index ${i} for ${this.state.enemies.length} enemies (enemySprites has ${this.enemySprites.length}); skipping instead of crashing`);
         return;
       }
-      this.snapActor(sprite, enemy, textureKeyForEnemyType(enemy.type));
+      this.snapActor(sprite, enemy, textureKeyForEnemyType(enemy.type), this.isCurrentlyVisible(enemy.pos));
     });
   }
 
@@ -842,16 +851,47 @@ class MainScene extends Phaser.Scene {
   private readonly SUNLIGHT_OVERLAY_COLOR = 0xffb454;
   private readonly SUNLIGHT_OVERLAY_ALPHA = 0.22;
 
+  /**
+   * Dark, memory-display fill for `explored_not_visible` terrain (Phase
+   * 17.1 visual_design.policy: "単純な黒い半透明矩形の重ね掛けなど、既存
+   * 描画方式への最小変更で実装する" — a flat, noticeably darker fill than
+   * the current-visibility colors below, still distinct between floor and
+   * wall so shape/layout stays legible from memory alone). No sunlight
+   * overlay in this state — sunlight is a live lighting condition, not
+   * part of what's remembered.
+   */
+  private readonly EXPLORED_DIM_WALL_COLOR = 0x161616;
+  private readonly EXPLORED_DIM_FLOOR_COLOR = 0x0a0a0a;
+
+  /**
+   * Phase 17.1: terrain now has 3 states instead of always drawing every
+   * tile — `unexplored` (nothing drawn at all), `explored_not_visible`
+   * (dim memory colors, no sunlight), and `currently_visible` (the
+   * original full-color rendering, sunlight overlay included). Reads
+   * this.exploredTiles/this.currentVisible, both kept current by
+   * updateVisibility() (always called earlier in the same
+   * create()/resetSceneToCurrentState()/refreshStaticView() pass that
+   * leads here).
+   */
   private drawTerrain(): void {
     const { map, sunlight } = this.state;
     this.terrainGraphics.clear();
     for (let y = 0; y < map.height; y++) {
+      const exploredRow = this.exploredTiles[y];
       for (let x = 0; x < map.width; x++) {
+        if (!exploredRow?.[x]) continue; // unexplored: draw nothing
         const isWall = map.terrain[y][x] === 'wall';
-        this.terrainGraphics.fillStyle(isWall ? 0x333333 : 0x1c1c1c, 1);
-        this.terrainGraphics.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-        if (!isWall && sunlight[y]?.[x]) {
-          this.terrainGraphics.fillStyle(this.SUNLIGHT_OVERLAY_COLOR, this.SUNLIGHT_OVERLAY_ALPHA);
+        const visible = this.currentVisible.has(`${x},${y}`);
+
+        if (visible) {
+          this.terrainGraphics.fillStyle(isWall ? 0x333333 : 0x1c1c1c, 1);
+          this.terrainGraphics.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+          if (!isWall && sunlight[y]?.[x]) {
+            this.terrainGraphics.fillStyle(this.SUNLIGHT_OVERLAY_COLOR, this.SUNLIGHT_OVERLAY_ALPHA);
+            this.terrainGraphics.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+          }
+        } else {
+          this.terrainGraphics.fillStyle(isWall ? this.EXPLORED_DIM_WALL_COLOR : this.EXPLORED_DIM_FLOOR_COLOR, 1);
           this.terrainGraphics.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
         }
         this.terrainGraphics.lineStyle(1, 0x000000, 0.4);
@@ -953,10 +993,21 @@ class MainScene extends Phaser.Scene {
     g.fillCircle(cx, cy, this.MARKER_RADIUS * 0.45);
   }
 
+  /**
+   * Phase 17.1 rendering_rules.entities.exit: normal color while
+   * currently visible, a dimmer "remembered" alpha once explored but no
+   * longer visible (a fixed landmark, unlike enemies/items — see the
+   * rationale comment on rendering_rules), and not drawn at all while
+   * still unexplored.
+   */
+  private readonly EXPLORED_EXIT_ALPHA = 0.35;
+
   private drawExit(): void {
     const { exit } = this.state;
     this.exitGraphics.clear();
-    this.exitGraphics.fillStyle(0xffd54a, 1);
+    if (!this.exploredTiles[exit.y]?.[exit.x]) return;
+    const alpha = this.isCurrentlyVisible(exit) ? 1 : this.EXPLORED_EXIT_ALPHA;
+    this.exitGraphics.fillStyle(0xffd54a, alpha);
     this.exitGraphics.fillRect(
       exit.x * TILE_SIZE + TILE_SIZE * 0.15,
       exit.y * TILE_SIZE + TILE_SIZE * 0.15,
@@ -1049,17 +1100,24 @@ class MainScene extends Phaser.Scene {
    * processed sprite asset), destroying and rebuilding the text objects
    * each call since ground items can appear/disappear (pickup) between
    * calls and there are always very few of them.
+   *
+   * Phase 17.1 rendering_rules.entities.floor_items: only drawn while
+   * `currently_visible` — never a remembered/last-seen ghost, since an
+   * item can be picked up by the time the player returns (rationale
+   * comment on rendering_rules).
    */
   private drawGroundItems(): void {
     this.groundItemTexts.forEach((t) => t.destroy());
-    this.groundItemTexts = this.state.groundItems.map((item) => {
-      const glyph = ITEM_DEFINITIONS[item.itemId].glyph;
-      const cx = item.pos.x * TILE_SIZE + TILE_SIZE / 2;
-      const cy = item.pos.y * TILE_SIZE + TILE_SIZE / 2;
-      return this.add
-        .text(cx, cy, glyph, { fontSize: `${Math.round(TILE_SIZE * 0.6)}px` })
-        .setOrigin(0.5);
-    });
+    this.groundItemTexts = this.state.groundItems
+      .filter((item) => this.isCurrentlyVisible(item.pos))
+      .map((item) => {
+        const glyph = ITEM_DEFINITIONS[item.itemId].glyph;
+        const cx = item.pos.x * TILE_SIZE + TILE_SIZE / 2;
+        const cy = item.pos.y * TILE_SIZE + TILE_SIZE / 2;
+        return this.add
+          .text(cx, cy, glyph, { fontSize: `${Math.round(TILE_SIZE * 0.6)}px` })
+          .setOrigin(0.5);
+      });
     if (this.uiCamera) this.ignoreForUiCamera(this.groundItemTexts);
   }
 
@@ -1073,13 +1131,22 @@ class MainScene extends Phaser.Scene {
    * 現在見えている対象だけを表示し、画面外へ移動した敵の現在位置を追跡
    * 表示しない"). Never reads or writes GameState — purely reads it.
    */
+  /**
+   * Phase 17.1: minimap terrain/exit still use this.exploredTiles (a
+   * discovered tile stays on the minimap forever, matching
+   * minimap.rules's "explored地形は表示する" / "出口は一度探索済みになれ
+   * ば表示を維持する" — unchanged from the prior camera-window-explored
+   * behavior). Enemies/items now gate on this.currentVisible (the real
+   * FOV) instead of the old 9x7 camera-window rectangle, per
+   * minimap.rules's "敵/床アイテムはcurrently_visibleの場合だけ表示する"
+   * — the same visibility state the main field view uses, not a
+   * separately reimplemented rule.
+   */
   private drawMinimap(): void {
     const { map } = this.state;
     const tileW = FIELD_PIXEL_WIDTH / map.width;
     const tileH = FIELD_PIXEL_HEIGHT / map.height;
     this.minimapGraphics.clear();
-
-    const camWindow = computeCameraWindow(this.state.player.pos, map.width, map.height, CAMERA_VIEW_WIDTH, CAMERA_VIEW_HEIGHT);
 
     for (let y = 0; y < map.height; y++) {
       const exploredRow = this.exploredTiles[y];
@@ -1100,12 +1167,12 @@ class MainScene extends Phaser.Scene {
 
     for (const enemy of this.state.enemies) {
       if (!enemy.alive) continue;
-      if (!isWithinCameraWindow(enemy.pos, camWindow)) continue;
+      if (!this.isCurrentlyVisible(enemy.pos)) continue;
       this.minimapGraphics.fillStyle(0xe05050, 0.95);
       this.minimapGraphics.fillRect(enemy.pos.x * tileW, enemy.pos.y * tileH, Math.ceil(tileW), Math.ceil(tileH));
     }
     for (const item of this.state.groundItems) {
-      if (!isWithinCameraWindow(item.pos, camWindow)) continue;
+      if (!this.isCurrentlyVisible(item.pos)) continue;
       this.minimapGraphics.fillStyle(0x66ccee, 0.95);
       this.minimapGraphics.fillRect(item.pos.x * tileW, item.pos.y * tileH, Math.ceil(tileW), Math.ceil(tileH));
     }
@@ -1963,10 +2030,14 @@ class MainScene extends Phaser.Scene {
       }
       const spriteKey = textureKeyForEnemyType(enemy.type);
       const moved = enemy.pos.x !== before.x || enemy.pos.y !== before.y;
+      // refreshStaticView() (called earlier this same turn, above) already
+      // recomputed this.currentVisible from the player's post-move
+      // position, so this reflects the destination tile's visibility.
+      const visible = this.isCurrentlyVisible(enemy.pos);
       if (moved) {
-        this.animateMove(sprite, spriteKey, enemy, before);
+        this.animateMove(sprite, spriteKey, enemy, before, visible);
       } else {
-        this.snapActor(sprite, enemy, spriteKey);
+        this.snapActor(sprite, enemy, spriteKey, visible);
       }
     });
   }
@@ -1983,6 +2054,11 @@ class MainScene extends Phaser.Scene {
 
   /** Redraws map/exit/camera/sprites to match `this.state` (used for both restarts and floor transitions). */
   private resetSceneToCurrentState(): void {
+    // Phase 17.1: exploration memory/visibility must be (re)computed for
+    // the new floor/run before any draw call below, since drawTerrain/
+    // drawExit/drawGroundItems now read them.
+    this.resetExploredTiles();
+    this.updateVisibility();
     this.drawTerrain();
     this.drawExit();
     this.drawGroundItems();
@@ -1993,8 +2069,6 @@ class MainScene extends Phaser.Scene {
       this.state.map.height * TILE_SIZE,
     );
     this.rebuildEnemySprites();
-    this.resetExploredTiles();
-    this.markCameraWindowExplored();
     this.refreshStaticView();
     this.snapActor(this.playerSprite, this.state.player);
     this.snapAllEnemies();
@@ -2055,16 +2129,24 @@ class MainScene extends Phaser.Scene {
     });
   }
 
-  /** Snaps a non-moving actor's sprite to its tile; it keeps idle-stepping in place. */
+  /**
+   * Snaps a non-moving actor's sprite to its tile; it keeps idle-stepping
+   * in place. `extraVisible` (Phase 17.1 rendering_rules.entities.enemies:
+   * default true, used for the player who is always at a currently-
+   * visible tile by construction) additionally gates visibility — passed
+   * as `false` for an enemy outside `this.currentVisible` so it's hidden
+   * regardless of `actor.alive`.
+   */
   private snapActor(
     sprite: Phaser.GameObjects.Sprite,
     actor: GameState['player'],
     spriteKey: string = 'player',
+    extraVisible: boolean = true,
   ): void {
     const x = actor.pos.x * TILE_SIZE + TILE_SIZE / 2;
     const y = actor.pos.y * TILE_SIZE + TILE_SIZE / 2;
     sprite.setPosition(x, y);
-    sprite.setVisible(actor.alive);
+    sprite.setVisible(actor.alive && extraVisible);
     if (actor.alive) {
       this.ensureWalking(sprite, spriteKey, toDirection4(actor.facing));
     } else {
@@ -2114,12 +2196,20 @@ class MainScene extends Phaser.Scene {
     });
   }
 
-  /** Tweens the sprite from its previous tile to its new tile while the walk loop keeps playing. */
+  /**
+   * Tweens the sprite from its previous tile to its new tile while the
+   * walk loop keeps playing. `extraVisible` (Phase 17.1, default true for
+   * the player) additionally gates visibility for the whole tween — an
+   * enemy whose destination tile isn't currently visible neither starts
+   * visible nor plays its move animation (rendering_rules.effects: "視界
+   * 外の敵のアニメーションを描画しない").
+   */
   private animateMove(
     sprite: Phaser.GameObjects.Sprite,
     spriteKey: string,
     actor: GameState['player'],
     fromTile: { x: number; y: number },
+    extraVisible: boolean = true,
   ): void {
     const dir4 = toDirection4(actor.facing);
     const fromX = fromTile.x * TILE_SIZE + TILE_SIZE / 2;
@@ -2128,7 +2218,7 @@ class MainScene extends Phaser.Scene {
     const toY = actor.pos.y * TILE_SIZE + TILE_SIZE / 2;
 
     sprite.setPosition(fromX, fromY);
-    sprite.setVisible(true);
+    sprite.setVisible(extraVisible);
     this.ensureWalking(sprite, spriteKey, dir4);
 
     this.activeAnimations += 1;
@@ -2138,7 +2228,7 @@ class MainScene extends Phaser.Scene {
       y: toY,
       duration: this.MOVE_DURATION,
       onComplete: () => {
-        sprite.setVisible(actor.alive);
+        sprite.setVisible(actor.alive && extraVisible);
         this.activeAnimations -= 1;
       },
     });
@@ -2147,13 +2237,18 @@ class MainScene extends Phaser.Scene {
   private refreshStaticView(): void {
     const { player } = this.state;
 
+    // Phase 17.1: visibility must be current before any of the draws
+    // below, since drawTerrain/drawExit/drawGroundItems/drawMinimap all
+    // read this.currentVisible / this.exploredTiles.
+    this.updateVisibility();
+    this.drawTerrain();
+    this.drawExit();
     this.drawWebs();
     this.drawTraps();
     this.drawGroundItems();
     this.drawTelegraphs();
     this.updatePlayerSlowedTint();
     this.refreshLogPanel();
-    this.markCameraWindowExplored();
     this.drawMinimap();
     this.refreshMenuOverlay();
     this.updateFacingMarker();

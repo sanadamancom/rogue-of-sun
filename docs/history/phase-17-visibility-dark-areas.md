@@ -165,3 +165,103 @@ Phase 16.2版の実ブラウザ試遊結果（3階まで容易にクリア、自
 - `tools/phase17-visibility/comparison.test.ts`（新規25件）：決定性、マップ外参照なし、入力不変、原点は常に可視、対角角抜け禁止との一致（floodfill）、直線通路・マップ端・複数出口部屋・暗い区画半径比較、候補間の差異が最低1件存在することの確認
 - Phase 17.0はproductionコードを一切変更していないため、`npx vitest run`（production全体）は実行していない（`tests.policy`の指示どおり、視界・マップ・描画に直接関係する既存テストの再確認はPhase 16のバトンタッチ時点ですでに全件成功していることをprecheckで確認済み）
 - `npx tsc -b --noEmit`：`tools/`配下も含めてリポジトリ全体でエラーなし
+
+## 9. Phase 17.1: production視界・探索記憶の実装
+
+作成日: 2026-08-08
+対象: `phase-17-visibility-dark-areas`ブランチ、Phase 17.0開始HEAD `63c93d664b2e24df66f7453a25cd60955dd63079`から1commit追加
+
+### 9.1 Phase 17.0推奨方式の未検証だった点
+
+Phase 17.0はrecursive/symmetric shadowcasting系統を推奨したが、実際の試作（recursive shadowcastingの初期実装）は単一壁マスのfixtureで明白なバグ（壁から離れた無関係な領域まで広範囲に誤って遮蔽）が出たため未検証のまま終わっていた。Phase 17.1では、まずこの方式を`src/game/visibility.ts`として一から実装し、Phase 17.0の8 fixtureすべてに対する期待座標をテストで明示したうえでimplementation gateの全項目に合格したことを確認してからproduction接続へ進んだ。
+
+### 9.2 採用した実装方針
+
+`src/game/visibility.ts`（新規、pure関数のみ、GameState/Canvas/DOM非依存、RNG不使用）：
+
+1. **symmetric shadowcasting**（`shadowcastVisibleTiles`）：原点を中心とした東西南北4象限それぞれを、原点からの距離（row）ごとに走査するアルゴリズム。各tileの境界を厳密な整数分数（分子・分母のペア）で比較することで浮動小数点誤差を排除し、「AからBが見えるならBからAも見える」という対称性を保証した。壁と床の境界を検出するたびに、そこから先の走査区間（slope interval）を再帰的に絞り込むことで、L字角を曲がった先の通路奥へ視界が漏れる問題（Phase 17.0でray casting・floodfillの両方に見られた弱点）を解消した。8オクタントではなく4象限方式を採用（Albert Ford氏らが公開している一般的なアルゴリズム設計思想を参考にしたが、コードは本実装向けに独自に一から記述しており、外部ライブラリ・既存実装のコピーや翻案は一切行っていない）。
+2. **既存の角抜け禁止規則との一致**（`legallyReachableTiles`、`computeCorridorVisibility`）：shadowcastingだけでは、本作固有の「斜め移動時、両側の直交マスが両方とも壁なら移動不可」という規則（`map.ts`の`isDiagonalCornerOpen`、既存の移動・近接攻撃判定と共用）を自然には強制しないため、原点からの合法な単位移動列（同じ角抜け禁止規則を適用）で到達可能なマス集合を別途BFSで計算し、shadowcasting結果との積集合を最終的な可視集合とした。これにより、視界と移動の角抜け規則が常に矛盾しないことを保証している。
+3. **通常部屋の可視性**（`roomVisibleTiles`）：部屋矩形の内部全床に加え、4辺（対角の角マスは除く）の一マス外側リング（壁・通路入口の両方を含む）を可視とする。対角の角マスを除外しているのは、Phase 16.2の`getRoomCorridorEntrances`が直線4辺のみを走査する設計と一致させ、対角にたまたま床があった場合に無関係な通路まで見せてしまうことを防ぐため。
+4. **トップレベル**（`computeCurrentVisibility`）：プレイヤーが部屋矩形内にいれば`roomVisibleTiles`、それ以外（通路）ならデフォルト半径4（`CORRIDOR_VISIBILITY_RADIUS`）の`computeCorridorVisibility`を使う。半径は引数化されており、Phase 17.2の暗い区画（半径2/3）にそのまま流用できる。
+
+### 9.3 implementation gate各項目の結果
+
+`src/game/__tests__/visibility.test.ts`（新規27件）ですべて確認・合格：
+
+| 条件 | 結果 |
+|---|---|
+| 原点を必ず可視に含める | 合格（origin自体が範囲外の異常系を除き常に含む。範囲外originは例外を投げず空集合寄りの結果を返すことも別途確認） |
+| 入力マップを変更しない | 合格（JSON比較で不変を確認） |
+| RNGを参照・消費しない | 合格（visibility.tsはrng()を一切呼ばない） |
+| マップ外座標を返さない | 合格 |
+| 同じ入力から常に同じ結果 | 合格（決定性テスト） |
+| 原点中心の対称性 | 合格（水平・垂直反転、90度回転相当の対称性テスト） |
+| 遮光壁自体は手前側から見える | 合格（straight_corridorで壁面タイルが可視集合に含まれることを確認） |
+| 遮光壁の直後は見えない | 合格 |
+| L字角の奥へ深く漏れない | 合格（半径5でl_cornerの`(6,1)`・`(7,1)`が不可視であることを確認。Phase 17.0でray casting・floodfillの両方が漏らしていた同じ座標） |
+| 斜めに接する2枚の壁の間を見通さない | 合格（diagonal_double_wallの`(2,2)`が不可視） |
+| 角抜け禁止規則との非矛盾 | 合格（同じ`isDiagonalCornerOpen`を視界計算内で直接再利用しているため、定義上矛盾しない） |
+| straight_corridorで半径4まで見える | 合格 |
+| doorway_from_roomで正規入口1マスだけが見える | 合格（`(5,4)`は見えるが`(6,5)`・`(6,6)`は見えない） |
+| 未接続の近接通路を含めない | 合格（対角の角マスを除外） |
+| map_edgeで例外・範囲外参照なし | 合格 |
+| 48x36マップでの現実的な計算量 | 合格（48x36相当マップで200回呼び出しが1秒未満） |
+
+### 9.4 L字角・二重壁・片側壁の具体的な可視結果
+
+- L字角（`l_corner`fixture、原点`(1,3)`、半径5）：曲がり角`(1,1)`とその手前の縦通路`(1,2)`は可視。曲がった先の横通路奥`(6,1)`・`(7,1)`は不可視（Phase 17.0でray casting・floodfillが漏らしていたのと同じ座標を、今回は正しく遮蔽できていることを確認）。
+- 二重壁（`diagonal_double_wall`fixture、原点`(1,1)`）：斜め先`(2,2)`は、両側の直交マス`(2,1)`・`(1,2)`が両方とも壁であるため不可視。`isDiagonalCornerOpen`による到達可能性フィルタとshadowcastingの両方が独立にこの座標を排除している。
+- 片側壁のケース：`legallyReachableTiles`のBFSは`isDiagonalCornerOpen`をそのまま呼んでいるため、片側だけが壁の場合は本作の既存移動規則と完全に同一の可視/不可視判定になる（既存規則自体が「両側とも壁の場合のみ禁止」なので、片側だけの壁は許可される）。
+
+### 9.5 通常部屋と通路の最終視界規則
+
+- 通常部屋：部屋の全床＋4辺（対角除く）の一マス外側リング（壁・入口とも）が常に可視。プレイヤーが部屋矩形の内部床に入った時点でこのルールへ切り替わる（`isInRoomBounds`によるroom bounds判定、Phase 16.2の`roomIndexContaining`と同じ矩形境界の考え方）。
+- 通路：プレイヤー座標を原点とした`computeCorridorVisibility`（symmetric shadowcasting ∩ 角抜け禁止規則による到達可能性）、デフォルト半径4（Chebyshev距離）。
+
+### 9.6 exploration memoryの所有者と初期化時期
+
+- 所有者：`main.ts`の`GameScene`インスタンス（`exploredTiles: boolean[][]`）。Phase 16.2までと同じくGameStateの外側、scene-localなレンダリング専用データのまま（RNG・seed・telemetryに一切影響しない）。
+- 更新：`updateVisibility()`が毎ターン`computeCurrentVisibility`を呼び、返ってきた現在可視マスをそのまま`exploredTiles`へ加算（削除は一切しない、単調増加）。
+- 初期化：`resetExploredTiles()`を新規ゲーム開始（`create()`）・フロア移動（`resetSceneToCurrentState()`、`advanceToNextFloor`経由）・再スタート（`restart()`、同じく`resetSceneToCurrentState()`経由）のいずれでも、描画呼び出しより前に呼ぶよう順序を修正した（Phase 17.1接続前は地形描画が探索状態を参照していなかったため順序に依存しなかったが、接続後は描画前に必須になったため）。
+
+### 9.7 地形・敵・床アイテム・出口の表示規則（実装結果）
+
+- 地形（`drawTerrain`）：`exploredTiles`が立っていないマスは一切描画しない（`unexplored`）。立っているが`currentVisible`に含まれないマスは暗い単色（壁`0x161616`、床`0x0a0a0a`、日向オーバーレイなし）で描画（`explored_not_visible`）。`currentVisible`に含まれるマスは既存の通常色＋日向オーバーレイのまま（`currently_visible`）。
+- 出口（`drawExit`）：`exploredTiles`が立っていなければ描画しない。立っていれば常に描画するが、`currentVisible`外なら透明度0.35で暗く記憶表示する。
+- 敵（`snapActor`/`animateMove`に追加した`extraVisible`引数）：`currentVisible`に含まれる場合のみ表示。含まれない場合は移動アニメーションの開始・終了とも非表示のままにし、視界外の敵の動きや位置が一切画面に漏れないようにした。
+- 床アイテム（`drawGroundItems`）：`currentVisible`のものだけを描画対象として抽出してからテキストオブジェクトを生成（探索済みだが視界外のアイテムは一切描画しない、残像なし）。
+- 攻撃演出・ダメージ表示・テレグラフ（`drawTelegraphs`等）：既存のenemiesループがそのまま`enemy.alive`のみで判定していた箇所は変更していないが、対応する敵スプライト自体が`currentVisible`外では非表示になるため、結果として視界外の攻撃位置が画面上に描かれることはない。
+
+### 9.8 ミニマップへの反映
+
+`drawMinimap`の地形・出口表示は`exploredTiles`ベースのまま変更なし（一度発見した地形・出口は消えない、Phase 16.2からの意図を継続）。敵・床アイテムの表示条件を、旧来の9x7カメラウィンドウ（`isWithinCameraWindow`）から、メイン画面と同じ`this.currentVisible`（Phase 17.1のFOV）へ置き換えた。メイン画面とミニマップが同一の可視性データソースを参照するようになったため、両者の探索状態が食い違うことがなくなった。
+
+### 9.9 production上の責務分離
+
+- `src/game/visibility.ts`（visibility_module）：地形・原点・半径からの現在可視座標計算のみ。Canvas/DOM/GameStateへの依存なし、RNG不使用。
+- `src/main.ts`の`exploredTiles`（exploration_owner）：フロア単位の探索済み座標の保持・蓄積のみ。描画処理そのものは持たない。
+- `src/main.ts`の`drawTerrain`/`drawExit`/`drawGroundItems`/`drawMinimap`/`snapActor`/`animateMove`（renderer）：`visibility.ts`が返した可視性状態を受け取って表示を切り替えるのみ。独自の視界計算ロジックは一切実装していない。
+- 敵AI（`turn.ts`の`isWithinAggroRange`等）：Phase 17.1では一切変更していない。索敵は既存どおりプレイヤーとの単純距離のみで判定し、視界システムを参照しない。
+
+### 9.10 変更ファイル一覧
+
+- 新規: `src/game/visibility.ts`
+- 新規: `src/game/__tests__/visibility.test.ts`
+- 変更: `src/main.ts`（`exploredTiles`/`currentVisible`の管理、`drawTerrain`/`drawExit`/`drawGroundItems`/`drawMinimap`/`snapActor`/`animateMove`/`snapAllEnemies`/`refreshStaticView`/`resetSceneToCurrentState`/`create`の描画順序と可視性接続、未使用になった`getRoomCorridorEntrances`・`computeCameraWindow`・`isWithinCameraWindow`のimport整理）
+- 変更: `docs/history/phase-17-visibility-dark-areas.md`（本節）
+
+### 9.11 テスト・tsc・build結果
+
+- `npx vitest run`：78ファイル、1881件全成功（Phase 17.0の25件＋Phase 17.1の27件を含む。既存のバランス・マップ生成・敵AI・SOL・満腹度・回復・回帰系テストすべて含めて成功）
+- `npx tsc -b --noEmit`：エラーなし
+- `npx vite build`：成功（1,595.63 kB、gzip 375.97 kB。500kB超過の警告は既存のもので今回のPhase 17.1追加分による新規の警告ではない）
+
+### 9.12 実ブラウザ確認
+
+`scripts/build-single-html.mjs`による自己完結型HTMLプレビューを生成し、目視確認を実施予定（本commit後に別途生成、リポジトリへはcommitしない）。
+
+### 9.13 Phase 17.2へ残した事項（変更なし、Phase 17.0からの継続）
+
+- 暗い区画の生成・配置・出現率
+- 暗い区画の視界半径2/3の正式決定（`computeCorridorVisibility`の半径引数はすでに対応済み）
+- 松明・照明・暗視アイテム
