@@ -284,7 +284,8 @@ describe('enemy attack: hit and miss (Phase 10.3)', () => {
     });
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' });
-    expect(state.player.hp).toBe(hpBefore - 9); // reduced but not fully absorbed
+    // Phase 16.2: regen now fires the same turn, offsetting 1 of the 9 damage.
+    expect(state.player.hp).toBe(hpBefore - 8); // reduced but not fully absorbed
   });
 });
 

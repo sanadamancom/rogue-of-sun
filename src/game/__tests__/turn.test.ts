@@ -240,17 +240,38 @@ describe('natural HP regeneration', () => {
     expect(state.regenProgress).toBe(0);
   });
 
-  it('does not reset regenProgress when the player takes damage', () => {
+  it('regenProgress resets to 0 every turn now that REGEN_TURNS_PER_HP is 1 (Phase 16.2), even while taking damage', () => {
+    // Phase 16.2 lowered REGEN_TURNS_PER_HP from 10 to 1 (tester
+    // feedback: "HPの自然回復は1ターンに1回復でよい" — see docs/history/
+    // phase-16-early-game-balance.md's Phase 16.2 section). The original
+    // point of this test — that taking damage doesn't reset the
+    // in-progress regen timer — is no longer observable the same way,
+    // since progress now fires and resets every single turn instead of
+    // accumulating over several; what's left to verify is that repeated
+    // damage still doesn't prevent regenProgress from completing its
+    // (now 1-turn) cycle each turn.
     const state = freshState();
     state.player.maxHp = 5;
     state.player.hp = 4;
     state.player.pos = { x: 4, y: 4 };
     state.enemies[0].pos = { x: 5, y: 4 }; // adjacent: will attack every turn
     state.enemies[1].pos = { x: 0, y: 0 };
-    processTurn(state, { type: 'wait' }); // progress -> 1, hp -> 3 (attacked)
-    expect(state.regenProgress).toBe(1);
-    processTurn(state, { type: 'wait' }); // progress -> 2
-    expect(state.regenProgress).toBe(2);
+    processTurn(state, { type: 'wait' }); // progress -> 1, fires immediately, resets -> 0
+    expect(state.regenProgress).toBe(0);
+    processTurn(state, { type: 'wait' });
+    expect(state.regenProgress).toBe(0);
+  });
+
+  it('a 1-damage-per-turn attacker no longer nets any HP loss, since 1 HP of regen fires the same turn (Phase 16.2)', () => {
+    const state = freshState();
+    state.player.maxHp = 5;
+    state.player.hp = 4;
+    state.player.pos = { x: 4, y: 4 };
+    state.enemies[0].pos = { x: 5, y: 4 }; // adjacent: will attack every turn
+    state.enemies[1].pos = { x: 0, y: 0 };
+    const hpBefore = state.player.hp;
+    processTurn(state, { type: 'wait' });
+    expect(state.player.hp).toBe(hpBefore); // -1 damage, +1 regen, same turn
   });
 
   it('does not regenerate on the turn the player dies', () => {

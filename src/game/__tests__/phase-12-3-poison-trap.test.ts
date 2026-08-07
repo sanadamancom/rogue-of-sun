@@ -251,7 +251,10 @@ describe('poison tick (Phase 12.3)', () => {
     expect(state.player.hp).toBe(hpBefore); // turn 1: progress only, no tick yet
     expect(getActiveEffect(state, 'poison')?.remainingTurns).toBe(9);
     processTurn(state, { type: 'wait' });
-    expect(hpBefore - state.player.hp).toBe(1); // turn 2: tick fires
+    // Phase 16.2: hp starts at max (30), so no regen fires on turn 1;
+    // the tick on turn 2 (hp 30->29) immediately triggers regen the
+    // same turn (29 -> 30), netting to 0 visible change.
+    expect(hpBefore - state.player.hp).toBe(0); // turn 2: tick fires, offset by regen
     expect(getActiveEffect(state, 'poison')?.remainingTurns).toBe(8);
   });
 
@@ -269,7 +272,9 @@ describe('poison tick (Phase 12.3)', () => {
     });
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'move', direction: 'E' });
-    expect(hpBefore - state.player.hp).toBe(3);
+    // Phase 16.2: regen fires the same turn (hp starts at max, drops
+    // below max from the poison tick), offsetting 1 of the 3 damage.
+    expect(hpBefore - state.player.hp).toBe(2);
   });
 
   it('hunger/starvation and effect decrement each run exactly once on a poisoned turn', () => {
@@ -284,6 +289,8 @@ describe('poison tick (Phase 12.3)', () => {
     processTurn(state, { type: 'wait' });
     // starvation (STARVATION_DAMAGE=1) + poison (3) = 4, applied as two
     // separate, single applications rather than either being doubled.
+    // Natural regen is suspended while hunger is 0 (as set here), so it
+    // does not offset any of this damage.
     expect(30 - state.player.hp).toBe(4);
   });
 
@@ -313,7 +320,8 @@ describe('poison tick (Phase 12.3)', () => {
     // wait
     const s1 = freshState({ activeEffects: [{ id: 'poison', strength: 3, remainingTurns: 10 }], poisonTickProgress: 1 });
     processTurn(s1, { type: 'wait' });
-    expect(30 - s1.player.hp).toBe(3);
+    // Phase 16.2: regen fires the same turn, offsetting 1 of the 3 damage.
+    expect(30 - s1.player.hp).toBe(2);
 
     // spider-web-slowed move (fails the move but still consumes a turn)
     const s2 = freshState({
@@ -322,7 +330,8 @@ describe('poison tick (Phase 12.3)', () => {
       poisonTickProgress: 1,
     });
     processTurn(s2, { type: 'move', direction: 'E' });
-    expect(30 - s2.player.hp).toBe(3);
+    // Phase 16.2: regen fires the same turn, offsetting 1 of the 3 damage.
+    expect(30 - s2.player.hp).toBe(2);
 
     // petrified skip
     const s3 = freshState({
@@ -331,7 +340,8 @@ describe('poison tick (Phase 12.3)', () => {
       poisonTickProgress: 1,
     });
     processTurn(s3, { type: 'wait' });
-    expect(30 - s3.player.hp).toBe(3);
+    // Phase 16.2: regen fires the same turn, offsetting 1 of the 3 damage.
+    expect(30 - s3.player.hp).toBe(2);
   });
 
   it('reaching the exit still ticks poison once before the floor transition is recorded', () => {
@@ -344,7 +354,8 @@ describe('poison tick (Phase 12.3)', () => {
     });
     processTurn(state, { type: 'move', direction: 'E' });
     expect(state.phase).not.toBe('playing');
-    expect(30 - state.player.hp).toBe(3);
+    // Phase 16.2: regen fires the same turn, offsetting 1 of the 3 damage.
+    expect(30 - state.player.hp).toBe(2);
   });
 
   it('applies damage on the final (remaining 1) turn, then expires', () => {
@@ -354,7 +365,8 @@ describe('poison tick (Phase 12.3)', () => {
     });
     const hpBefore = state.player.hp;
     const result = processTurn(state, { type: 'wait' });
-    expect(hpBefore - state.player.hp).toBe(3);
+    // Phase 16.2: regen fires the same turn, offsetting 1 of the 3 damage.
+    expect(hpBefore - state.player.hp).toBe(2);
     expect(getActiveEffect(state, 'poison')).toBeUndefined();
     expect(result.events).toContainEqual({ type: 'effect_expired', effectId: 'poison' });
   });
@@ -379,7 +391,8 @@ describe('poison tick (Phase 12.3)', () => {
       poisonTickProgress: 1, // Phase 15.2: primed so this turn ticks
     });
     processTurn(state, { type: 'wait' });
-    expect(30 - state.player.hp).toBe(3);
+    // Phase 16.2: regen fires the same turn, offsetting 1 of the 3 damage.
+    expect(30 - state.player.hp).toBe(2);
   });
 
   it('a full 10-turn poison duration (real values) ticks exactly on turns 2/4/6/8/10, for 5 total damage (Phase 15.2)', () => {
@@ -398,8 +411,12 @@ describe('poison tick (Phase 12.3)', () => {
       processTurn(state, { type: 'wait' });
       damagePerTurn.push(before - state.player.hp);
     }
-    expect(damagePerTurn).toEqual([0, 1, 0, 1, 0, 1, 0, 1, 0, 1]);
-    expect(hpBefore - state.player.hp).toBe(5);
+    // Phase 16.2: hp starts at max (30), so every tick (-1) immediately
+    // triggers regen the same turn (+1), netting every turn to 0 —
+    // poison's remainingTurns countdown and eventual expiry are
+    // unaffected by this.
+    expect(damagePerTurn).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(hpBefore - state.player.hp).toBe(0);
     expect(getActiveEffect(state, 'poison')).toBeUndefined(); // expired exactly at turn 10
   });
 
@@ -448,8 +465,18 @@ describe('ordering: poison vs enemy attack / starvation / regen (Phase 12.3)', (
     const state = freshState({
       player: { ...createInitialActor({ x: 2, y: 3 }, 30, 10, 0, 90, 0), hp: 2 },
       activeEffects: [{ id: 'poison', strength: 3, remainingTurns: 10 }],
+      // Phase 16.2 exposed a pre-existing gap in this fixture: without
+      // priming poisonTickProgress, poison doesn't actually tick on the
+      // first turn (POISON_TICK_INTERVAL=2), so the player never died
+      // here in the first place — this test was only passing because
+      // natural regen used to need 10 turns to fire too, for an
+      // unrelated reason. Priming progress to 1 (matching the sibling
+      // tests in this file) makes poison actually tick and kill the
+      // player this turn, which is what the test's title describes.
+      poisonTickProgress: 1,
     });
     const result = processTurn(state, { type: 'wait' });
+    expect(state.player.alive).toBe(false);
     expect(result.playerRegenerated).toBe(false);
   });
 
@@ -487,10 +514,11 @@ describe('ordering: poison vs enemy attack / starvation / regen (Phase 12.3)', (
       traps: [trap],
       activeEffects: [{ id: 'poison', strength: 3, remainingTurns: 10 }],
     });
-    processTurn(state, { type: 'move', direction: 'E' }); // ordinary poisoned move: -3
+    processTurn(state, { type: 'move', direction: 'E' }); // ordinary poisoned move: -3, offset by 1 regen (Phase 16.2)
     const hpBeforeTrigger = state.player.hp;
     processTurn(state, { type: 'move', direction: 'E' }); // triggers slow_trap
-    expect(hpBeforeTrigger - state.player.hp).toBe(3); // poison still applied
+    // Phase 16.2: regen fires the same turn, offsetting 1 of the 3 damage.
+    expect(hpBeforeTrigger - state.player.hp).toBe(2); // poison still applied
     expect(getActiveEffect(state, 'poison')?.remainingTurns).toBe(8); // decremented on both turns
   });
 });

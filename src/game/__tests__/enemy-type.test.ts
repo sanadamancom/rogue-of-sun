@@ -86,7 +86,8 @@ describe('bok regression (unchanged 8-direction behavior)', () => {
     });
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' });
-    expect(state.player.hp).toBe(hpBefore - bok.attack);
+    // Phase 16.2: regen now fires the same turn, offsetting 1 of bok's damage.
+    expect(state.player.hp).toBe(hpBefore - bok.attack + 1);
   });
 
   it('bok spawns with the common-table hp (6) and attack (3) values (Phase 16 early-game rebalance)', () => {
@@ -199,7 +200,8 @@ describe('spider behavior', () => {
     spider.pos = { x: state.player.pos.x, y: state.player.pos.y - 1 }; // directly north
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' });
-    expect(state.player.hp).toBe(hpBefore - spider.attack);
+    // Phase 16.2: regen now fires the same turn, offsetting 1 of spider's damage.
+    expect(state.player.hp).toBe(hpBefore - spider.attack + 1);
     expect(spider.pos).toEqual({ x: state.player.pos.x, y: state.player.pos.y - 1 });
   });
 

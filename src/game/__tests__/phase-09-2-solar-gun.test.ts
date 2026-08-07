@@ -518,7 +518,10 @@ describe('solar gun and sun fruit integration (Phase 09.2)', () => {
     });
     state.player.hp = 1;
     processTurn(state, { type: 'use_item', itemId: 'sun_fruit' });
-    expect(state.player.hp).toBe(1);
+    // Phase 16.2: sun_fruit itself still never heals HP, but natural
+    // regen now fires every turn (hp was below max going in), so the
+    // turn nets +1 HP anyway.
+    expect(state.player.hp).toBe(2);
   });
 
   it('apple never recovers SOL', () => {

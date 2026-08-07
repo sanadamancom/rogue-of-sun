@@ -578,7 +578,12 @@ describe('regression: Phase 08.2/08.3/08.4 behavior unaffected', () => {
     state.enemies = [bok];
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' });
-    expect(state.player.hp).toBe(hpBefore - 1);
+    // Phase 16.2: natural regen now ticks every turn, immediately
+    // offsetting the 1 floored-minimum damage taken this same turn
+    // (hp was already below max going in) — net unchanged, not a
+    // missed hit. See docs/history/phase-16-early-game-balance.md's
+    // Phase 16.2 section.
+    expect(state.player.hp).toBe(hpBefore);
   });
 
   it('apple still heals 2 HP and consumes 1 apple on success', () => {

@@ -87,7 +87,10 @@ describe('Phase 16 runtime combat: bok normal-attack damage end-to-end', () => {
     const state = realBokAdjacentToRealPlayer();
     expect(state.player.hp).toBe(15);
     const result = processTurn(state, { type: 'wait' });
-    expect(state.player.hp).toBe(12); // 15 - 3
+    // Phase 16.2: natural regen now fires every turn (REGEN_TURNS_PER_HP
+    // 10->1), so the 3 damage taken this same turn is immediately
+    // offset by 1 HP of regen — net -2, not -3.
+    expect(state.player.hp).toBe(13); // 15 - 3 + 1
     expect(result.events).toEqual([{ type: 'enemy_attack', enemyType: 'bok', attackerId: 0, damage: 3 }]);
   });
 
@@ -97,12 +100,12 @@ describe('Phase 16 runtime combat: bok normal-attack damage end-to-end', () => {
     expect(formatEvents(result.events)).toEqual(['ボクの攻撃！ 3ダメージを受けた。']);
   });
 
-  it('two consecutive real bok attacks bring LIFE from 15 to 9', () => {
+  it('two consecutive real bok attacks net LIFE from 15 to 11 (Phase 16.2: -3 damage +1 regen per turn)', () => {
     const state = realBokAdjacentToRealPlayer();
     processTurn(state, { type: 'wait' });
-    expect(state.player.hp).toBe(12);
+    expect(state.player.hp).toBe(13);
     processTurn(state, { type: 'wait' });
-    expect(state.player.hp).toBe(9);
+    expect(state.player.hp).toBe(11);
   });
 
   it('computeIncomingDamage(bok.attack, 0) equals 3, matching the runtime result above', () => {
@@ -136,7 +139,9 @@ describe('Phase 16 runtime combat: bok normal-attack damage end-to-end', () => {
     const attackEvent = result.events.find((e) => e.type === 'enemy_attack');
     if (attackEvent && attackEvent.type === 'enemy_attack') {
       expect(attackEvent.damage).toBe(computeIncomingDamage(batDef.attack, 0));
-      expect(state.player.hp).toBe(before - attackEvent.damage);
+      // Phase 16.2: regen now fires the same turn (hp remains below max
+      // after taking damage), offsetting 1 of the damage.
+      expect(state.player.hp).toBe(before - attackEvent.damage + 1);
     }
     // bat's evasive behavior may not always attack on the first adjacent
     // turn; the assertion above only fires when it does, but the damage

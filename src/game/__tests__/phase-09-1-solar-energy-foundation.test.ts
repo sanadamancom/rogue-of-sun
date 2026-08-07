@@ -233,7 +233,10 @@ describe('sun fruit use (Phase 09.1)', () => {
     const state = freshState({ solarEnergy: 0, inventory: { ...createEmptyInventory(), sun_fruit: 1 } });
     state.player.hp = 1;
     processTurn(state, { type: 'use_item', itemId: 'sun_fruit' });
-    expect(state.player.hp).toBe(1);
+    // Phase 16.2: sun_fruit itself still never heals HP, but natural
+    // regen now fires every turn (hp was below max going in), so the
+    // turn nets +1 HP anyway.
+    expect(state.player.hp).toBe(2);
   });
 
   it('apple never recovers solar energy', () => {

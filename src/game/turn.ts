@@ -105,7 +105,15 @@ function getEnchantmentCycleCandidates(state: GameState): EnchantmentId[] {
 }
 
 /** Consumed player actions required for one natural HP tick (Phase 15.2 recovery/satiety/status rebalance: 5->10 — see docs/history/phase-15-2-recovery-satiety-status-rebalance.md). */
-export const REGEN_TURNS_PER_HP = 10;
+// Phase 16.2 natural-recovery/hunger/corridor-guidance tuning: 10->1
+// (tester feedback: "HPの自然回復は1ターンに1回復でよい" — see
+// docs/history/phase-16-early-game-balance.md's Phase 16.2 section).
+// REGEN_AMOUNT_PER_TICK (1) is unchanged; this only shortens the wait
+// between ticks, so every valid turn now heals exactly 1 HP while below
+// max — regenProgress's >= comparison already handles a 1-turn interval
+// correctly (increment to 1, 1 >= 1, heal, reset to 0) without any other
+// change to the surrounding logic.
+export const REGEN_TURNS_PER_HP = 1;
 /** HP restored per natural regen tick (Phase 15.2: previously an inline literal 10, now a named single source of truth so telemetry.ts never duplicates it). */
 export const REGEN_AMOUNT_PER_TICK = 1;
 
@@ -385,6 +393,20 @@ export interface TurnResult {
   playerDefeated: boolean;
   /** Whether the player's natural HP regeneration triggered this turn. */
   playerRegenerated: boolean;
+  /**
+   * The exact HP amount natural regeneration added this turn (0 when
+   * playerRegenerated is false). Phase 16.2: exposed separately from a
+   * before/after whole-turn HP diff because REGEN_TURNS_PER_HP=1 means
+   * regen now frequently coincides with the same turn as other healing
+   * (an item use, etc.) — telemetry.ts's recordTurn previously inferred
+   * this via `after.player.hp - before.playerHp`, which silently folded
+   * any other same-turn healing into the natural-regen bucket too (see
+   * docs/history/phase-16-early-game-balance.md's Phase 16.2 section).
+   * This field is the regen tick's own isolated hp delta, captured at
+   * the exact point it's applied below, so callers never need to infer
+   * it from a coarser snapshot diff.
+   */
+  playerRegenAmount: number;
   /**
    * Typed events produced while resolving this turn, in the exact order
    * the underlying actions occurred (player action first, then each
@@ -2407,6 +2429,7 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
       enemyAttacked: false,
       playerDefeated: false,
       playerRegenerated: false,
+      playerRegenAmount: 0,
       events: [],
     };
   }
@@ -2433,6 +2456,7 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
       enemyAttacked: false,
       playerDefeated: false,
       playerRegenerated: false,
+      playerRegenAmount: 0,
       events: [],
     };
   }
@@ -2454,6 +2478,7 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
       enemyAttacked: false,
       playerDefeated: false,
       playerRegenerated: false,
+      playerRegenAmount: 0,
       events: [],
     };
   }
@@ -2481,6 +2506,7 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
       enemyAttacked: false,
       playerDefeated: false,
       playerRegenerated: false,
+      playerRegenAmount: 0,
       // Blocked moves push nothing (events stays []), but an unconsumed
       // item-use failure (e.g. full HP) still pushes an explanatory event
       // (Phase 08.2 apple_use.full_hp requirement: "使用できない理由を表
@@ -2577,6 +2603,7 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
   }
 
   let playerRegenerated = false;
+  let playerRegenAmount = 0;
   if (state.player.alive) {
     // Phase 11.3: natural regen is entirely suspended while hunger is 0
     // (fixed_specification.natural_regeneration_interaction) — regenProgress
@@ -2592,6 +2619,14 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
         state.player.hp = Math.min(state.player.maxHp, state.player.hp + REGEN_AMOUNT_PER_TICK);
         state.regenProgress = 0;
         playerRegenerated = true;
+        // Phase 16.2: captured as this tick's own isolated delta (not a
+        // before/after whole-turn diff), so telemetry.ts can report the
+        // regen tick's real contribution even on a turn that also heals
+        // from another source (item use, etc.) in the same turn — see
+        // docs/history/phase-16-early-game-balance.md's Phase 16.2
+        // section for the bug this replaced (a coarse diff silently
+        // folded any other same-turn healing into the regen total).
+        playerRegenAmount = REGEN_AMOUNT_PER_TICK;
       }
     } else if (getHunger(state) >= 1) {
       // Full HP and not starving: existing behavior (progress resets so
@@ -2671,6 +2706,7 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
     enemyAttacked: enemyAttacked || extraEnemyAttacked,
     playerDefeated,
     playerRegenerated,
+    playerRegenAmount,
     events,
   };
 }

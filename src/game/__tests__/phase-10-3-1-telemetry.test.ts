@@ -695,15 +695,18 @@ describe('Phase 15.2 recovery/satiety/status rebalance telemetry', () => {
     const state = freshState({ enemies: [], inventory: { ...createEmptyInventory(), apple: 1 } });
     state.player.hp = 5;
     const telemetry = createRunTelemetry(state);
-    step(state, { type: 'use_item', itemId: 'apple' }, telemetry); // hp 5 -> 10 (apple heals 5)
+    step(state, { type: 'use_item', itemId: 'apple' }, telemetry); // hp 5 -> 10 (apple heals 5), same turn also regen-ticks once (Phase 16.2: REGEN_TURNS_PER_HP=1)
     for (let i = 0; i < 10; i++) {
-      step(state, { type: 'wait' }, telemetry); // REGEN_TURNS_PER_HP=10; ticks once, +1
+      step(state, { type: 'wait' }, telemetry); // Phase 16.2: REGEN_TURNS_PER_HP=1; ticks every turn, +1 each
     }
     const summary = computeRunSummary(telemetry, state);
     expect(summary.recoveryAndSatiety.apple).toEqual({ usedCount: 1, requestedTotal: 5, actualTotal: 5 });
-    expect(summary.recoveryAndSatiety.naturalRegen.occurrences).toBe(1);
-    expect(summary.recoveryAndSatiety.naturalRegen.requestedTotal).toBe(1);
-    expect(summary.recoveryAndSatiety.naturalRegen.actualTotal).toBe(1);
+    // Phase 16.2: 1 regen tick on the apple-use turn itself + 1 per each
+    // of the 10 wait turns = 11 total (REGEN_TURNS_PER_HP=1, so every
+    // turn below maxHp ticks, not just once every 10 as before).
+    expect(summary.recoveryAndSatiety.naturalRegen.occurrences).toBe(11);
+    expect(summary.recoveryAndSatiety.naturalRegen.requestedTotal).toBe(11);
+    expect(summary.recoveryAndSatiety.naturalRegen.actualTotal).toBe(11);
   });
 
   it('apple actualTotal reflects LIFE-cap rounding, distinct from requestedTotal', () => {
@@ -743,8 +746,8 @@ describe('Phase 15.2 recovery/satiety/status rebalance telemetry', () => {
   it('satiety.min tracks the lowest value reached over the run, even after later recovery', () => {
     const state = freshState({ enemies: [], hunger: 4, inventory: { ...createEmptyInventory(), chocolate: 1 } });
     const telemetry = createRunTelemetry(state);
-    for (let i = 0; i < 5; i++) {
-      step(state, { type: 'wait' }, telemetry); // 4 -> 3 on the 5th (HUNGER_DECREASE_INTERVAL=5, Phase 16.1)
+    for (let i = 0; i < 10; i++) {
+      step(state, { type: 'wait' }, telemetry); // 4 -> 3 on the 10th (HUNGER_DECREASE_INTERVAL=10, Phase 16.2)
     }
     step(state, { type: 'use_item', itemId: 'chocolate' }, telemetry); // 3 -> 33
     const summary = computeRunSummary(telemetry, state);

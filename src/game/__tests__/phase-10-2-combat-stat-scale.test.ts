@@ -272,7 +272,9 @@ describe('HP and recovery at the new scale (Phase 15.1 rebalance)', () => {
     });
     state.player.hp = 5;
     processTurn(state, { type: 'use_item', itemId: 'apple' });
-    expect(state.player.hp).toBe(10);
+    // Phase 16.2: apple heals 5 (5->10), and natural regen now also
+    // fires the same turn (10 still below max), adding 1 more.
+    expect(state.player.hp).toBe(11);
   });
 
   it('healing never exceeds max HP', () => {

@@ -101,7 +101,8 @@ describe('bok (generic_melee) behavior', () => {
     const enemy = state.enemies[0];
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' });
-    expect(state.player.hp).toBe(hpBefore - 1);
+    // Phase 16.2: regen now fires the same turn, fully offsetting bok's 1 damage.
+    expect(state.player.hp).toBe(hpBefore);
     expect(enemy.pos).toEqual({ x: 9, y: 4 }); // did not step in
   });
 
@@ -109,7 +110,8 @@ describe('bok (generic_melee) behavior', () => {
     const state = singleEnemyState('bok', { x: 9, y: 4 }, { playerPos: { x: 10, y: 4 }, attack: 1 });
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' });
-    expect(hpBefore - state.player.hp).toBe(1); // exactly one hit's worth of damage
+    // Phase 16.2: regen now fires the same turn, fully offsetting bok's 1 damage.
+    expect(hpBefore - state.player.hp).toBe(0); // one hit's worth of damage, offset by regen
   });
 });
 
@@ -118,7 +120,8 @@ describe('golem (slow_melee) behavior', () => {
     const state = singleEnemyState('golem', { x: 9, y: 4 }, { playerPos: { x: 10, y: 4 }, attack: 3, turn: 0 });
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' });
-    expect(state.player.hp).toBe(hpBefore - 3); // acted: attacked
+    // Phase 16.2: regen now fires the same turn, offsetting 1 of the 3 damage.
+    expect(state.player.hp).toBe(hpBefore - 2); // acted: attacked
   });
 
   it('waits (no movement) on the next enemy turn', () => {
@@ -163,7 +166,8 @@ describe('golem (slow_melee) behavior', () => {
     });
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' });
-    expect(state.player.hp).toBe(hpBefore - 3); // acted, because spawnTurn (5) matches turn (5)
+    // Phase 16.2: regen now fires the same turn, offsetting 1 of the 3 damage.
+    expect(state.player.hp).toBe(hpBefore - 2); // acted, because spawnTurn (5) matches turn (5)
   });
 });
 
@@ -181,7 +185,9 @@ describe('sword (fast_melee) behavior', () => {
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' });
     expect(enemy.pos).toEqual({ x: 9, y: 4 }); // only 1 step taken
-    expect(state.player.hp).toBe(hpBefore - 2); // attacked
+    // Phase 16.2: regen now fires the same turn (hp was below max going
+    // in), offsetting 1 of the 2 damage.
+    expect(state.player.hp).toBe(hpBefore - 1); // attacked
   });
 
   it('does not attack that turn if it only becomes adjacent after step 2', () => {
@@ -199,7 +205,8 @@ describe('sword (fast_melee) behavior', () => {
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' });
     expect(enemy.pos).toEqual({ x: 9, y: 4 });
-    expect(state.player.hp).toBe(hpBefore - 2);
+    // Phase 16.2: regen now fires the same turn, offsetting 1 of the 2 damage.
+    expect(state.player.hp).toBe(hpBefore - 1);
   });
 
   it('never attacks more than once in a single world turn', () => {
@@ -250,7 +257,8 @@ describe('axe (recovery_melee) behavior', () => {
     const enemy = state.enemies[0];
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' });
-    expect(state.player.hp).toBe(hpBefore - 3);
+    // Phase 16.2: regen now fires the same turn, offsetting 1 of the 3 damage.
+    expect(state.player.hp).toBe(hpBefore - 2);
     expect(enemy.recovering).toBe(true);
   });
 
@@ -261,7 +269,10 @@ describe('axe (recovery_melee) behavior', () => {
     const hpAfterAttack = state.player.hp;
     const posAfterAttack = { ...enemy.pos };
     processTurn(state, { type: 'wait' }); // turn 2: forced wait
-    expect(state.player.hp).toBe(hpAfterAttack); // no additional damage
+    // Phase 16.2: the axe doesn't attack this turn, but natural regen
+    // still fires (hp remains below max), so HP goes up by 1 even
+    // without a new hit.
+    expect(state.player.hp).toBe(hpAfterAttack + 1); // no additional damage, but regen ticks
     expect(enemy.pos).toEqual(posAfterAttack); // did not move either
     expect(enemy.recovering).toBe(false); // cleared after the forced wait
   });
@@ -272,7 +283,8 @@ describe('axe (recovery_melee) behavior', () => {
     processTurn(state, { type: 'wait' }); // forced wait
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' }); // normal again: attacks
-    expect(state.player.hp).toBe(hpBefore - 3);
+    // Phase 16.2: regen now fires the same turn, offsetting 1 of the 3 damage.
+    expect(state.player.hp).toBe(hpBefore - 2);
   });
 });
 
@@ -290,7 +302,8 @@ describe('axe recovery exploitability at real definition values (phase-07-3-axe-
     state.player.maxHp = 30;
     const enemy = state.enemies[0];
     processTurn(state, { type: 'wait' }); // attacks
-    expect(state.player.hp).toBe(18);
+    // Phase 16.2: regen now fires the same turn (30-12=18, then +1), landing on 19 instead of 18.
+    expect(state.player.hp).toBe(19);
     expect(state.player.alive).toBe(true);
     expect(enemy.recovering).toBe(true);
   });
@@ -307,7 +320,9 @@ describe('axe recovery exploitability at real definition values (phase-07-3-axe-
     const hpAfterAttack = state.player.hp;
     const posAfterAttack = { ...enemy.pos };
     processTurn(state, { type: 'wait' }); // turn 2: forced wait (enemy_recovering)
-    expect(state.player.hp).toBe(hpAfterAttack); // no additional damage
+    // Phase 16.2: no attack this turn, but natural regen still fires
+    // (hp remains below max), so HP goes up by 1 anyway.
+    expect(state.player.hp).toBe(hpAfterAttack + 1); // no additional damage, but regen ticks
     expect(enemy.pos).toEqual(posAfterAttack); // did not move
     expect(enemy.recovering).toBe(false); // cleared after the forced wait
   });

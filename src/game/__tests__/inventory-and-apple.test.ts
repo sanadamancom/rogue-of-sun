@@ -369,8 +369,9 @@ describe('apple use rules (Phase 08.2)', () => {
     const result = useSelectedInventoryItem(state);
     expect(state.turn).toBe(turnBefore + 1);
     expect(result.enemyActed).toBe(true);
-    // Healed to 3, then the adjacent bok (attack 1) hits: net HP 2.
-    expect(state.player.hp).toBe(2);
+    // Healed to 3, then the adjacent bok (attack 1) hits: HP 2, then
+    // Phase 16.2's every-turn regen immediately ticks it back to 3.
+    expect(state.player.hp).toBe(3);
   });
 
   it('a failed use (full HP) does not trigger any enemy action', () => {

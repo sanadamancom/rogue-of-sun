@@ -114,7 +114,10 @@ describe('enemy roster foundation (Phase 06 + density correction)', () => {
       state.phase = 'playing';
       const hpBefore = state.player.hp;
       processTurn(state, { type: 'wait' });
-      expect(state.player.hp).toBe(hpBefore - enemy.attack);
+      // Phase 16.2: regen now fires the same turn (hp was reset to max
+      // just above, so it's now below max after taking damage),
+      // offsetting 1 of the attack's damage.
+      expect(state.player.hp).toBe(hpBefore - enemy.attack + 1);
     }
   });
 
@@ -141,7 +144,10 @@ describe('enemy roster foundation (Phase 06 + density correction)', () => {
       state.turn = enemy.spawnTurn ?? 0; // golem's acting phase is 0 here
       const hpBefore = state.player.hp;
       processTurn(state, { type: 'wait' });
-      expect(state.player.hp).toBe(hpBefore - enemy.attack);
+      // Phase 16.2: regen now fires the same turn (hp was reset to max
+      // just above, so it's now below max after taking damage),
+      // offsetting 1 of the attack's damage.
+      expect(state.player.hp).toBe(hpBefore - enemy.attack + 1);
     }
   });
 });

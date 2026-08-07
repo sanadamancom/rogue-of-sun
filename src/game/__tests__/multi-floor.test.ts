@@ -68,7 +68,11 @@ describe('multi-floor progression', () => {
     state = advanceToNextFloor(state);
     expect(state.floor).toBe(2);
     expect(state.phase).toBe('playing');
-    expect(state.player.hp).toBe(2);
+    // Phase 16.2: natural regen now fires every turn, including the turn
+    // spent stepping onto the exit (stepOntoExit drives a real
+    // processTurn), so hp 2/3 heals to the max (3) during that step —
+    // advanceToNextFloor itself still doesn't heal anything on its own.
+    expect(state.player.hp).toBe(3);
     expect(state.player.maxHp).toBe(3);
     expect(state.enemies).toHaveLength(ENEMY_COUNT_BY_FLOOR[2]); // Phase 15.5
     expect(state.enemies.every((e) => e.alive)).toBe(true);
@@ -80,7 +84,7 @@ describe('multi-floor progression', () => {
     expect(state.phase).toBe('floor_cleared');
     state = advanceToNextFloor(state);
     expect(state.floor).toBe(3);
-    expect(state.player.hp).toBe(2);
+    expect(state.player.hp).toBe(3); // already at max; no further change
 
     killAllEnemies(state);
     stepOntoExit(state);
@@ -146,17 +150,22 @@ describe('multi-floor progression', () => {
     expect(state.enemies.every((e) => e.alive)).toBe(true);
   });
 
-  it('carries current HP and regenProgress to the next floor without an immediate heal', () => {
+  it('carries current HP and regenProgress to the next floor without an immediate heal from the transition itself', () => {
     let state = createInitialState(2780624551);
     state.player.maxHp = 5;
     state.player.hp = 2;
     state.regenProgress = 3;
     killAllEnemies(state);
-    // stepOntoExit itself consumes one counted action, advancing regenProgress by 1.
+    // Phase 16.2: REGEN_TURNS_PER_HP is now 1, so stepOntoExit's single
+    // counted turn (regenProgress 3 -> 4) immediately clears the >=1
+    // threshold, healing 1 HP and resetting regenProgress to 0 — not
+    // accumulating toward a later tick the way the old 10-turn interval
+    // did. advanceToNextFloor itself still doesn't add any further heal
+    // on top of that.
     stepOntoExit(state);
     state = advanceToNextFloor(state);
-    expect(state.player.hp).toBe(2);
-    expect(state.regenProgress).toBe(4);
+    expect(state.player.hp).toBe(3);
+    expect(state.regenProgress).toBe(0);
   });
 });
 
@@ -175,7 +184,8 @@ describe('restart semantics across floors', () => {
     stepOntoExit(state);
     state = advanceToNextFloor(state);
     expect(state.floor).toBe(2);
-    expect(state.player.hp).toBe(1);
+    // Phase 16.2: regen now fires on stepOntoExit's turn (hp was below max going in).
+    expect(state.player.hp).toBe(2);
 
     const restarted = createInitialState(state.runSeed);
     expect(restarted.floor).toBe(1);

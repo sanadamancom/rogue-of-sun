@@ -428,14 +428,15 @@ export function recordTurn(
   }
 
   // Natural HP regeneration (Phase 10.2's REGEN_TURNS_PER_HP mechanic):
-  // turn.ts exposes this only as TurnResult.playerRegenerated (a plain
-  // boolean), never as a GameEvent — see the history doc's investigation
-  // (Phase 10.3.3) — so it must be checked here directly rather than in
-  // translateGameEvent's event-type switch. actualHealing is the real
-  // hp delta (before.playerHp -> after.player.hp), already correctly
-  // clamped to maxHp by turn.ts's own Math.min.
+  // Phase 16.2 replaced the coarse `after.player.hp - before.playerHp`
+  // whole-turn diff used here with turn.ts's own
+  // TurnResult.playerRegenAmount (the regen tick's isolated delta) —
+  // the diff silently folded any other same-turn healing (an item use,
+  // etc.) into the natural-regen total once REGEN_TURNS_PER_HP dropped
+  // to 1 and regen started firing every turn. See docs/history/
+  // phase-16-early-game-balance.md's Phase 16.2 section.
   if (result.playerRegenerated) {
-    const actualHealing = after.player.hp - before.playerHp;
+    const actualHealing = result.playerRegenAmount;
     if (actualHealing > 0) {
       pushEvent(telemetry, after, consumed, {
         type: 'player_healed',

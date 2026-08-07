@@ -324,6 +324,7 @@ describe('input isolation and turn-consumption regressions (Phase 08.6)', () => 
     state.enemies = [bok];
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' });
-    expect(state.player.hp).toBe(hpBefore - 1);
+    // Phase 16.2: regen now fires the same turn, fully offsetting the 1 floored-minimum damage.
+    expect(state.player.hp).toBe(hpBefore);
   });
 });

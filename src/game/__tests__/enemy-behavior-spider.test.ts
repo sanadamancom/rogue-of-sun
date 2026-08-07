@@ -99,7 +99,8 @@ describe('spider action priority', () => {
     const spider = state.enemies[0];
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' });
-    expect(state.player.hp).toBe(hpBefore - 2);
+    // Phase 16.2: regen now fires the same turn, offsetting 1 of the 2 damage.
+    expect(state.player.hp).toBe(hpBefore - 1);
     expect(state.webs).toHaveLength(0);
     expect(spider.pos).toEqual({ x: 9, y: 5 }); // did not step in
   });

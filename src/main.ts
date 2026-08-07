@@ -62,7 +62,7 @@ import {
   tickRepeat,
   RepeatTimer,
 } from './game/input-router';
-import { roomIndexContaining } from './game/mapgen';
+import { getRoomCorridorEntrances, roomIndexContaining } from './game/mapgen';
 
 // Phase 14.5 spec 5.2: 2 lines by default (was 3). Newest at the bottom,
 // oldest pushed out once over capacity; overflow history is available via
@@ -299,12 +299,32 @@ class MainScene extends Phaser.Scene {
     this.exploredTiles = Array.from({ length: height }, () => new Array<boolean>(width).fill(false));
   }
 
-  /** Marks every tile inside the current camera window as explored. */
+  /**
+   * Marks every tile inside the current camera window as explored, plus
+   * (Phase 16.2 corridor guidance — tester feedback: "大きな部屋に入った
+   * 際、進める通路の最初の1マスが見えると進みやすい") every corridor's
+   * first floor tile just outside the room the player is currently
+   * standing in, if any. Reuses the same exploredTiles bookkeeping as the
+   * camera window (per the redesign direction's existing visible-history
+   * spec — this is purely a rendering aid, not GameState), so a revealed
+   * doorway tile behaves exactly like any other explored tile: visible on
+   * the always-on explored map, but never affecting movement legality,
+   * pathing, or anything beyond that single tile (getRoomCorridorEntrances
+   * never returns more than the one doorway tile per connection).
+   */
   private markCameraWindowExplored(): void {
     const window = computeCameraWindow(this.state.player.pos, this.state.map.width, this.state.map.height);
     for (let y = window.y0; y < window.y0 + window.height; y++) {
       for (let x = window.x0; x < window.x0 + window.width; x++) {
         if (this.exploredTiles[y]) this.exploredTiles[y][x] = true;
+      }
+    }
+
+    const currentRoomIndex = roomIndexContaining(this.state.map.rooms, this.state.player.pos);
+    if (currentRoomIndex >= 0) {
+      const room = this.state.map.rooms[currentRoomIndex];
+      for (const entrance of getRoomCorridorEntrances(this.state.map, room)) {
+        if (this.exploredTiles[entrance.y]) this.exploredTiles[entrance.y][entrance.x] = true;
       }
     }
   }

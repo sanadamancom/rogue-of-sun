@@ -728,6 +728,48 @@ export function roomIndexContaining(rooms: Room[], pos: Vec2): number {
 }
 
 /**
+ * Phase 16.2 corridor guidance (tester feedback: "大きな部屋に入った際、
+ * 進める通路の最初の1マスが見えると進みやすい"): every floor tile
+ * immediately outside `room`'s rectangle, on any of its four sides, that
+ * is a doorway/corridor tile connecting to it. This is exactly one ring
+ * outside the room boundary — the doorway_rule (see doorway-rule.test.ts,
+ * verified across 100 seeds) guarantees each such tile is a genuine,
+ * isolated single-tile doorway belonging only to this room (rooms never
+ * touch or overlap, and a doorway never runs two tiles wide), so this
+ * ring-scan can't accidentally pick up another room's wall or a corridor
+ * tile two-or-more steps away. main.ts calls this once per room the
+ * player is currently standing in and marks the returned positions
+ * explored, so the corridor's first step is visible from anywhere in the
+ * room without exposing anything beyond that single tile.
+ */
+export function getRoomCorridorEntrances(map: GameMap, room: Room): Vec2[] {
+  const entrances: Vec2[] = [];
+
+  if (room.y - 1 >= 0) {
+    for (let x = room.x; x < room.x + room.width; x++) {
+      if (map.terrain[room.y - 1][x] === 'floor') entrances.push({ x, y: room.y - 1 });
+    }
+  }
+  if (room.y + room.height < map.height) {
+    for (let x = room.x; x < room.x + room.width; x++) {
+      if (map.terrain[room.y + room.height][x] === 'floor') entrances.push({ x, y: room.y + room.height });
+    }
+  }
+  if (room.x - 1 >= 0) {
+    for (let y = room.y; y < room.y + room.height; y++) {
+      if (map.terrain[y][room.x - 1] === 'floor') entrances.push({ x: room.x - 1, y });
+    }
+  }
+  if (room.x + room.width < map.width) {
+    for (let y = room.y; y < room.y + room.height; y++) {
+      if (map.terrain[y][room.x + room.width] === 'floor') entrances.push({ x: room.x + room.width, y });
+    }
+  }
+
+  return entrances;
+}
+
+/**
  * Chooses a single deterministic room-interior floor tile for a trap
  * (Phase 12.2 slow_trap, reused by Phase 12.3 poison_trap), or `null` if
  * no candidate satisfies every constraint (fixed_specification.trap.

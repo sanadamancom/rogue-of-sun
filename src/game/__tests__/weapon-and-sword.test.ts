@@ -203,7 +203,13 @@ describe('equipping the sword', () => {
     const result = processTurn(state, { type: 'equip_weapon', weaponId: 'sword' });
     expect(result.enemyActed).toBe(true);
     expect(result.enemyAttacked).toBe(true);
-    expect(state.player.hp).toBe(hpBefore - 1);
+    // Phase 16.2: natural regen now ticks every turn (REGEN_TURNS_PER_HP
+    // 10->1), so the 1 damage taken this same turn is immediately offset
+    // by 1 HP of regen (hp was already below max going in), netting to
+    // no visible change — this is the intended new behavior, not a
+    // missed hit; see docs/history/phase-16-early-game-balance.md's
+    // Phase 16.2 section.
+    expect(state.player.hp).toBe(hpBefore);
   });
 
   it('equip success closes the inventory overlay', () => {

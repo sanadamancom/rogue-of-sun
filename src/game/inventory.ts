@@ -105,6 +105,7 @@ function noopResult(): TurnResult {
     enemyAttacked: false,
     playerDefeated: false,
     playerRegenerated: false,
+    playerRegenAmount: 0,
     events: [],
   };
 }

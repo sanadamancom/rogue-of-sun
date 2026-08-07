@@ -97,7 +97,7 @@ describe('player_healed field name (Phase 10.3.3a)', () => {
     expect('actualAmount' in healed).toBe(false);
   });
 
-  it('actualHealing equals hpAfter - hpBefore for both sources', () => {
+  it('actualHealing equals hpAfter - hpBefore for a natural-regen-only turn; for an item use, actualHealing is isolated even when regen also ticks the same turn (Phase 16.2)', () => {
     const natState = freshState({ enemies: [] });
     natState.player.hp = 5;
     const natTelemetry = createRunTelemetry(natState);
@@ -112,7 +112,17 @@ describe('player_healed field name (Phase 10.3.3a)', () => {
     const itemTelemetry = createRunTelemetry(itemState);
     step(itemState, { type: 'use_item', itemId: 'apple' }, itemTelemetry);
     const itemHealed = itemTelemetry.events.find((e) => e.type === 'player_healed') as { actualHealing: number; hpBefore: number; hpAfter: number };
-    expect(itemHealed.actualHealing).toBe(itemHealed.hpAfter - itemHealed.hpBefore);
+    // Phase 16.2: hpAfter/hpBefore are whole-turn snapshots, and natural
+    // regen now also ticks on this same turn (hp remains below max after
+    // the apple heal), so hpAfter - hpBefore (6) includes that regen
+    // point too — while actualHealing (5) stays isolated to just the
+    // apple's own contribution, which is the whole point of the fix in
+    // turn.ts's TurnResult.playerRegenAmount (see docs/history/
+    // phase-16-early-game-balance.md's Phase 16.2 section). The item
+    // event's actualHealing is therefore no longer expected to equal
+    // hpAfter - hpBefore whenever regen coincides with it.
+    expect(itemHealed.actualHealing).toBe(5);
+    expect(itemHealed.hpAfter - itemHealed.hpBefore).toBe(6);
   });
 
   it('near max HP, only the real increase is recorded as actualHealing', () => {

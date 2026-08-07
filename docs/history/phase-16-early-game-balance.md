@@ -272,3 +272,84 @@ floor1限定で、`drawGroundItemSelection`の結果に`chocolate`が含まれ�
 ### 18.7 out_of_scopeとの整合
 
 マップ・部屋寸法、プレイヤー攻撃力・初期LIFE、ボクHP/attack、他の敵の攻撃力、自然回復量・間隔、太陽銃の攻撃力・射程、新アイテム・新敵・視界システムの追加、いずれも変更していない。
+
+## 19. Phase 16.2：自然回復・満腹度の再調整と通路入口の視認性改善
+
+対象commit: `phase-16-early-game-balance`ブランチ（Phase 16.1のcommit `c68488a946fcc553175e82bc38961fe81553607b`の続き）
+
+### 19.1 テストプレイ者からのフィードバック
+
+Phase 16.1版の試遊後、以下3件の追加フィードバックを受けた。
+
+- HPの自然回復は1ターンに1回復でよい
+- 満腹度は10ターンに1減少でよい
+- 大きな部屋に入った際、進める通路の最初の1マスが見えると進みやすい
+
+### 19.2 変更前の値
+
+- `REGEN_TURNS_PER_HP = 10`、`REGEN_AMOUNT_PER_TICK = 1`（`src/game/turn.ts`）
+- `HUNGER_DECREASE_INTERVAL = 5`、`HUNGER_DECREASE_AMOUNT = 1`（`src/game/hunger.ts`、Phase 16.1で4→5にした値）
+
+| 項目 | 変更前 |
+|---|---|
+| 3ダメージ回復に必要な待機ターン | 30 |
+| 6ダメージ回復に必要な待機ターン | 60 |
+| 3ダメージ回復中の満腹度消費 | 6 |
+| 6ダメージ回復中の満腹度消費 | 12 |
+| 満腹度100から0到達までの行動可能ターン数 | 500 |
+
+### 19.3 実装した変更
+
+**自然回復**（`src/game/turn.ts`）：`REGEN_TURNS_PER_HP`を10→1へ変更。`REGEN_AMOUNT_PER_TICK`（1）は無変更。LIFE最大未満の通常ターン経過ごとに1回復する。
+
+**満腹度**（`src/game/hunger.ts`）：`HUNGER_DECREASE_INTERVAL`を5→10へ変更。`HUNGER_DECREASE_AMOUNT`（1）・満腹度最大値・空腹/餓死処理・食料の回復量は無変更。
+
+**通路入口の視認性**（`src/game/mapgen.ts`の新規`getRoomCorridorEntrances`関数 + `src/main.ts`）：
+部屋の四辺それぞれについて、部屋の境界のすぐ外側（1マス分）にある床タイルを走査し、通路の入口タイルとして返す純粋関数を`mapgen.ts`に追加した。この走査ロジックは既存の`doorway-rule.test.ts`（100 seedで検証済み）と同じ境界スキャン方式を再利用しており、部屋同士が接触・重複しないという既存の生成規則により、この1マス外側のリングにある床タイルは必ずその部屋自身に接続する通路の入口タイル（幅1マスの一意な戸口）であることが保証されている。
+
+`main.ts`の`markCameraWindowExplored()`（毎ターンの描画更新で呼ばれる、カメラウィンドウ内を探索済みにする既存処理）に、プレイヤーが現在いる部屋を`roomIndexContaining`で判定し、その部屋の`getRoomCorridorEntrances`が返す入口タイルも同じ`exploredTiles`（探索済み判定用の配列、GameStateの外側で管理される描画専用データ）へ加える処理を追加した。既存の可視履歴（`exploredTiles`）の仕組みをそのまま流用しているため、探索済みとして記憶される・移動可否には一切影響しない・GameState/seed/RNG/telemetryに影響しないという既存仕様をそのまま踏襲している。
+
+### 19.4 変更後の値
+
+| 項目 | 変更後 |
+|---|---|
+| 3ダメージ回復に必要な待機ターン | 3 |
+| 6ダメージ回復に必要な待機ターン | 6 |
+| 3ダメージ回復中の満腹度消費 | 0（3ターン<10ターン間隔のため） |
+| 6ダメージ回復中の満腹度消費 | 0（6ターン<10ターン間隔のため） |
+| 満腹度100から0到達までの行動可能ターン数 | 1000 |
+
+自然回復が10倍速くなったことで、軽度の被弾からの回復に必要な待機ターンが大幅に短縮され、かつ満腹度消費もほぼ発生しなくなった（10ターン未満の待機では満腹度が全く減らないため）。
+
+### 19.5 通路入口表示の正確な仕様
+
+- 対象：プレイヤーが現在立っている部屋（`roomIndexContaining`で判定）に直接接続するすべての通路
+- 表示範囲：各通路につき、部屋の境界から1マス外側にある床タイル1つだけ（`getRoomCorridorEntrances`が返す集合そのもの）
+- 壁越しの床、接続していない近接の通路、2マス目以降は一切表示しない（走査範囲を境界の1マス外側リングだけに限定しているため、原理的に含まれない）
+- 表示は`exploredTiles`（既存の探索済み判定）に加えるだけで、GameState・移動可否・RNG消費には影響しない
+- 部屋の大小に関わらず同じ`roomIndexContaining`/`getRoomCorridorEntrances`を使うため、小さい部屋でも同様に動作する
+
+### 19.6 固定seedでの検証
+
+`src/game/__tests__/phase-16-2-corridor-guidance.test.ts`（新規）で、Phase 16の最大部屋寸法（幅6-11・高さ5-9）に近い大部屋を含むことを事前に確認した3つの固定seed（6, 9, 10）を使い、以下を検証した。
+
+- 全ての部屋で最低1つの入口タイルが見つかる
+- 返されるタイルはすべて床であり、壁ではない
+- 返されるタイルは部屋の境界から正確に1マス外側のリング内にのみ存在する（それより遠い位置は返されない）
+- 返されるタイルはどの部屋の矩形にも属さない（`roomIndexContaining`で-1になる、すなわち通路/戸口タイルである）
+- 入口数が境界リングの床タイル総数と一致する（二重カウントや取りこぼしがない）
+- マップ端に接する部屋（合成マップでの単体テスト）では、存在しない側のリングを走査しないことを確認
+
+### 19.7 テスト・検証
+
+- `src/game/__tests__/phase-16-2-corridor-guidance.test.ts`（新規5件）：上記
+- `src/game/__tests__/hunger-food-starvation.test.ts`：`REGEN_TURNS_PER_HP`の期待値を10→1へ更新
+- 自然回復が毎ターン発火するようになったことで、既存の多数のテスト（敵の1ターン攻撃後のHP検証、armor/poison/telemetry関連）が「被ダメージ+同ターン回復」の相殺を考慮していなかったため、影響を受けたテストファイルすべての期待値をこの相殺を反映した値へ更新した（`weapon-and-sword.test.ts`・`spear-reach-weapon.test.ts`・`turn.test.ts`・`armor-and-golem.test.ts`・`enemy-behavior-melee-variants.test.ts`・`enemy-behavior-spider.test.ts`・`enemy-behavior-kraken.test.ts`・`enemy-roster-foundation.test.ts`・`enemy-type.test.ts`・`facing-and-action-controls.test.ts`・`hammer-knockback-weapon.test.ts`・`inventory-and-apple.test.ts`・`multi-floor.test.ts`・`phase-09-1-solar-energy-foundation.test.ts`・`phase-09-2-solar-gun.test.ts`・`phase-10-2-combat-stat-scale.test.ts`・`phase-10-3-accuracy-evasion.test.ts`・`phase-16-runtime-combat.test.ts`・`phase-12-3-poison-trap.test.ts`）
+- **副次的に発見・修正した既存バグ**：`telemetry.ts`の`recordTurn`が自然回復のactualHealingを「ターン開始時から終了時までのHP差分」という粗い方法で計算していたため、同一ターンにアイテム使用など他の回復も発生すると、その分まで自然回復側の集計へ誤って混入していた。これはPhase 16.1以前（`REGEN_TURNS_PER_HP=10`）はほぼ表面化しなかったが、毎ターン回復するようになったことで容易に再現するようになった。`turn.ts`の`TurnResult`に`playerRegenAmount`（回復ティック自身の増分だけを保持する新フィールド）を追加し、`telemetry.ts`側はその値をそのまま使うよう修正した（`phase-10-3-1-telemetry.test.ts`・`phase-10-3-3-damage-recovery-fix.test.ts`・`phase-10-3-3a-healing-field-rename.test.ts`を対応する期待値に更新）
+- `npx vitest run`：76ファイル・1829件すべて成功
+- `npx tsc -b --noEmit`：成功
+- `npx vite build`：成功
+
+### 19.8 実ブラウザ確認について
+
+このタスク実行環境には実ブラウザがなく、通路入口表示・自然回復・満腹度変化の実際の見た目・プレイ感覚の確認はできていない。`main.ts`（Phaser Scene）はこのリポジトリのvitestスイートの対象外（DOM/Phaser環境が構成されていない）であり、`markCameraWindowExplored`への変更自体への直接的なユニットテストも追加できていない。`getRoomCorridorEntrances`という純粋関数部分のみ、上記の固定seedテストで検証済み。ユーザー側での実プレイ確認を推奨する。

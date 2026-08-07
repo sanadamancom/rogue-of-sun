@@ -274,7 +274,10 @@ describe('armor damage reduction', () => {
     const hpBefore = state.player.hp;
     const result = processTurn(state, { type: 'wait' });
     expect(result.enemyAttacked).toBe(true);
-    expect(state.player.hp).toBe(hpBefore - 1);
+    // Phase 16.2: natural regen now ticks every turn, immediately
+    // offsetting the 1 floored-minimum damage taken this same turn —
+    // net unchanged, not a missed hit.
+    expect(state.player.hp).toBe(hpBefore);
   });
 
   it('a minimum-damage hit still consumes the turn and advances turn count', () => {

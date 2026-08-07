@@ -296,7 +296,8 @@ describe('kraken damage', () => {
       { playerPos: { x: 8, y: 5 }, tentacleTarget: { x: 8, y: 5 }, attack: 2, playerHp: 20 },
     );
     processTurn(state, { type: 'wait' });
-    expect(state.player.hp).toBe(18);
+    // Phase 16.2: regen now fires the same turn, offsetting 1 of the 2 damage.
+    expect(state.player.hp).toBe(19);
   });
 
   it('does not reduce HP on a miss', () => {

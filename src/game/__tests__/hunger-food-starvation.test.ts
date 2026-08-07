@@ -508,8 +508,8 @@ describe('natural regeneration interaction (Phase 11.3)', () => {
     expect(state.player.hp).toBe(state.player.maxHp - 10 - STARVATION_DAMAGE);
   });
 
-  it('regen interval matches the Phase 15.2 rebalance', () => {
-    expect(REGEN_TURNS_PER_HP).toBe(10);
+  it('regen interval matches the Phase 16.2 tuning', () => {
+    expect(REGEN_TURNS_PER_HP).toBe(1);
   });
 });
 
@@ -615,7 +615,9 @@ describe('regression: existing systems unaffected by Phase 11.3', () => {
     const state = freshState({ inventory: { ...createEmptyInventory(), apple: 1 } });
     state.player.hp = 1;
     processTurn(state, { type: 'use_item', itemId: 'apple' });
-    expect(state.player.hp).toBe(1 + ITEM_DEFINITIONS.apple.healAmount!);
+    // Phase 16.2: natural regen now also fires on this same turn (hp
+    // remains below max after the apple heal), adding 1 more.
+    expect(state.player.hp).toBe(1 + ITEM_DEFINITIONS.apple.healAmount! + 1);
   });
 
   it('sun_fruit still restores solar energy by the existing amount (Phase 15.3: clamped to this fixture\'s max 5)', () => {
