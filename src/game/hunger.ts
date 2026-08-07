@@ -8,7 +8,18 @@ import { GameState } from './types';
  */
 export const HUNGER_MAX = 100;
 export const HUNGER_DECREASE_AMOUNT = 1;
-export const HUNGER_DECREASE_INTERVAL = 4;
+// Phase 16.1 early-resource-and-combat-pressure rebalance: 4->5 (see
+// docs/history/phase-16-early-game-balance.md's Phase 16.1 section). A
+// small, deliberately modest loosening of the hunger decay rate — every
+// consumed turn still costs the same fraction of HUNGER_MAX per turn
+// spent (unwaited standing to heal 6 HP, for example, now burns 12
+// hunger instead of 15 — see the same section for the full before/after
+// table), rather than a large change that would make waiting free or
+// remove hunger pressure entirely. HUNGER_DECREASE_AMOUNT (1),
+// HUNGER_MAX (100), and every natural-HP-regeneration constant
+// (REGEN_AMOUNT_PER_TICK/REGEN_TURNS_PER_HP in turn.ts) are unchanged —
+// only this interval moved.
+export const HUNGER_DECREASE_INTERVAL = 5;
 export const CHOCOLATE_HUNGER_RECOVERY = 30;
 export const STARVATION_DAMAGE = 1;
 /** Phase 15.2 core combat/recovery rebalance: 5->1 (see docs/history/phase-15-2-recovery-satiety-status-rebalance.md) — every consumed turn at satiety 0 now deals starvation damage, rather than once every 5 turns. */

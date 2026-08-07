@@ -1705,6 +1705,27 @@ const chebyshevDistance = (a: Vec2, b: Vec2): number =>
   Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
 
 /**
+ * Phase 16.1 early-resource-and-combat-pressure rebalance: the distance
+ * (Chebyshev, matching the 8-direction chase grid) within which an enemy
+ * "notices" the player and starts chasing/attacking. Chosen to comfortably
+ * cover same-room engagement at Phase 16's enlarged room interiors (width
+ * 6-11, height 5-9 — the longest single straight line inside even the
+ * biggest room is well under this) while still meaningfully limiting how
+ * many far-flung enemies across a 48x36 floor can converge on the player
+ * at once. This is a plain numeric distance check, not a line-of-sight or
+ * field-of-view system — deliberately out of scope for this phase; an
+ * enemy within range still "notices" the player through walls exactly as
+ * every enemy always has, and still has to path around walls once it
+ * starts chasing (canMove/tryChaseStep are unchanged).
+ */
+const AGGRO_RANGE = 8;
+
+/** Whether `player` is within `enemy`'s aggro range (see AGGRO_RANGE) — always true once already adjacent (checked separately by callers), so this only needs to cover the "not yet adjacent" case. */
+function isWithinAggroRange(enemy: EnemyActor, player: Actor): boolean {
+  return chebyshevDistance(enemy.pos, player.pos) <= AGGRO_RANGE;
+}
+
+/**
  * Attempts one bat retreat step (enemy-behavior-06) for `enemy`: among the
  * 8 adjacent tiles (fixed ALL_DIRECTIONS order, matching every other
  * deterministic direction scan in this file), a candidate must be a legal
@@ -2078,6 +2099,22 @@ function resolveOneEnemy(
   events: GameEvent[],
 ): { acted: boolean; attacked: boolean } {
   const behaviorType = ENEMY_DEFINITIONS[enemy.type].behaviorType;
+  if (behaviorType !== 'stationary' && !isAdjacent(enemy.pos, state.player.pos) && !isWithinAggroRange(enemy, state.player)) {
+    // Phase 16.1: an enemy that hasn't noticed the player yet (further
+    // than AGGRO_RANGE away, Chebyshev, and not already adjacent) does
+    // nothing this turn — no movement, no attack, no per-species
+    // book-keeping (web cooldown, retreat/rest flags, etc.), and
+    // consumes no RNG. Previously every living enemy on the floor
+    // beelined toward the player from the instant it spawned regardless
+    // of distance, so once the map grew to 48x36 with more rooms (Phase
+    // 16) a full floor's enemies could all converge on the player at
+    // once well before the player ever saw most of them. This is a
+    // simple numeric distance gate, not a line-of-sight/vision system
+    // (out of scope) — an enemy on the far side of a wall within range
+    // still "notices" the player, exactly as before this change, and
+    // still has to path around walls once it starts chasing.
+    return { acted: false, attacked: false };
+  }
   switch (behaviorType) {
     case 'spider_cardinal':
       return resolveSpiderEnemy(state, enemy, events);

@@ -77,7 +77,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
 }
 
 describe('solar gun definition and inventory (Phase 09.2)', () => {
-  it('registers solar_gun as a weapon with attackPower 1 (bonus over bare hands; Phase 15.1, see weapon-def.ts), reach(range) 5, solarCost 1', () => {
+  it('registers solar_gun as a weapon with attackPower 1 (bonus over bare hands; Phase 15.1, see weapon-def.ts), reach(range) 5, solarCost 3 (Phase 16.1)', () => {
     expect(ITEM_IDS_IN_ORDER).toContain('solar_gun');
     expect(WEAPON_IDS_IN_ORDER).toContain('solar_gun');
     expect(ITEM_DEFINITIONS.solar_gun.displayName).toBe('太陽銃');
@@ -85,7 +85,7 @@ describe('solar gun definition and inventory (Phase 09.2)', () => {
     expect(ITEM_DEFINITIONS.solar_gun.consumable).toBe(false);
     expect(WEAPON_DEFINITIONS.solar_gun.attackPower).toBe(1);
     expect(WEAPON_DEFINITIONS.solar_gun.reach).toBe(5);
-    expect(WEAPON_DEFINITIONS.solar_gun.solarCost).toBe(1);
+    expect(WEAPON_DEFINITIONS.solar_gun.solarCost).toBe(3);
   });
 
   it('picking up a solar gun increases its count without auto-equipping', () => {
@@ -276,16 +276,16 @@ describe('solar gun firing (Phase 09.2)', () => {
   });
 });
 
-describe('solar gun SOL consumption (Phase 09.2)', () => {
-  it('firing at SOL 5 lowers it to 4', () => {
+describe('solar gun SOL consumption (Phase 09.2, cost updated to 3 by Phase 16.1)', () => {
+  it('firing at SOL 5 lowers it to 2', () => {
     const state = freshState({ equippedWeaponId: 'solar_gun', solarEnergy: 5 });
     state.player.facing = 'E';
     processTurn(state, { type: 'action' });
-    expect(state.solarEnergy).toBe(4);
+    expect(state.solarEnergy).toBe(2);
   });
 
-  it('firing at SOL 1 lowers it to 0', () => {
-    const state = freshState({ equippedWeaponId: 'solar_gun', solarEnergy: 1 });
+  it('firing at SOL 3 (exactly the cost) lowers it to 0', () => {
+    const state = freshState({ equippedWeaponId: 'solar_gun', solarEnergy: 3 });
     state.player.facing = 'E';
     processTurn(state, { type: 'action' });
     expect(state.solarEnergy).toBe(0);
@@ -301,6 +301,17 @@ describe('solar gun SOL consumption (Phase 09.2)', () => {
     expect(enemy.hp).toBe(5);
   });
 
+  it('cannot fire below the cost (SOL 2, cost 3)', () => {
+    const state = freshState({ equippedWeaponId: 'solar_gun', solarEnergy: 2 });
+    state.player.facing = 'E';
+    const enemy = createInitialEnemy('bok', { x: 11, y: 10 }, 5, 1);
+    state.enemies = [enemy];
+    const result = processTurn(state, { type: 'action' });
+    expect(result.consumed).toBe(false);
+    expect(enemy.hp).toBe(5);
+    expect(state.solarEnergy).toBe(2);
+  });
+
   it('never drops solarEnergy below 0', () => {
     const state = freshState({ equippedWeaponId: 'solar_gun', solarEnergy: 0 });
     state.player.facing = 'E';
@@ -308,8 +319,8 @@ describe('solar gun SOL consumption (Phase 09.2)', () => {
     expect(state.solarEnergy).toBeGreaterThanOrEqual(0);
   });
 
-  it('consumes 1 SOL on a hit', () => {
-    const state = freshState({ equippedWeaponId: 'solar_gun', solarEnergy: 3 });
+  it('consumes 3 SOL on a hit', () => {
+    const state = freshState({ equippedWeaponId: 'solar_gun', solarEnergy: 5 });
     state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 11, y: 10 }, 5, 1);
     state.enemies = [enemy];
@@ -317,8 +328,8 @@ describe('solar gun SOL consumption (Phase 09.2)', () => {
     expect(state.solarEnergy).toBe(2);
   });
 
-  it('consumes 1 SOL on a kill', () => {
-    const state = freshState({ equippedWeaponId: 'solar_gun', solarEnergy: 3 });
+  it('consumes 3 SOL on a kill', () => {
+    const state = freshState({ equippedWeaponId: 'solar_gun', solarEnergy: 5 });
     state.player.facing = 'E';
     const enemy = createInitialEnemy('bok', { x: 11, y: 10 }, 1, 1);
     state.enemies = [enemy];
@@ -327,19 +338,19 @@ describe('solar gun SOL consumption (Phase 09.2)', () => {
     expect(state.solarEnergy).toBe(2);
   });
 
-  it('consumes 1 SOL on a whiff (no enemy on the ray)', () => {
-    const state = freshState({ equippedWeaponId: 'solar_gun', solarEnergy: 3 });
+  it('consumes 3 SOL on a whiff (no enemy on the ray)', () => {
+    const state = freshState({ equippedWeaponId: 'solar_gun', solarEnergy: 5 });
     state.player.facing = 'E';
     processTurn(state, { type: 'action' });
     expect(state.solarEnergy).toBe(2);
   });
 
-  it('consumes 1 SOL when firing directly into an adjacent wall', () => {
+  it('consumes 3 SOL when firing directly into an adjacent wall', () => {
     const state = freshState({
       map: corridorMap(),
       equippedWeaponId: 'solar_gun',
       player: createInitialActor({ x: 1, y: 1 }, 3, 1),
-      solarEnergy: 3,
+      solarEnergy: 5,
     });
     state.player.facing = 'N'; // (1,0) is wall in corridorMap
     processTurn(state, { type: 'action' });

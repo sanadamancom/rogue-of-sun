@@ -191,3 +191,84 @@ Phase 16の試遊中に見つかった以下3件を、`fix-floor-transition-spri
 ### 17.4 統合方法
 
 `phase-16-early-game-balance`ブランチへ、`fix-floor-transition-sprite-crash`（直接の子孫だったためfast-forward）と`fix-gameover-restart-keys`（`main`から分岐していたため該当commitの差分のみをcherry-pick）を取り込み、1件の"fix: repair restart and floor transition runtime errors"commitとして記録した。個別修正時に作成していた`docs/history/fix-floor-transition-sprite-crash.md`・`docs/history/fix-gameover-restart-keys.md`は本ファイルへ統合し、削除した。
+
+## 18. Phase 16.1：序盤の資源・戦闘圧バランス調整
+
+対象commit: `phase-16-early-game-balance`ブランチ（17章のrepair統合commit `2052eae613b9de3cf0f42591025cf9d8b55a8fcf`の続き）
+
+### 18.1 試遊で報告された問題
+
+- 敵が大量に接近すると処理しきれない
+- アイテムドロップが少なく感じる
+- 満腹度の減少が早い
+- 回復のために待機すると急速に空腹になる
+- 2階へ行く前に食料を拾えない場合、餓死しやすい
+- 太陽銃の初期エネルギー上限15に対して消費量が少なすぎる
+- 太陽銃のエンチャントも消費軽減・継戦能力を過剰にしている可能性がある
+
+### 18.2 調査結果（変更前の実測値）
+
+**敵の同時接敵**：`tryChaseStep`（bok/golem/sword/axe/bat/mummyが共有）・`trySpiderChaseStep`など、あらゆる敵の追跡関数に索敵範囲の概念が一切なく、スポーンした瞬間から毎ターン無条件でプレイヤーへ直進していた。48×36への拡大後もこの挙動自体は変わっていないため、探索を進めるほど遠方の敵まで同時に収束してくる構造だった。
+
+**アイテム供給**：floor1のground itemプール11種のうち、満腹度を回復するのは`chocolate`1種のみ（`apple`はHP回復用で別役割）。`GROUND_ITEM_COUNT_WEIGHTS`の期待値4個・`drawGroundItemSelection`の一様抽選という条件から、floor1でchocolateが1つも出ない確率は理論上約(10/11)^4 ≈ 68%と算出した。1000seedの実測でも、変更前はこの理論値に近い割合でfloor1が食料0個になっていた（変更後の保証実装と合わせて68章参照）。
+
+**満腹度と回復の交換比**（変更前）：`HUNGER_MAX=100`、`HUNGER_DECREASE_INTERVAL=4`（4ターンごとに-1）、`REGEN_TURNS_PER_HP=10`・`REGEN_AMOUNT_PER_TICK=1`（自然回復、無変更）。
+
+| 目的 | 待機ターン数 | 満腹度消費（変更前） |
+|---|---|---|
+| 3ダメージ回復（ボク通常攻撃1回分） | 30 | 7 |
+| 6ダメージ回復（ボク通常攻撃2回分） | 60 | 15 |
+
+**太陽銃**：`maxSolarEnergy=15`（Phase 15.1）に対し`solarCost=1`。無強化で15連射可能。`ELEMENT_ENCHANT_ELIGIBLE_WEAPONS`（`turn.ts`）は`['sword','spear','hammer']`のみで太陽銃自身は対象外のため、太陽銃の消費を軽減するエンチャント機構はコード上存在しないことを確認した（`sol_enchantment`はメレー武器へsol属性を付与するだけで、太陽銃のsolarCost計算には一切関与しない）。
+
+### 18.3 実装した変更
+
+**敵の同時接敵**（`src/game/turn.ts`）：
+`resolveOneEnemy`に索敵範囲ゲートを追加した。`AGGRO_RANGE = 8`（Chebyshev距離）、すでに隣接している敵は常に行動する。範囲外の敵は移動・攻撃・各種固有の内部処理（webクールダウン減少、退避/休息フラグ等）を一切行わない。視界（FOV/LOS）システムではなく、単純な距離しきい値。
+
+**食料供給**（`src/game/state.ts`）：
+floor1限定で、`drawGroundItemSelection`の結果に`chocolate`が含まれていなければ、最後の抽選枠を`chocolate`へ置き換える。総アイテム数・placement処理・RNG消費順序は変更しない。floor2以降は無変更（プールが累積的に拡大するため相対的にリスクが下がる）。
+
+**満腹度**（`src/game/hunger.ts`）：
+`HUNGER_DECREASE_INTERVAL`を4→5へ変更。`HUNGER_DECREASE_AMOUNT`（1）・`HUNGER_MAX`（100）・自然回復関連定数（`REGEN_AMOUNT_PER_TICK`・`REGEN_TURNS_PER_HP`、`turn.ts`）は無変更。
+
+**太陽銃**（`src/game/weapon-def.ts`）：
+`solarCost`を1→3へ変更。`attackPower`（1）・`reach`（5）は無変更。エンチャント側の追加調整は、上記調査の結果、対象となる既存メカニズムが存在しないため実施しなかった。
+
+### 18.4 変更後の値
+
+| 項目 | 変更前 | 変更後 |
+|---|---|---|
+| 敵の索敵範囲 | 無制限（常時追跡） | Chebyshev距離8 |
+| floor1食料保証 | なし（理論上約68%のseedで0個） | 1000seed全件で最低1個保証 |
+| HUNGER_DECREASE_INTERVAL | 4 | 5 |
+| 3ダメージ回復の満腹度消費 | 7 | 6 |
+| 6ダメージ回復の満腹度消費 | 15 | 12 |
+| 太陽銃solarCost | 1 | 3 |
+| 満タン(15)からの連射可能回数 | 15回 | 5回 |
+
+### 18.5 測定結果
+
+**同時接敵（30seed、floor1スポーン時点）**：Chebyshev距離8以内にいる敵の数の分布は平均0.70・最大2（30seed中、3以上は0件）。数値例：`[2,0,0,2,2,0,1,1,0,1,1,0,0,0,2,1,1,1,1,0,1,1,1,0,0,0,0,1,1,0]`。1対1が基本、時々1対2、1対3以上が序盤の通常状態にならないというbalance_targetsに合致することを確認した。
+
+**注記**：この測定はフロア生成直後（ターン0）の静的な位置関係のみを対象としており、探索を進めた後の動的な接敵パターン（プレイヤーが移動するにつれて追加の敵が索敵範囲へ入ってくる推移）までは追跡していない。より厳密な検証には、複数seedでの自動探索シミュレーションが必要。
+
+**アイテム供給（1000seed、floor1）**：平均アイテム数4.00個/フロア（変更前後で不変、`GROUND_ITEM_COUNT_WEIGHTS`は無変更のため）。chocolate出現率は1000/1000（100%、保証実装により)。参考値としてapple出現率は286/1000（28.6%、無保証のまま）。
+
+**手動試遊について**：このタスク実行環境には実ブラウザがなく、人間のプレイヤーと同様の判断を伴う手動試遊は実施できていない。上記はすべてゲームエンジンの関数（`createInitialState`・`processTurn`等）をNode上から直接呼び出した計算・集計であり、画面を見ながらの主観的なプレイフィールの確認ではない。ユーザー側での実プレイ確認を推奨する。
+
+### 18.6 テスト
+
+- `src/game/__tests__/phase-16-1-aggro-range.test.ts`（新規5件）：索敵範囲の境界値（範囲外で停止、境界で追跡開始、範囲内は従来どおり、隣接時は範囲によらず攻撃、範囲内に入ってから追跡再開）
+- `src/game/__tests__/phase-16-1-solar-gun-rebalance.test.ts`（新規3件）：solarCost=3、満タンから5発、攻撃力/射程は無変更
+- `src/game/__tests__/hunger-food-starvation.test.ts`：chocolate関連テストを、旧仕様「floor1でも出ないことがある」から新仕様「floor1は1000seed全件で最低1個保証」へ置き換え
+- 既存の敵配置座標に依存するテスト（`phase-12-2-slow-trap.test.ts`・`phase-12-3-poison-trap.test.ts`・`phase-12-4-curative-items.test.ts`・`enemy-behavior-bat.test.ts`・`enemy-behavior-kraken.test.ts`）：索敵範囲の導入で「遠く離れた敵は動かない」という前提に変わったため、各テストの意図（トラップ処理・退避処理・薙刀範囲判定など）を保ったまま敵/プレイヤーの座標を索敵範囲内へ調整
+- 太陽銃solarCost変更に伴うテスト（`phase-09-2-solar-gun.test.ts`・`phase-10-1-sol-enchant.test.ts`・`phase-10-2-combat-stat-scale.test.ts`・`phase-10-3-1-telemetry.test.ts`・`phase-10-3-accuracy-evasion.test.ts`）：期待消費量を1→3へ更新
+- 満腹度間隔変更に伴うテスト（`phase-10-3-1-telemetry.test.ts`のsatiety.minテスト）：期待ターン数を4→5へ更新
+- `npx vitest run`：74ファイル・1820件すべて成功
+- `npx tsc -b --noEmit`：成功
+- `npx vite build`：成功
+
+### 18.7 out_of_scopeとの整合
+
+マップ・部屋寸法、プレイヤー攻撃力・初期LIFE、ボクHP/attack、他の敵の攻撃力、自然回復量・間隔、太陽銃の攻撃力・射程、新アイテム・新敵・視界システムの追加、いずれも変更していない。

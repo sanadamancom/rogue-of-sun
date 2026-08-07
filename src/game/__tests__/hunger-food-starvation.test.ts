@@ -209,17 +209,27 @@ describe('chocolate (Phase 15.4b random ground item generation)', () => {
     expect(getGroundItemPoolForFloor(3)).toContain('chocolate');
   });
 
-  it('appearance is no longer guaranteed every floor (Phase 15.4b): it varies across seeds', () => {
-    let seenPresent = false;
-    let seenAbsent = false;
-    for (let seed = 0; seed < 60; seed++) {
+  it('floor 1 now guarantees at least one chocolate (Phase 16.1 minimum food supply)', () => {
+    // Phase 16.1 early-resource-and-combat-pressure rebalance: floor 1's
+    // random draw alone left roughly a 68% chance of zero chocolate (the
+    // only hunger-restoring item) across a floor — see docs/history/
+    // phase-16-early-game-balance.md's Phase 16.1 section. state.ts now
+    // guarantees at least one on floor 1 specifically, superseding this
+    // describe block's original Phase 15.4b premise (chocolate's
+    // appearance is no longer left fully to chance on floor 1).
+    for (let seed = 0; seed < 1000; seed++) {
       const state = createInitialState(seed);
       const count = state.groundItems.filter((item) => item.itemId === 'chocolate').length;
-      if (count >= 1) seenPresent = true;
-      else seenAbsent = true;
+      expect(count).toBeGreaterThanOrEqual(1);
     }
-    expect(seenPresent).toBe(true);
-    expect(seenAbsent).toBe(true);
+  });
+
+  it('the floor-1 guarantee never changes the total ground-item count for that floor', () => {
+    for (let seed = 0; seed < 1000; seed++) {
+      const state = createInitialState(seed);
+      expect(state.groundItems.length).toBeGreaterThanOrEqual(2);
+      expect(state.groundItems.length).toBeLessThanOrEqual(6);
+    }
   });
 
   it('when placed, it is on a reachable floor tile', () => {

@@ -33,7 +33,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
   return {
     map: testMap(),
     player: createInitialActor({ x: 2, y: 3 }, 30, 10, 0, 90, 0),
-    enemies: [createInitialEnemy('bok', { x: 17, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
+    enemies: [createInitialEnemy('bok', { x: 9, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
     turn: 0,
     phase: 'playing',
     seed: 1,
@@ -212,7 +212,7 @@ describe('trap trigger (Phase 12.2)', () => {
     const trap: TrapTile = { id: 0, pos: { x: 17, y: 3 }, triggered: false, trapType: 'slow_trap' };
     const state = freshState({
       player: createInitialActor({ x: 2, y: 3 }, 30, 10, 0, 90, 0),
-      enemies: [createInitialEnemy('bok', { x: 16, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
+      enemies: [createInitialEnemy('bok', { x: 9, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
       traps: [trap],
     });
     processTurn(state, { type: 'wait' }); // bok chases one step onto (or toward) the trap tile
@@ -257,7 +257,7 @@ describe('trap trigger (Phase 12.2)', () => {
     const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, triggered: false, trapType: 'slow_trap' };
     const state = freshState({
       player: createInitialActor({ x: 2, y: 3 }, 30, 10, 0, 90, 0),
-      enemies: [createInitialEnemy('bok', { x: 17, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
+      enemies: [createInitialEnemy('bok', { x: 9, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
       traps: [trap],
     });
     processTurn(state, { type: 'move', direction: 'E' }); // -> 3,3
@@ -272,7 +272,7 @@ describe('movement_slow additional enemy phase (Phase 12.2)', () => {
   function activeState(overrides?: Partial<GameState>): GameState {
     return freshState({
       player: createInitialActor({ x: 2, y: 3 }, 30, 10, 0, 90, 0),
-      enemies: [createInitialEnemy('bok', { x: 17, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
+      enemies: [createInitialEnemy('bok', { x: 9, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
       activeEffects: [{ id: 'movement_slow', strength: 1, remainingTurns: 5 }],
       ...overrides,
     });
@@ -360,8 +360,8 @@ describe('movement_slow additional enemy phase (Phase 12.2)', () => {
   it('satisfies fixed enemy count per phase: each enemy acts at most once per phase (2 enemies both advance once per phase)', () => {
     const state = activeState({
       enemies: [
-        createInitialEnemy('bok', { x: 17, y: 3 }, 1000, 0, 0, 0, 0, 90, 0),
-        createInitialEnemy('bok', { x: 17, y: 5 }, 1000, 0, 1, 1, 0, 90, 0),
+        createInitialEnemy('bok', { x: 9, y: 3 }, 1000, 0, 0, 0, 0, 90, 0),
+        createInitialEnemy('bok', { x: 9, y: 5 }, 1000, 0, 1, 1, 0, 90, 0),
       ],
     });
     const xBefore = state.enemies.map((e) => e.pos.x);
@@ -396,7 +396,7 @@ describe('movement_slow duration and lifecycle (Phase 12.2)', () => {
 
   it('applies the extra phase on the final (remaining 1) successful move, then expires', () => {
     const state = freshState({
-      enemies: [createInitialEnemy('bok', { x: 17, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
+      enemies: [createInitialEnemy('bok', { x: 9, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
       activeEffects: [{ id: 'movement_slow', strength: 1, remainingTurns: 1 }],
     });
     const enemyXBefore = state.enemies[0].pos.x;
@@ -430,7 +430,7 @@ describe('compatibility: spider web (Phase 12.2)', () => {
     const web: WebTile = { id: 0, pos: { x: 3, y: 3 }, ownerEnemyId: 0, placedTurn: 0 };
     const state = freshState({
       player: { ...createInitialActor({ x: 2, y: 3 }, 30, 10, 0, 90, 0), slowed: true },
-      enemies: [createInitialEnemy('bok', { x: 17, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
+      enemies: [createInitialEnemy('bok', { x: 9, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
       webs: [web],
       activeEffects: [{ id: 'movement_slow', strength: 1, remainingTurns: 5 }],
     });
@@ -455,7 +455,7 @@ describe('compatibility: petrified (Phase 12.2)', () => {
   it('a forced petrified skip does not run the additional enemy phase', () => {
     const state = freshState({
       player: { ...createInitialActor({ x: 2, y: 3 }, 30, 10, 0, 90, 0), petrified: true },
-      enemies: [createInitialEnemy('bok', { x: 17, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
+      enemies: [createInitialEnemy('bok', { x: 9, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
       activeEffects: [{ id: 'movement_slow', strength: 1, remainingTurns: 5 }],
     });
     const enemyXBefore = state.enemies[0].pos.x;

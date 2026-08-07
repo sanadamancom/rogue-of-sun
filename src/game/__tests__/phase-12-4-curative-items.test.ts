@@ -40,7 +40,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
   return {
     map: testMap(),
     player: createInitialActor({ x: 2, y: 3 }, 30, 10, 0, 90, 0),
-    enemies: [createInitialEnemy('bok', { x: 17, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
+    enemies: [createInitialEnemy('bok', { x: 9, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
     turn: 0,
     phase: 'playing',
     seed: 1,
@@ -368,7 +368,7 @@ describe('panacea (Phase 12.4)', () => {
   it('does not trigger the movement_slow additional enemy phase on the use turn', () => {
     const state = freshState({
       inventory: { ...createEmptyInventory(), panacea: 1 },
-      enemies: [createInitialEnemy('bok', { x: 17, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
+      enemies: [createInitialEnemy('bok', { x: 9, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
       activeEffects: [{ id: 'movement_slow', strength: 1, remainingTurns: 5 }],
     });
     const enemyXBefore = state.enemies[0].pos.x;
@@ -390,7 +390,7 @@ describe('panacea (Phase 12.4)', () => {
   it('does not run enemy actions, hunger, natural regen, or effect decrement on failure', () => {
     const state = freshState({
       inventory: { ...createEmptyInventory(), panacea: 1 },
-      enemies: [createInitialEnemy('bok', { x: 17, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
+      enemies: [createInitialEnemy('bok', { x: 9, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
       activeEffects: [{ id: 'attack_up', strength: 5, remainingTurns: 8 }],
     });
     const enemyXBefore = state.enemies[0].pos.x;

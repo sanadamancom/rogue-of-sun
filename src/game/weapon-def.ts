@@ -95,7 +95,24 @@ export const WEAPON_DEFINITIONS: Record<WeaponId, WeaponDefinition> = {
     reach: 5,
     knockbackDistance: 0,
     hasRecoil: false,
-    solarCost: 1,
+    // Phase 16.1 early-resource-and-combat-pressure rebalance: 1->3 (see
+    // docs/history/phase-16-early-game-balance.md's Phase 16.1 section).
+    // At maxSolarEnergy 15 (Phase 15.1), a cost of 1 let a full charge
+    // fire 15 times — effectively unlimited relative to a single floor's
+    // combat. 3 brings that down to 5 shots per full charge, matching
+    // balance_targets' "1ゲージで通常射撃5回前後" target exactly.
+    // Investigated whether any enchantment discounts this further before
+    // changing it (implementation_priority's "エンチャントの消費軽減効
+    // 果を新消費量に合わせる"): ELEMENT_ENCHANT_ELIGIBLE_WEAPONS
+    // (turn.ts) is ['sword', 'spear', 'hammer'] only — solar_gun is not
+    // in that list, so no unlocked element enchantment ever changes
+    // resolveSolarGunAttack's cost calculation (it always spends exactly
+    // weaponDef.solarCost, full stop). There is no separate
+    // "solar_gun discount" mechanic anywhere in this codebase for this
+    // change to adjust — sol_enchantment only unlocks the sol element
+    // for melee weapons, which shares the same solarEnergy pool but
+    // never touches this constant. attackPower and reach are unchanged.
+    solarCost: 3,
     hitModifier: 5,
   },
 };

@@ -256,7 +256,7 @@ describe('kraken strike area (orthogonal cross)', () => {
   });
 
   it('misses when the player moves well outside the cross', () => {
-    const state = krakenState({ x: 5, y: 5 }, { playerPos: { x: 15, y: 15 }, tentacleTarget: { x: 8, y: 5 } });
+    const state = krakenState({ x: 5, y: 5 }, { playerPos: { x: 12, y: 12 }, tentacleTarget: { x: 8, y: 5 } });
     const result = processTurn(state, { type: 'wait' });
     expect(result.events.find((e) => e.type === 'kraken_tentacle_strike')).toMatchObject({ hit: false });
   });

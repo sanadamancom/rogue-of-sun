@@ -370,7 +370,7 @@ describe('resource trace (Phase 10.3.1)', () => {
     const telemetry = createRunTelemetry(state);
     processTurn(state, { type: 'face', direction: 'E' });
     step(state, { type: 'action' }, telemetry);
-    expect(telemetry.events.some((e) => e.type === 'sol_changed' && e.reason === 'solar_gun' && e.amount === -1)).toBe(true);
+    expect(telemetry.events.some((e) => e.type === 'sol_changed' && e.reason === 'solar_gun' && e.amount === -3)).toBe(true); // cost raised 1->3 by Phase 16.1
   });
 
   it('melee enchantment consumption is recorded as sol_changed with reason melee_enchantment', () => {
@@ -743,8 +743,8 @@ describe('Phase 15.2 recovery/satiety/status rebalance telemetry', () => {
   it('satiety.min tracks the lowest value reached over the run, even after later recovery', () => {
     const state = freshState({ enemies: [], hunger: 4, inventory: { ...createEmptyInventory(), chocolate: 1 } });
     const telemetry = createRunTelemetry(state);
-    for (let i = 0; i < 4; i++) {
-      step(state, { type: 'wait' }, telemetry); // 4 -> 3 on the 4th (HUNGER_DECREASE_INTERVAL=4)
+    for (let i = 0; i < 5; i++) {
+      step(state, { type: 'wait' }, telemetry); // 4 -> 3 on the 5th (HUNGER_DECREASE_INTERVAL=5, Phase 16.1)
     }
     step(state, { type: 'use_item', itemId: 'chocolate' }, telemetry); // 3 -> 33
     const summary = computeRunSummary(telemetry, state);

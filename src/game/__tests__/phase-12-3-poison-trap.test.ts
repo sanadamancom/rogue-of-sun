@@ -33,7 +33,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
   return {
     map: testMap(),
     player: createInitialActor({ x: 2, y: 3 }, 30, 10, 0, 90, 0),
-    enemies: [createInitialEnemy('bok', { x: 17, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
+    enemies: [createInitialEnemy('bok', { x: 9, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
     turn: 0,
     phase: 'playing',
     seed: 1,
@@ -202,7 +202,7 @@ describe('poison_trap trigger (Phase 12.3)', () => {
     const trap: TrapTile = { id: 0, pos: { x: 17, y: 3 }, triggered: false, trapType: 'poison_trap' };
     const state = freshState({
       player: createInitialActor({ x: 2, y: 3 }, 30, 10, 0, 90, 0),
-      enemies: [createInitialEnemy('bok', { x: 16, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
+      enemies: [createInitialEnemy('bok', { x: 9, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
       traps: [trap],
     });
     processTurn(state, { type: 'wait' });
@@ -383,7 +383,14 @@ describe('poison tick (Phase 12.3)', () => {
   });
 
   it('a full 10-turn poison duration (real values) ticks exactly on turns 2/4/6/8/10, for 5 total damage (Phase 15.2)', () => {
-    const state = freshState({ activeEffects: [{ id: 'poison', strength: 1, remainingTurns: 10 }] });
+    // Enemy pushed out to AGGRO_RANGE + 1 so it never notices the player
+    // and interferes with this poison-only damage measurement (Phase
+    // 16.1 gave enemies a finite aggro range — see turn.ts's
+    // AGGRO_RANGE/isWithinAggroRange).
+    const state = freshState({
+      enemies: [createInitialEnemy('bok', { x: 12, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
+      activeEffects: [{ id: 'poison', strength: 1, remainingTurns: 10 }],
+    });
     const hpBefore = state.player.hp;
     const damagePerTurn: number[] = [];
     for (let i = 0; i < 10; i++) {
@@ -523,7 +530,7 @@ describe('compatibility: attack_up, movement_slow, poison simultaneously (Phase 
     const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, triggered: false, trapType: 'poison_trap' };
     const state = freshState({
       traps: [trap],
-      enemies: [createInitialEnemy('bok', { x: 17, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
+      enemies: [createInitialEnemy('bok', { x: 9, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
       activeEffects: [{ id: 'movement_slow', strength: 1, remainingTurns: 5 }],
     });
     processTurn(state, { type: 'move', direction: 'E' }); // -> 3,3
@@ -536,7 +543,7 @@ describe('compatibility: attack_up, movement_slow, poison simultaneously (Phase 
     const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, triggered: false, trapType: 'slow_trap' };
     const state = freshState({
       traps: [trap],
-      enemies: [createInitialEnemy('bok', { x: 17, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
+      enemies: [createInitialEnemy('bok', { x: 9, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
       activeEffects: [{ id: 'movement_slow', strength: 1, remainingTurns: 5 }],
     });
     processTurn(state, { type: 'move', direction: 'E' }); // -> 3,3

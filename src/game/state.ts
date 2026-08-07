@@ -269,6 +269,28 @@ function buildFloorState(
   const itemSelectionRng = createRng(floorSeed ^ 0x5c2e91d3);
   const selectedItemIds = drawGroundItemSelection(itemCount, floorItemPool, itemSelectionRng);
 
+  // Phase 16.1 early-resource-and-combat-pressure rebalance: floor 1's
+  // ground-item pool has 11 candidate ids but 'chocolate' (the only
+  // hunger-restoring item — apple heals HP, not hunger) is just one
+  // uniform draw among them, so with the average draw count of 4 the
+  // floor had roughly a 68% chance of generating zero food at all (see
+  // docs/history/phase-16-early-game-balance.md's Phase 16.1 section for
+  // the measured figure). Rather than reduce that risk only
+  // probabilistically (raising the draw count or chocolate's weight
+  // would also inflate every OTHER item's expected count, which
+  // balance_targets rules out — "アイテム総数を過剰に増やさない"),
+  // floor 1 specifically gets a hard floor-item content guarantee: if
+  // this draw didn't happen to include 'chocolate', the last drawn slot
+  // is swapped for one — same total item count, same RNG consumption
+  // (count/selection/placement streams are all untouched; this is a
+  // fixed post-draw substitution, not an extra draw), same placement
+  // logic below. Floors 2+ are unaffected — by floor 2 the player has
+  // had a full floor to find *some* food, and per-floor cumulative pool
+  // growth (item-def.ts) already broadens the odds naturally from there.
+  if (floor === 1 && !selectedItemIds.includes('chocolate')) {
+    selectedItemIds[selectedItemIds.length - 1] = 'chocolate';
+  }
+
   // Ground item placement (Phase 15.4b): each selected id is placed in
   // draw order via chooseGroundItemPosition, excluding start/exit/every
   // enemy position/every already-placed trap/every ground item placed

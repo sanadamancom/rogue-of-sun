@@ -193,7 +193,7 @@ describe('bat blocked retreat', () => {
     ]) {
       map.terrain[y][x] = 'wall';
     }
-    const state = batState({ x: 6, y: 5 }, { playerPos: { x: 15, y: 5 }, retreating: true, map });
+    const state = batState({ x: 6, y: 5 }, { playerPos: { x: 13, y: 5 }, retreating: true, map });
     const bat = state.enemies[0];
     const before = { ...bat.pos };
     const result = processTurn(state, { type: 'wait' });

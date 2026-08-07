@@ -228,7 +228,7 @@ describe('miss side effects (Phase 10.3)', () => {
     });
     faceEast(state);
     const result = processTurn(state, { type: 'action' });
-    expect(state.solarEnergy).toBe(4);
+    expect(state.solarEnergy).toBe(2); // cost raised 1->3 by Phase 16.1
     expect(result.events.some((e) => e.type === 'player_attack_missed')).toBe(true);
   });
 

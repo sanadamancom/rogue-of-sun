@@ -292,9 +292,10 @@ describe('sol enchantment activation (Phase 10.1)', () => {
     });
     faceEastAtEnemy(state);
     const result = processTurn(state, { type: 'action' });
-    // Solar gun still spends its own 1 SOL via its existing mechanism,
-    // but never the sol-enchantment bonus/event on top of that.
-    expect(state.solarEnergy).toBe(4);
+    // Solar gun still spends its own 3 SOL via its existing mechanism
+    // (cost raised 1->3 by Phase 16.1), but never the sol-enchantment
+    // bonus/event on top of that.
+    expect(state.solarEnergy).toBe(2);
     expect(result.events.some((e) => e.type === 'sol_enchantment_used')).toBe(false);
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
     expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(2); // fixture player.attack 1 + solar_gun bonus 1, no sol enchant bonus
@@ -357,7 +358,7 @@ describe('existing weapon behavior preserved under sol enchantment (Phase 10.1)'
     });
     faceEastAtEnemy(state);
     const result = processTurn(state, { type: 'action' });
-    expect(state.solarEnergy).toBe(4);
+    expect(state.solarEnergy).toBe(2); // solar gun's own cost 3 (Phase 16.1), unaffected by sol selection
     expect(result.playerAttacked).toBe(true);
   });
 });

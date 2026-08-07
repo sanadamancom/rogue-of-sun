@@ -182,7 +182,7 @@ describe('weapon damage uses the shared calculation (Phase 10.2)', () => {
     });
     faceEast(state);
     const result = processTurn(state, { type: 'action' });
-    expect(state.solarEnergy).toBe(4); // solar gun's own solarCost, unrelated to sol enchantment
+    expect(state.solarEnergy).toBe(2); // solar gun's own solarCost 3 (Phase 16.1), unrelated to sol enchantment
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
     expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(11); // player.attack 10 + solar_gun bonus 1 (Phase 15.1), no melee sol bonus applied
     expect(result.events.some((e) => e.type === 'sol_enchantment_used')).toBe(false);
@@ -396,8 +396,8 @@ describe('sol enchantment at the new scale (Phase 10.2)', () => {
     const state = solState({ equippedWeaponId: 'solar_gun', inventory: { ...createEmptyInventory(), solar_gun: 1 } });
     faceEast(state);
     const result = processTurn(state, { type: 'action' });
-    // Solar gun still spends its own 1 SOL, but never the enchantment's.
-    expect(state.solarEnergy).toBe(4);
+    // Solar gun still spends its own 3 SOL (Phase 16.1), but never the enchantment's.
+    expect(state.solarEnergy).toBe(2);
     expect(result.events.some((e) => e.type === 'sol_enchantment_used')).toBe(false);
   });
 
