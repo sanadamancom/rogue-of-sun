@@ -265,3 +265,54 @@ Phase 17.0はrecursive/symmetric shadowcasting系統を推奨したが、実際�
 - 暗い区画の生成・配置・出現率
 - 暗い区画の視界半径2/3の正式決定（`computeCorridorVisibility`の半径引数はすでに対応済み）
 - 松明・照明・暗視アイテム
+
+## 10. Phase 17承認・main統合
+
+作成日: 2026-08-08
+Phase 17.1 commit完全hash: `bb5a2c7f8ee8ea552b7b3d16e8a667f2ed433139`
+
+### 10.1 自動検証結果（統合前再確認）
+
+- implementation gate: 27件合格
+- `npx vitest run`: 78ファイル、1881件全成功
+- `npx tsc -b --noEmit`: エラーなし
+- `npx vite build`: 成功
+- seed決定論・RNG消費順への影響なし（regression testが全件成功していることで確認）
+- 敵AI・既存バランス数値（ボクattack、太陽銃solarCost、自然回復、満腹度減少等）への変更なし
+
+### 10.2 ユーザー試遊結果
+
+単一HTML（`rogue-of-sun-phase17-1-visibility-preview-bb5a2c7f8ee8.html`、commit `bb5a2c7`から生成）による試遊で、視界範囲・遮蔽・探索記憶に違和感は確認されなかった。
+
+道や部屋が仮の黒いタイルで構成されているため見づらい点が指摘されたが、視界ロジック自体の欠陥ではなく、地形アセットが未導入であることによる表示上の課題と判断した。視界判定・描画方式は変更せず、そのまま採用する。
+
+### 10.3 承認事項
+
+Phase 17.1を正式承認（`status: accepted`）。以下を維持する：
+
+- symmetric shadowcastingと角抜け禁止規則の積集合による遮蔽判定
+- 通常部屋では部屋全体＋正規通路入口1マスを表示する規則
+- 通路では半径4の遮蔽付き視界を使用する規則
+- unexplored / explored_not_visible / currently_visibleの3状態
+- 敵と床アイテムを現在視界内だけ表示する規則（残像なし）
+- 発見済み出口を探索記憶に残す規則
+- 現在の地形描画方式（暗い単色によるexplored_not_visible表現）
+
+### 10.4 既知の課題（受け入れをブロックしない）
+
+**分類**: `visual_asset_issue`（視覚アセットの課題であり、視界ロジックの欠陥ではない）
+
+仮の黒い地形タイルでは、部屋・通路・探索済み領域の形状が視覚的に読み取りづらい。視界ロジックは変更せず、地形アセット導入時に床・壁・通路・現在視界・探索済み領域の色調と識別性を調整する課題として記録する。
+
+**明示的に却下した変更案**：
+- プレイヤー周囲だけを透明にした単純な黒オーバーレイへの置換
+- 現在の遮蔽判定（symmetric shadowcasting＋角抜け禁止規則）の撤去
+- Phase 17.1視界処理の再設計
+
+### 10.5 main統合
+
+`phase-17-visibility-dark-areas`ブランチをmainへ`--ff-only`で統合した（merge commitなし、rebase・squash・cherry-pick・amendなし）。Phase 17.0（`63c93d6`）・Phase 17.1（`bb5a2c7`）の既存commit hashは維持されたまま、mainのHEADが`1886e3c`から`bb5a2c7`へfast-forwardした。
+
+### 10.6 Phase 17.2
+
+暗い区画の生成・配置・出現率、視界半径2/3の正式決定は未着手のまま。`computeCorridorVisibility`の半径引数はすでに対応済みのため、Phase 17.2ではこの半径決定と暗い区画そのものの生成・配置ロジックに着手する。
