@@ -60,6 +60,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
       antidote: 0,
       panacea: 0,
       clairvoyance_fruit: 0,
+      high_priestess: 0, empress: 0, emperor: 0, lovers: 0, chariot: 0, strength: 0, wheel_of_fortune: 0, justice: 0, hanged_man: 0, death: 0, temperance: 0, devil: 0, tower: 0, star: 0, moon: 0, sun: 0, judgement: 0,
     },
     inventoryOpen: false,
     selectedItemIndex: 0,

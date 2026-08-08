@@ -166,7 +166,7 @@ describe('hammer pickup, equip, and persistence', () => {
   });
 
   it('can equip an owned hammer, setting equippedWeaponId', () => {
-    const state = freshState({ inventory: { apple: 0, sword: 0, armor: 0, spear: 0, hammer: 1, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, flame_enchantment: 0, frost_enchantment: 0, cloud_enchantment: 0, earth_enchantment: 0, chocolate: 0, banana: 0, antidote: 0, panacea: 0, clairvoyance_fruit: 0 } });
+    const state = freshState({ inventory: { apple: 0, sword: 0, armor: 0, spear: 0, hammer: 1, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, flame_enchantment: 0, frost_enchantment: 0, cloud_enchantment: 0, earth_enchantment: 0, chocolate: 0, banana: 0, antidote: 0, panacea: 0, clairvoyance_fruit: 0, high_priestess: 0, empress: 0, emperor: 0, lovers: 0, chariot: 0, strength: 0, wheel_of_fortune: 0, justice: 0, hanged_man: 0, death: 0, temperance: 0, devil: 0, tower: 0, star: 0, moon: 0, sun: 0, judgement: 0 } });
     const result = processTurn(state, { type: 'equip_weapon', weaponId: 'hammer' });
     expect(result.consumed).toBe(true);
     expect(state.equippedWeaponId).toBe('hammer');
@@ -174,7 +174,7 @@ describe('hammer pickup, equip, and persistence', () => {
 
   it('the weapon slot and armor slot remain independent when equipping the hammer', () => {
     const state = freshState({
-      inventory: { apple: 0, sword: 0, armor: 1, spear: 0, hammer: 1, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, flame_enchantment: 0, frost_enchantment: 0, cloud_enchantment: 0, earth_enchantment: 0, chocolate: 0, banana: 0, antidote: 0, panacea: 0, clairvoyance_fruit: 0 },
+      inventory: { apple: 0, sword: 0, armor: 1, spear: 0, hammer: 1, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, flame_enchantment: 0, frost_enchantment: 0, cloud_enchantment: 0, earth_enchantment: 0, chocolate: 0, banana: 0, antidote: 0, panacea: 0, clairvoyance_fruit: 0, high_priestess: 0, empress: 0, emperor: 0, lovers: 0, chariot: 0, strength: 0, wheel_of_fortune: 0, justice: 0, hanged_man: 0, death: 0, temperance: 0, devil: 0, tower: 0, star: 0, moon: 0, sun: 0, judgement: 0 },
       equippedArmorId: 'armor',
     });
     processTurn(state, { type: 'equip_weapon', weaponId: 'hammer' });
@@ -183,7 +183,7 @@ describe('hammer pickup, equip, and persistence', () => {
 
   it('hammer possession and equip state carry over across a floor transition', () => {
     let state = freshState({
-      inventory: { apple: 0, sword: 0, armor: 0, spear: 0, hammer: 1, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, flame_enchantment: 0, frost_enchantment: 0, cloud_enchantment: 0, earth_enchantment: 0, chocolate: 0, banana: 0, antidote: 0, panacea: 0, clairvoyance_fruit: 0 },
+      inventory: { apple: 0, sword: 0, armor: 0, spear: 0, hammer: 1, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, flame_enchantment: 0, frost_enchantment: 0, cloud_enchantment: 0, earth_enchantment: 0, chocolate: 0, banana: 0, antidote: 0, panacea: 0, clairvoyance_fruit: 0, high_priestess: 0, empress: 0, emperor: 0, lovers: 0, chariot: 0, strength: 0, wheel_of_fortune: 0, justice: 0, hanged_man: 0, death: 0, temperance: 0, devil: 0, tower: 0, star: 0, moon: 0, sun: 0, judgement: 0 },
       equippedWeaponId: 'hammer',
     });
     state.enemies.forEach((e) => (e.alive = false));
@@ -578,7 +578,7 @@ describe('hammer recoil', () => {
     const state = freshState({
       equippedWeaponId: 'sword',
       hammerRecovery: true,
-      inventory: { apple: 0, sword: 1, armor: 0, spear: 0, hammer: 1, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, flame_enchantment: 0, frost_enchantment: 0, cloud_enchantment: 0, earth_enchantment: 0, chocolate: 0, banana: 0, antidote: 0, panacea: 0, clairvoyance_fruit: 0 },
+      inventory: { apple: 0, sword: 1, armor: 0, spear: 0, hammer: 1, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, flame_enchantment: 0, frost_enchantment: 0, cloud_enchantment: 0, earth_enchantment: 0, chocolate: 0, banana: 0, antidote: 0, panacea: 0, clairvoyance_fruit: 0, high_priestess: 0, empress: 0, emperor: 0, lovers: 0, chariot: 0, strength: 0, wheel_of_fortune: 0, justice: 0, hanged_man: 0, death: 0, temperance: 0, devil: 0, tower: 0, star: 0, moon: 0, sun: 0, judgement: 0 },
     });
     processTurn(state, { type: 'equip_weapon', weaponId: 'hammer' });
     expect(state.equippedWeaponId).toBe('hammer');
@@ -644,7 +644,7 @@ describe('regression: Phase 08.2-08.6 behavior unaffected', () => {
   });
 
   it('apple still heals 2 HP', () => {
-    const state = freshState({ inventory: { apple: 1, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, flame_enchantment: 0, frost_enchantment: 0, cloud_enchantment: 0, earth_enchantment: 0, chocolate: 0, banana: 0, antidote: 0, panacea: 0, clairvoyance_fruit: 0 } });
+    const state = freshState({ inventory: { apple: 1, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, flame_enchantment: 0, frost_enchantment: 0, cloud_enchantment: 0, earth_enchantment: 0, chocolate: 0, banana: 0, antidote: 0, panacea: 0, clairvoyance_fruit: 0, high_priestess: 0, empress: 0, emperor: 0, lovers: 0, chariot: 0, strength: 0, wheel_of_fortune: 0, justice: 0, hanged_man: 0, death: 0, temperance: 0, devil: 0, tower: 0, star: 0, moon: 0, sun: 0, judgement: 0 } });
     state.player.hp = 1;
     const result = processTurn(state, { type: 'use_item', itemId: 'apple' });
     expect(result.consumed).toBe(true);

@@ -5,7 +5,6 @@ import {
   ENCHANTMENT_ITEM_IDS,
   getGroundItemPoolForFloor,
   GROUND_ITEM_COUNT_WEIGHTS,
-  ITEM_DEFINITIONS,
 } from '../item-def';
 import { createRng } from '../mapgen';
 import { createInitialState, advanceToNextFloor } from '../state';
@@ -78,11 +77,19 @@ describe('Phase 15.4b: staged ground item pool', () => {
     expect(getGroundItemPoolForFloor(2)).toHaveLength(16);
   });
 
-  it('floor 3 pool has exactly 17 ids (every registered item)', () => {
+  it('floor 3 pool has exactly 17 ids (every registered loot-eligible item)', () => {
     const pool = getGroundItemPoolForFloor(3);
     expect(pool).toHaveLength(17);
     expect(new Set(pool).size).toBe(17); // no duplicate ids within the pool itself
-    expect(Object.keys(ITEM_DEFINITIONS)).toHaveLength(17);
+    // Phase 20.0a card definition foundation: ITEM_DEFINITIONS now also
+    // holds the 17 card ids (deliberately excluded from every
+    // GROUND_ITEM_POOL_FLOOR_* array — see item-def.ts's ITEM_IDS_IN_ORDER
+    // and card-def.ts's module doc comment), so "every registered item"
+    // and "every floor-3 loot-eligible item" are no longer the same
+    // count. This test's own floor-3-pool-length assertion above (still
+    // 17, still every pre-Phase-20 item, still unaffected by card
+    // registration) is what floor loot decisions actually depend on;
+    // ITEM_DEFINITIONS' total registry size is not.
   });
 
   it('floor 1 pool contains exactly the specified ids', () => {

@@ -1,5 +1,6 @@
 import { ItemId, Inventory } from './types';
 import { ELEMENT_DISPLAY_NAMES, ELEMENT_GLYPHS } from './element-def';
+import { CARD_DISPLAY_NAMES, CARD_GLYPH, CARD_IDS_IN_ORDER } from './card-def';
 
 /**
  * A single item species' shared display/inventory data (Phase 08.2
@@ -246,10 +247,194 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     consumable: false,
     stackable: false,
   },
+  // Phase 20.0a card definition foundation: the 17 tarot cards, each
+  // registered as an ordinary stacking consumable — same category/
+  // consumable/stackable shape as apple/chocolate/banana above — per
+  // rogue-of-sun-development-plan.md 20.0a's "第4のitem categoryは追加
+  // しない". Deliberately excluded from ITEM_IDS_IN_ORDER and from every
+  // GROUND_ITEM_POOL_FLOOR_* array below (see those declarations' doc
+  // comments): defining a card here makes it a valid, lookupable
+  // ItemId/ItemDefinition, but never makes it appear in the inventory
+  // overlay or as a floor/enemy drop candidate — that wiring is deferred
+  // to a later Phase 20 unit (20.0e for loot, a UI unit for display).
+  // displayName/glyph are pulled from card-def.ts's single source of
+  // truth (CARD_DISPLAY_NAMES/CARD_GLYPH) so each card's Japanese name
+  // exists in exactly one place, mirroring how flame/frost/cloud/earth
+  // above pull from ELEMENT_DISPLAY_NAMES/ELEMENT_GLYPHS. No healAmount/
+  // solarAmount/hungerAmount is set for any card — none of the 17 cards'
+  // effects are healAmount/solarAmount/hungerAmount-shaped (see
+  // card-def.ts's CARD_DEFINITIONS for each card's real effectId; effect
+  // resolution itself is out of this phase's scope).
+  high_priestess: {
+    id: 'high_priestess',
+    displayName: CARD_DISPLAY_NAMES.high_priestess,
+    glyph: CARD_GLYPH,
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+  },
+  empress: {
+    id: 'empress',
+    displayName: CARD_DISPLAY_NAMES.empress,
+    glyph: CARD_GLYPH,
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+  },
+  emperor: {
+    id: 'emperor',
+    displayName: CARD_DISPLAY_NAMES.emperor,
+    glyph: CARD_GLYPH,
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+  },
+  lovers: {
+    id: 'lovers',
+    displayName: CARD_DISPLAY_NAMES.lovers,
+    glyph: CARD_GLYPH,
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+  },
+  chariot: {
+    id: 'chariot',
+    displayName: CARD_DISPLAY_NAMES.chariot,
+    glyph: CARD_GLYPH,
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+  },
+  strength: {
+    id: 'strength',
+    displayName: CARD_DISPLAY_NAMES.strength,
+    glyph: CARD_GLYPH,
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+  },
+  wheel_of_fortune: {
+    id: 'wheel_of_fortune',
+    displayName: CARD_DISPLAY_NAMES.wheel_of_fortune,
+    glyph: CARD_GLYPH,
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+  },
+  justice: {
+    id: 'justice',
+    displayName: CARD_DISPLAY_NAMES.justice,
+    glyph: CARD_GLYPH,
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+  },
+  hanged_man: {
+    id: 'hanged_man',
+    displayName: CARD_DISPLAY_NAMES.hanged_man,
+    glyph: CARD_GLYPH,
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+  },
+  death: {
+    id: 'death',
+    displayName: CARD_DISPLAY_NAMES.death,
+    glyph: CARD_GLYPH,
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+  },
+  temperance: {
+    id: 'temperance',
+    displayName: CARD_DISPLAY_NAMES.temperance,
+    glyph: CARD_GLYPH,
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+  },
+  devil: {
+    id: 'devil',
+    displayName: CARD_DISPLAY_NAMES.devil,
+    glyph: CARD_GLYPH,
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+  },
+  tower: {
+    id: 'tower',
+    displayName: CARD_DISPLAY_NAMES.tower,
+    glyph: CARD_GLYPH,
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+  },
+  star: {
+    id: 'star',
+    displayName: CARD_DISPLAY_NAMES.star,
+    glyph: CARD_GLYPH,
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+  },
+  moon: {
+    id: 'moon',
+    displayName: CARD_DISPLAY_NAMES.moon,
+    glyph: CARD_GLYPH,
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+  },
+  sun: {
+    id: 'sun',
+    displayName: CARD_DISPLAY_NAMES.sun,
+    glyph: CARD_GLYPH,
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+  },
+  judgement: {
+    id: 'judgement',
+    displayName: CARD_DISPLAY_NAMES.judgement,
+    glyph: CARD_GLYPH,
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+  },
 };
 
-/** Fixed display/iteration order for items (Phase 08.2: apple; Phase 08.3 adds sword; Phase 08.4 adds armor; Phase 08.5 adds spear; Phase 08.7 adds hammer; Phase 09.1 adds sun_fruit; Phase 09.2 adds solar_gun). */
-export const ITEM_IDS_IN_ORDER: ItemId[] = ['apple', 'sword', 'armor', 'spear', 'hammer', 'sun_fruit', 'solar_gun', 'chocolate', 'banana', 'antidote', 'panacea', 'clairvoyance_fruit'];
+/**
+ * Fixed display/iteration order for items (Phase 08.2: apple; Phase 08.3
+ * adds sword; Phase 08.4 adds armor; Phase 08.5 adds spear; Phase 08.7
+ * adds hammer; Phase 09.1 adds sun_fruit; Phase 09.2 adds solar_gun).
+ * This is the single array `inventoryEntries()` (inventory.ts) filters/
+ * maps to build the actual Inventory overlay's displayed list (see
+ * main.ts's use of `inventoryEntries`) — i.e. this array *is* Inventory
+ * display order, not merely a naming convention. Phase 20.0a appends
+ * CARD_IDS_IN_ORDER (card-def.ts) after the pre-existing 12 ids, unchanged
+ * in their own relative order, so all 17 cards become displayable in the
+ * Inventory overlay once held (`inventoryEntries` already filters to
+ * count > 0, so an empty-handed run shows nothing new). This is
+ * deliberately independent of floor-loot registration: appearing here
+ * only controls whether a *held* card is shown/navigable, never whether
+ * one can be found — see GROUND_ITEM_POOL_FLOOR_1/2/3_ADDITIONS below,
+ * none of which include any card id.
+ */
+export const ITEM_IDS_IN_ORDER: ItemId[] = [
+  'apple',
+  'sword',
+  'armor',
+  'spear',
+  'hammer',
+  'sun_fruit',
+  'solar_gun',
+  'chocolate',
+  'banana',
+  'antidote',
+  'panacea',
+  'clairvoyance_fruit',
+  ...CARD_IDS_IN_ORDER,
+];
 
 /** An inventory with every registered item at count 0 (used for new-run initialization). */
 export function createEmptyInventory(): Inventory {

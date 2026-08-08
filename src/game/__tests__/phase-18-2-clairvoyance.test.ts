@@ -56,6 +56,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
       antidote: 0,
       panacea: 0,
       clairvoyance_fruit: 0,
+      high_priestess: 0, empress: 0, emperor: 0, lovers: 0, chariot: 0, strength: 0, wheel_of_fortune: 0, justice: 0, hanged_man: 0, death: 0, temperance: 0, devil: 0, tower: 0, star: 0, moon: 0, sun: 0, judgement: 0,
     },
     inventoryOpen: false,
     selectedItemIndex: 0,
@@ -87,7 +88,7 @@ describe('clairvoyance fruit (Phase 18.2)', () => {
     const state = freshState({
       enemies: [],
       traps: [trapA, trapB],
-      inventory: { ...freshState().inventory, clairvoyance_fruit: 1 },
+      inventory: { ...freshState().inventory, clairvoyance_fruit: 1, high_priestess: 0, empress: 0, emperor: 0, lovers: 0, chariot: 0, strength: 0, wheel_of_fortune: 0, justice: 0, hanged_man: 0, death: 0, temperance: 0, devil: 0, tower: 0, star: 0, moon: 0, sun: 0, judgement: 0 },
     });
     processTurn(state, { type: 'use_item', itemId: 'clairvoyance_fruit' });
     expect(state.traps?.[0].revealed).toBe(true);
@@ -99,7 +100,7 @@ describe('clairvoyance fruit (Phase 18.2)', () => {
     const state = freshState({
       enemies: [],
       traps: [trap],
-      inventory: { ...freshState().inventory, clairvoyance_fruit: 1 },
+      inventory: { ...freshState().inventory, clairvoyance_fruit: 1, high_priestess: 0, empress: 0, emperor: 0, lovers: 0, chariot: 0, strength: 0, wheel_of_fortune: 0, justice: 0, hanged_man: 0, death: 0, temperance: 0, devil: 0, tower: 0, star: 0, moon: 0, sun: 0, judgement: 0 },
     });
     processTurn(state, { type: 'use_item', itemId: 'clairvoyance_fruit' });
     expect(state.traps?.[0].revealed).toBe(true);
@@ -112,7 +113,7 @@ describe('clairvoyance fruit (Phase 18.2)', () => {
     const state = freshState({
       enemies: [],
       traps: [trapA, trapB],
-      inventory: { ...freshState().inventory, clairvoyance_fruit: 1 },
+      inventory: { ...freshState().inventory, clairvoyance_fruit: 1, high_priestess: 0, empress: 0, emperor: 0, lovers: 0, chariot: 0, strength: 0, wheel_of_fortune: 0, justice: 0, hanged_man: 0, death: 0, temperance: 0, devil: 0, tower: 0, star: 0, moon: 0, sun: 0, judgement: 0 },
     });
     const result = processTurn(state, { type: 'use_item', itemId: 'clairvoyance_fruit' });
     const revealedEvents = result.events.filter((e) => e.type === 'trap_revealed');
@@ -124,7 +125,7 @@ describe('clairvoyance fruit (Phase 18.2)', () => {
     const state = freshState({
       enemies: [],
       traps: [trap],
-      inventory: { ...freshState().inventory, clairvoyance_fruit: 1 },
+      inventory: { ...freshState().inventory, clairvoyance_fruit: 1, high_priestess: 0, empress: 0, emperor: 0, lovers: 0, chariot: 0, strength: 0, wheel_of_fortune: 0, justice: 0, hanged_man: 0, death: 0, temperance: 0, devil: 0, tower: 0, star: 0, moon: 0, sun: 0, judgement: 0 },
     });
     const result = processTurn(state, { type: 'use_item', itemId: 'clairvoyance_fruit' });
     expect(state.traps?.[0].revealed).toBe(true);
@@ -136,7 +137,7 @@ describe('clairvoyance fruit (Phase 18.2)', () => {
     const state = freshState({
       enemies: [],
       traps: [trap],
-      inventory: { ...freshState().inventory, clairvoyance_fruit: 1 },
+      inventory: { ...freshState().inventory, clairvoyance_fruit: 1, high_priestess: 0, empress: 0, emperor: 0, lovers: 0, chariot: 0, strength: 0, wheel_of_fortune: 0, justice: 0, hanged_man: 0, death: 0, temperance: 0, devil: 0, tower: 0, star: 0, moon: 0, sun: 0, judgement: 0 },
     });
     const before = { ...state.traps![0] };
     processTurn(state, { type: 'use_item', itemId: 'clairvoyance_fruit' });
@@ -160,7 +161,7 @@ describe('clairvoyance fruit (Phase 18.2)', () => {
       enemies: [],
       traps: [],
       turn: 0,
-      inventory: { ...freshState().inventory, clairvoyance_fruit: 1 },
+      inventory: { ...freshState().inventory, clairvoyance_fruit: 1, high_priestess: 0, empress: 0, emperor: 0, lovers: 0, chariot: 0, strength: 0, wheel_of_fortune: 0, justice: 0, hanged_man: 0, death: 0, temperance: 0, devil: 0, tower: 0, star: 0, moon: 0, sun: 0, judgement: 0 },
     });
     const result = processTurn(state, { type: 'use_item', itemId: 'clairvoyance_fruit' });
     expect(result.consumed).toBe(true);
@@ -174,7 +175,7 @@ describe('clairvoyance fruit (Phase 18.2)', () => {
       enemies: [],
       traps: [trap],
       turn: 0,
-      inventory: { ...freshState().inventory, clairvoyance_fruit: 1 },
+      inventory: { ...freshState().inventory, clairvoyance_fruit: 1, high_priestess: 0, empress: 0, emperor: 0, lovers: 0, chariot: 0, strength: 0, wheel_of_fortune: 0, justice: 0, hanged_man: 0, death: 0, temperance: 0, devil: 0, tower: 0, star: 0, moon: 0, sun: 0, judgement: 0 },
     });
     const result = processTurn(state, { type: 'use_item', itemId: 'clairvoyance_fruit' });
     expect(result.consumed).toBe(true);
@@ -187,7 +188,7 @@ describe('clairvoyance fruit (Phase 18.2)', () => {
       player: createInitialActor({ x: 2, y: 3 }, 30, 10, 0, 90, 0),
       enemies: [createInitialEnemy('bok', { x: 9, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
       traps: [],
-      inventory: { ...freshState().inventory, clairvoyance_fruit: 1 },
+      inventory: { ...freshState().inventory, clairvoyance_fruit: 1, high_priestess: 0, empress: 0, emperor: 0, lovers: 0, chariot: 0, strength: 0, wheel_of_fortune: 0, justice: 0, hanged_man: 0, death: 0, temperance: 0, devil: 0, tower: 0, star: 0, moon: 0, sun: 0, judgement: 0 },
     });
     const enemyPosBefore = { ...state.enemies[0].pos };
     processTurn(state, { type: 'use_item', itemId: 'clairvoyance_fruit' });

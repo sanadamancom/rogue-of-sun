@@ -729,7 +729,44 @@ export type ItemId =
   | 'flame_enchantment'
   | 'frost_enchantment'
   | 'cloud_enchantment'
-  | 'earth_enchantment';
+  | 'earth_enchantment'
+  // Phase 20.0a card definition foundation: the 17 tarot-card consumable
+  // ids (see CardId below and card-def.ts's CARD_DEFINITIONS) are folded
+  // directly into ItemId — same pattern as every other item id above —
+  // so ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> stays a single
+  // exhaustive map with no parallel item type. CardId itself is the
+  // single source of truth for which 17 literals these are; ItemId is
+  // deliberately widened to match rather than duplicating the list.
+  | CardId;
+
+/**
+ * The 17 tarot cards implemented in Phase 20 (16 manually-used cards plus
+ * the automatically-triggered `judgement`; `fool` is explicitly excluded
+ * per rogue-of-sun-card-effects-spec.md section 1/5). Defined here (not
+ * card-def.ts) for the same reason WeaponId/ArmorId live in this file:
+ * ItemId is built directly from this union (see ItemId above), and
+ * GameState-adjacent types may need CardId without a circular import back
+ * into card-def.ts. card-def.ts's CARD_DEFINITIONS is the per-card data
+ * registry keyed by this type; this type itself is only the id list.
+ */
+export type CardId =
+  | 'high_priestess'
+  | 'empress'
+  | 'emperor'
+  | 'lovers'
+  | 'chariot'
+  | 'strength'
+  | 'wheel_of_fortune'
+  | 'justice'
+  | 'hanged_man'
+  | 'death'
+  | 'temperance'
+  | 'devil'
+  | 'tower'
+  | 'star'
+  | 'moon'
+  | 'sun'
+  | 'judgement';
 
 /**
  * Selectable melee enchantment (Phase 10.1 sol enchant foundation). 'none'
