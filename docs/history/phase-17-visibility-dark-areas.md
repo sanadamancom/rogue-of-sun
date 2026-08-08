@@ -398,3 +398,74 @@ Phase 17.1を正式承認（`status: accepted`）。以下を維持する：
 ### 11.13 Phase 17.2の状態
 
 feature branch `phase-17-2-dark-areas` 上での実装完了、試遊待ち。mainへの統合は次の別タスクで判断する。Phase 18以降は未着手。
+
+## 12. Phase 17.2修正: 暗い部屋の視認性改善
+
+作成日: 2026-08-08
+対象: `phase-17-2-dark-areas`ブランチ、Phase 17.2初版commit `007d2c66535a6164f0dbbb991f3a08d983f10a4e`（"feat: add dark rooms with reduced visibility"）の直後
+
+### 12.1 初回試遊の不合格理由
+
+初回試遊で、暗い部屋がどこだったか認識できなかった。原因は、初版の暗色表現（currently_visible時：壁`0x262626`、床`0x141414`）が、単純な明度低下のみで、彩度・色相の変化を伴っていなかったこと。地形アセットが元から黒基調の仮タイルであるため、明度差だけでは通常地形との区別が視覚的に成立しなかったと判断した。
+
+半径3のFOV自体が原因かどうかは今回の試遊では判定できていないため、変更していない。
+
+### 12.2 修正しなかった項目
+
+- 視界半径3（`DARK_ROOM_VISIBILITY_RADIUS`）
+- symmetric shadowcasting・角抜け禁止規則（`computeCorridorVisibility`）
+- 暗い部屋の選択方法（`chooseDarkRoomIndex`、開始・出口部屋の除外、既存RNG非干渉）
+- exploration memory（unexplored / explored_not_visible / currently_visibleの3状態、`exploredTiles`の蓄積ロジック）
+- マップ生成、敵AI、ゲームバランス
+
+### 12.3 採用した寒色色相と最終色
+
+新規`src/game/dark-room-visuals.ts`（pure関数のみ）に、暗い部屋用の青紫・濃紺系カラーテーブルと距離帯判定関数を定義した。
+
+| band | 適用条件 | wall | floor |
+|---|---|---|---|
+| `outside` | プレイヤーが暗い部屋の外（通常部屋・通路）からFOV内に見える暗い部屋タイル | `0x40407a` | `0x22224a` |
+| `near` | 暗い部屋内部、プレイヤーからChebyshev距離0〜1 | `0x40407a` | `0x22224a` |
+| `middle` | 暗い部屋内部、距離2 | `0x30305c` | `0x181838` |
+| `edge` | 暗い部屋内部、距離3 | `0x242444` | `0x14142c` |
+
+各band・各RGBチャネルでB(青)がR・Gより大きく、寒色（青紫）方向の色相を持つ。near→middle→edgeでR・G・Bすべてのチャネルが単調に暗くなる。edgeでも各チャネルがexplored_not_visible色（壁`0x161616`、床`0x0a0a0a`）の対応チャネルより厳密に大きく、探索済み表示・未探索表示と混同しない。各band内で壁は床より明るく保たれ、地形の判別性を維持している。
+
+### 12.4 暗い部屋外からの表示方法
+
+`computeCurrentVisibility`が返す可視集合はPhase 17.2初版のまま無変更。`main.ts`の`drawTerrain`側で、currently_visibleかつ暗い部屋矩形内（既存の`isInRoomBounds`判定を再利用、描画側で新規推測はしていない）のタイルに対して、プレイヤーが暗い部屋の外にいる場合は`outside` band（`near`と同値）の色を適用する。視界外・未探索の暗い部屋タイルを先に公開することはない（`currentVisible`/`exploredTiles`の判定自体は無変更のため）。
+
+### 12.5 入退室時の描画切り替え
+
+`drawTerrain`はプレイヤー座標とdarkRoomIndexから`playerInsideDarkRoom`を毎回再計算する純粋な導出値であり、状態を保持しない。`refreshStaticView`が毎ターン`updateVisibility()`の直後に`drawTerrain()`を呼ぶ既存の流れ（Phase 17.1で確立済み）はそのままのため、入室・退室は追加のステートマシンなしに、その場のプレイヤー座標だけで即座に切り替わる。往復しても同じ座標なら同じband・同じ色になるため、不安定な切り替わりは発生しない。文章通知・HUD・アイコン・部屋名表示は追加していない。
+
+### 12.6 explored_not_visibleとの処理分離
+
+`drawTerrain`のif/else構造はPhase 17.1から無変更で、`currently_visible`分岐と`explored_not_visible`分岐は互いに排他的に一度だけ実行される。暗い部屋用の色決定は`currently_visible`分岐の内側だけで行われ、`explored_not_visible`分岐（既存の`EXPLORED_DIM_WALL_COLOR`/`EXPLORED_DIM_FLOOR_COLOR`）には一切触れていないため、色処理が重複適用されることはない。
+
+### 12.7 implementation gateの結果
+
+`src/game/__tests__/dark-room-visuals.test.ts`（新規17件）ですべて確認・合格：
+
+- 距離帯判定：距離0・1→near、距離2→middle、距離3→edge（直交・対角とも）、Chebyshev境界（dx=3,dy=1→edge）、プレイヤーが暗い部屋外の場合は距離によらず常にoutside
+- 色テーブル：全bandで壁≠床、通常地形色と非同一、near→middle→edgeの単調暗化（全RGBチャネル）、edgeがexplored_not_visible色より全チャネルで明るい、全bandで寒色（B>R かつ B>G）、outsideがdim色より明るい、各bandで壁が床より明るい
+
+### 12.8 追加・変更したテスト
+
+- 新規: `src/game/__tests__/dark-room-visuals.test.ts`（17件）
+- 既存の`src/game/__tests__/dark-rooms.test.ts`（19件）・`src/game/__tests__/visibility.test.ts`（27件）は無変更のまま全件成功を確認（配置・半径3・遮蔽・探索記憶の回帰）
+
+### 12.9 vitest・tsc・build結果
+
+- `npx vitest run`：80ファイル、1917件全成功
+- `npx tsc -b --noEmit`：エラーなし
+- `npx vite build`：成功
+- `package.json`/`package-lock.json`：origin/mainとの差分なし（依存追加なし）
+
+### 12.10 実ブラウザ確認
+
+前回・前々回と同様、ネットワーク許可の制約でPlaywright導入不可のため未実施。本commit後に単一HTML（`rogue-of-sun-phase17-2-dark-room-visibility-preview-<短縮HEAD>.html`）を生成し、ユーザーの手元での再試遊に委ねる。
+
+### 12.11 状態
+
+修正版もfeature branch `phase-17-2-dark-areas`上での再試遊待ち。mainへの統合は行っていない。Phase 18以降は未着手。

@@ -64,6 +64,7 @@ import {
 } from './game/input-router';
 import { roomIndexContaining } from './game/mapgen';
 import { computeCurrentVisibility, isInRoomBounds, pointKey as visibilityPointKey } from './game/visibility';
+import { DARK_ROOM_FLOOR_COLOR, DARK_ROOM_WALL_COLOR, darkRoomBand } from './game/dark-room-visuals';
 
 // Phase 14.5 spec 5.2: 2 lines by default (was 3). Newest at the bottom,
 // oldest pushed out once over capacity; overflow history is available via
@@ -874,19 +875,23 @@ class MainScene extends Phaser.Scene {
    * leads here).
    */
   /**
-   * Phase 17.2: dark-room `currently_visible` fill — a little darker than
-   * the ordinary currently_visible colors above, but still clearly
-   * lighter than the explored_not_visible memory colors (visual_design.
-   * required_states: "通常の現在視界より少し暗いが地形を判別可能"). No
-   * separate wall/floor distinction logic beyond reusing the same
-   * isWall check; only the color values differ from the normal case.
+   * Phase 17.2 fix: dark-room `currently_visible` fill now uses a cool
+   * blue-violet hue (src/game/dark-room-visuals.ts's DARK_ROOM_WALL_COLOR
+   * / DARK_ROOM_FLOOR_COLOR, banded by distance) instead of a flat
+   * darker-grey fill — the original grey-only version (0x262626/
+   * 0x141414, kept only in this comment for history) tested as
+   * indistinguishable from the game's already-black placeholder tiles
+   * during the first playtest (see docs/history's "初回試遊" entry). The
+   * actual band lookup happens per-tile below via darkRoomBand(), using
+   * this.state.player.pos and each tile's own coordinates — never
+   * precomputed or guessed independently of the existing darkRoomIndex/
+   * isInRoomBounds membership check already used for `inDarkRoom`.
    */
-  private readonly DARK_ROOM_VISIBLE_WALL_COLOR = 0x262626;
-  private readonly DARK_ROOM_VISIBLE_FLOOR_COLOR = 0x141414;
 
   private drawTerrain(): void {
-    const { map, sunlight } = this.state;
+    const { map, sunlight, player } = this.state;
     const darkRoom = map.darkRoomIndex != null ? map.rooms[map.darkRoomIndex] : null;
+    const playerInsideDarkRoom = darkRoom !== null && isInRoomBounds(darkRoom, player.pos);
     this.terrainGraphics.clear();
     for (let y = 0; y < map.height; y++) {
       const exploredRow = this.exploredTiles[y];
@@ -897,8 +902,13 @@ class MainScene extends Phaser.Scene {
 
         if (visible) {
           const inDarkRoom = darkRoom !== null && isInRoomBounds(darkRoom, { x, y });
-          const wallColor = inDarkRoom ? this.DARK_ROOM_VISIBLE_WALL_COLOR : 0x333333;
-          const floorColor = inDarkRoom ? this.DARK_ROOM_VISIBLE_FLOOR_COLOR : 0x1c1c1c;
+          let wallColor = 0x333333;
+          let floorColor = 0x1c1c1c;
+          if (inDarkRoom) {
+            const band = darkRoomBand(playerInsideDarkRoom, player.pos, { x, y });
+            wallColor = DARK_ROOM_WALL_COLOR[band];
+            floorColor = DARK_ROOM_FLOOR_COLOR[band];
+          }
           this.terrainGraphics.fillStyle(isWall ? wallColor : floorColor, 1);
           this.terrainGraphics.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
           if (!isWall && sunlight[y]?.[x]) {
