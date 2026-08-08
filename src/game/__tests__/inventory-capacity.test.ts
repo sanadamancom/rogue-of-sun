@@ -90,7 +90,7 @@ describe('capacity boundary (Phase 11.1)', () => {
     expect(result.consumed).toBe(true);
     expect(state.inventory.apple).toBe(20);
     expect(state.groundItems).toHaveLength(0);
-    expect(result.events).toContainEqual({ type: 'item_picked_up', itemId: 'apple' });
+    expect(result.events).toContainEqual({ type: 'item_picked_up', itemId: 'apple', unidentifiedCard: false });
   });
 
   it('a pickup that brings the total exactly to 20 succeeds (no off-by-one)', () => {
@@ -253,7 +253,7 @@ describe('regression: existing pickup/weapon/consumable behavior below capacity 
     });
     const result = processTurn(state, { type: 'move', direction: 'E' });
     expect(state.inventory.sword).toBe(1);
-    expect(result.events).toContainEqual({ type: 'item_picked_up', itemId: 'sword' });
+    expect(result.events).toContainEqual({ type: 'item_picked_up', itemId: 'sword', unidentifiedCard: false });
   });
 
   it('moving onto a tile with no ground item is unaffected by capacity logic', () => {

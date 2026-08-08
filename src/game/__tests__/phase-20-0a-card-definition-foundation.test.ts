@@ -63,8 +63,15 @@ describe('Phase 20.0a: card definition foundation', () => {
         expect(['effect_succeeded', 'trigger_succeeded']).toContain(def.consumeCondition);
         expect([0, 1]).toContain(def.turnCost);
         expect(typeof def.effectId).toBe('string');
-        expect(def.lootWeight).toBe(0);
-        expect(def.floorDropEnabled).toBe(false);
+        // Phase 20.0e weighted ground-item foundation: lootWeight/
+        // floorDropEnabled are no longer 0/false for every card — the 9
+        // Phase 20.1/20.2/20.3-implemented cards now carry their real
+        // provisional weight and floorDropEnabled: true. Only a
+        // non-negative-number/boolean shape check applies to all 17 here;
+        // the loot_isolation describe block below asserts the precise
+        // per-card values.
+        expect(def.lootWeight).toBeGreaterThanOrEqual(0);
+        expect(typeof def.floorDropEnabled).toBe('boolean');
         expect(def.enemyDropEnabled).toBe(false);
         expect(typeof def.telemetryCategory).toBe('string');
       }
@@ -216,12 +223,24 @@ describe('Phase 20.0a: card definition foundation', () => {
   });
 
   describe('loot_isolation', () => {
-    it('every card has lootWeight 0, floorDropEnabled false, enemyDropEnabled false', () => {
-      for (const id of CARD_IDS_IN_ORDER) {
+    it('the 8 not-yet-implemented cards keep lootWeight 0/floorDropEnabled false; enemyDropEnabled stays false for all 17', () => {
+      const notYetImplemented: CardId[] = [
+        'emperor',
+        'justice',
+        'temperance',
+        'devil',
+        'tower',
+        'star',
+        'moon',
+        'sun',
+      ];
+      for (const id of notYetImplemented) {
         const def = CARD_DEFINITIONS[id];
         expect(def.lootWeight).toBe(0);
         expect(def.floorDropEnabled).toBe(false);
-        expect(def.enemyDropEnabled).toBe(false);
+      }
+      for (const id of CARD_IDS_IN_ORDER) {
+        expect(CARD_DEFINITIONS[id].enemyDropEnabled).toBe(false);
       }
     });
 

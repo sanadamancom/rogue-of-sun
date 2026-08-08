@@ -620,6 +620,24 @@ export interface GameState {
    */
   abilities?: AbilityValues;
   /**
+   * Phase 20.0b/20.3 card identification foundation: the set of card
+   * species (CardId) identified so far this run — see card-def.ts's
+   * CARD_DEFINITIONS. Optional, defaulting to an empty array when absent
+   * (see turn.ts's getIdentifiedCardIds), following the same pattern as
+   * level/experience/abilities above so existing GameState object
+   * literals across the test suite remain valid without every one of
+   * them being updated. Persists across floor transitions like
+   * inventory/abilities; resets to empty on a brand new run or a
+   * post-death retry. Identification is per-species (not per-copy): once
+   * a CardId is present here, every copy of that card currently or
+   * later held displays its real name/effect (see turn.ts's
+   * isCardIdentified). Never contains duplicate entries or any id
+   * outside CardId — see state.ts's advanceToNextFloor carry-over, which
+   * normalizes both away defensively when reading a possibly-stale
+   * `carry` value.
+   */
+  identifiedCardIds?: CardId[];
+  /**
    * Whether the ability allocation overlay (P) is currently open. Mutual
    * exclusion with `inventoryOpen` — opening either closes the other (see
    * ability.ts's toggleAbilityOverlay / inventory.ts's toggleInventory).
@@ -647,7 +665,15 @@ export interface GameState {
  * single source of truth for id/displayName/strength/duration so no call
  * site (item use, combat, HUD) repeats these numbers itself.
  */
-export type EffectId = 'attack_up' | 'movement_slow' | 'poison';
+/**
+ * Temporary status-effect species ids (Phase 12.1 attack_up; Phase 12.2
+ * movement_slow; Phase 12.3 poison). Phase 20.0b adds `sealed` (card use
+ * lockout) reusing this exact same activeEffects/duration mechanism —
+ * see effects.ts's EFFECT_DEFINITIONS.sealed doc comment for why no new
+ * grant source is added this phase; only its blocking check and the
+ * shared decrement/expiry machinery are wired up.
+ */
+export type EffectId = 'attack_up' | 'movement_slow' | 'poison' | 'sealed';
 
 /**
  * Phase 13.2 ability point allocation foundation: the 4 fixed-key ability

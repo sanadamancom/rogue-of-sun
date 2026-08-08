@@ -64,6 +64,25 @@ export const EFFECT_DEFINITIONS: Record<EffectId, EffectDefinition> = {
     strength: 1,
     duration: 10,
   },
+  // Phase 20.0b card identification/seal foundation: reuses this exact
+  // activeEffects/duration mechanism for "normal card use is locked out"
+  // (rogue-of-sun-card-effects-spec.md's "封印状態では通常使用できない"),
+  // rather than inventing a parallel status representation. `strength` is
+  // unused/meaningless for this id (turn.ts's card-use gate only checks
+  // presence via getActiveEffect, never reads strength) — kept at 0
+  // rather than omitted so this entry has the same shape as every other
+  // EffectDefinition. No production code currently grants `sealed` (per
+  // rogue-of-sun-development-plan.md's "封印状態そのものの新しい付与元は
+  // 追加しない" — this phase only wires up the *consequence* of being
+  // sealed, not any new trap/enemy source that would cause it); duration
+  // is a placeholder in the same range as movement_slow/poison above,
+  // relevant only once/if a future phase adds an actual grant source.
+  sealed: {
+    id: 'sealed',
+    displayName: '封印',
+    strength: 0,
+    duration: 10,
+  },
 };
 
 /**

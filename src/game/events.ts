@@ -1,4 +1,4 @@
-import { AbilityId, Direction8, EffectId, ElementalAffinity, ElementId, EnchantmentId, EnemyType, ItemId, StatusAilmentId, TrapType, WeaponId, ArmorId, Vec2 } from './types';
+import { AbilityId, CardId, Direction8, EffectId, ElementalAffinity, ElementId, EnchantmentId, EnemyType, ItemId, StatusAilmentId, TrapType, WeaponId, ArmorId, Vec2 } from './types';
 
 /**
  * Typed, display-agnostic record of a notable action that happened during
@@ -65,7 +65,23 @@ export type GameEvent =
   | { type: 'slowed_move_cancelled' }
   | { type: 'floor_advanced' }
   | { type: 'player_defeated' }
-  | { type: 'item_picked_up'; itemId: ItemId }
+  | {
+      type: 'item_picked_up';
+      itemId: ItemId;
+      /**
+       * Phase 20.0b: true when `itemId` is a not-yet-identified card
+       * (see card-def.ts's CardId/CARD_DEFINITIONS and types.ts's
+       * GameState.identifiedCardIds). message-log.ts's formatEvent reads
+       * this to show CARD_DEFINITIONS[itemId].unidentifiedDisplayName
+       * instead of the real name — baked into the event at push time
+       * (turn.ts, which has state access) rather than looked up inside
+       * formatEvent (which stays state-independent/pure) so this one
+       * event type is the only place identification-awareness enters
+       * message formatting. Absent/false for every non-card item, and
+       * for a card whose species is already identified.
+       */
+      unidentifiedCard?: boolean;
+    }
   // Phase 11.1 inventory capacity: pushed instead of 'item_picked_up' when
   // GameState.inventory is already at INVENTORY_CAPACITY, so the ground
   // item is left in place (see turn.ts's move handling). Follows the same
@@ -264,4 +280,23 @@ export type GameEvent =
   // allocateAbilityPoint, the sole place this event is constructed) —
   // never for a cancelled confirmation or a rejected (0-point/invalid-id)
   // request.
-  | { type: 'ability_point_spent'; ability: AbilityId; abilityDisplayName: string; previousValue: number; newValue: number; remainingAbilityPoints: number };
+  | { type: 'ability_point_spent'; ability: AbilityId; abilityDisplayName: string; previousValue: number; newValue: number; remainingAbilityPoints: number }
+  // Phase 20.1/20.2/20.3 card core loop. 'cardId' is always the real
+  // CardId (never withheld) since a successful use is exactly the moment
+  // that species becomes identified (see turn.ts's applyCardUse) — by
+  // the time this event exists, showing the real name is correct, not a
+  // leak. 'card_use_failed' likewise always carries the real cardId: the
+  // player already knows which entry they selected (it was visible,
+  // if unidentified, as CARD_DEFINITIONS[cardId].unidentifiedDisplayName
+  // in the Inventory list they chose it from — message-log.ts's
+  // formatEvent looks up the correct display name itself rather than
+  // this event pre-resolving one), so no additional information is
+  // disclosed by including the id here.
+  | { type: 'card_used'; cardId: CardId }
+  | { type: 'card_use_failed'; cardId: CardId; reason: 'sealed' | 'not_implemented' | 'no_valid_target' | 'no_effect' }
+  | { type: 'card_identified'; cardId: CardId }
+  // Phase 20.3: judgement's automatic death-interrupt. Fired at most once
+  // per death-confirmation point (turn.ts's playerDefeated check), never
+  // alongside 'player_defeated' for the same confirmation (see turn.ts's
+  // doc comment there) — the two are mutually exclusive per turn.
+  | { type: 'judgement_triggered' };

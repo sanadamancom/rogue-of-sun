@@ -2,6 +2,7 @@ import { ENEMY_DEFINITIONS } from './enemy-def';
 import { ITEM_DEFINITIONS } from './item-def';
 import { EFFECT_DEFINITIONS } from './effects';
 import { ELEMENT_DISPLAY_NAMES } from './element-def';
+import { CARD_DEFINITIONS } from './card-def';
 import { GameEvent } from './events';
 
 /**
@@ -96,7 +97,9 @@ export function formatEvent(event: GameEvent): string {
     case 'player_defeated':
       return '力尽きた。';
     case 'item_picked_up': {
-      const name = ITEM_DEFINITIONS[event.itemId].displayName;
+      const name = event.unidentifiedCard
+        ? CARD_DEFINITIONS[event.itemId as import('./types').CardId].unidentifiedDisplayName
+        : ITEM_DEFINITIONS[event.itemId].displayName;
       return `${name}をひろった。`;
     }
     case 'item_pickup_failed': {
@@ -300,6 +303,26 @@ export function formatEvent(event: GameEvent): string {
       return `レベルが${event.newLevel}に上がった。\n能力ポイントを1得た。`;
     case 'ability_point_spent':
       return `${event.abilityDisplayName}に1ポイント割り振った。`;
+    case 'card_used': {
+      const name = CARD_DEFINITIONS[event.cardId].displayName;
+      return `${name}を使った。`;
+    }
+    case 'card_use_failed': {
+      // Real name shown deliberately (see events.ts's card_use_failed
+      // doc comment): the player already selected this entry by its
+      // then-current displayed name, so no new information leaks here.
+      const name = CARD_DEFINITIONS[event.cardId].displayName;
+      if (event.reason === 'sealed') return `封印されていて、${name}は使えない。`;
+      if (event.reason === 'no_valid_target') return `${name}を使ったが、対象がいない。`;
+      if (event.reason === 'no_effect') return `${name}を使ったが、何も起こらなかった。`;
+      return `${name}はまだ使えない。`;
+    }
+    case 'card_identified': {
+      const name = CARD_DEFINITIONS[event.cardId].displayName;
+      return `${name}の正体がわかった。`;
+    }
+    case 'judgement_triggered':
+      return '審判のカードが輝き、死の淵から生還した。';
     default: {
       const exhaustiveCheck: never = event;
       throw new Error(`Unhandled game event: ${JSON.stringify(exhaustiveCheck)}`);

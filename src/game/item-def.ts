@@ -1,6 +1,6 @@
-import { ItemId, Inventory } from './types';
+import { ItemId, Inventory, CardId } from './types';
 import { ELEMENT_DISPLAY_NAMES, ELEMENT_GLYPHS } from './element-def';
-import { CARD_DISPLAY_NAMES, CARD_GLYPH, CARD_IDS_IN_ORDER } from './card-def';
+import { CARD_DISPLAY_NAMES, CARD_GLYPH, CARD_IDS_IN_ORDER, CARD_DEFINITIONS } from './card-def';
 
 /**
  * A single item species' shared display/inventory data (Phase 08.2
@@ -558,6 +558,131 @@ export function drawGroundItemSelection(count: number, pool: ItemId[], rng: () =
     result.push(picked);
     if (ENCHANTMENT_ITEM_IDS.includes(picked)) {
       working = working.filter((id) => id !== picked);
+    }
+  }
+  return result;
+}
+
+// Phase 20.0e weighted ground-item foundation: card floor-drop
+// eligibility, cumulative by floor (same staged-pool shape as
+// GROUND_ITEM_POOL_FLOOR_1/2/3_ADDITIONS above, kept as its own set of
+// arrays rather than merged into those — cards are looked up by weight
+// via CARD_DEFINITIONS, not the flat unweighted array those represent).
+// Values are Phase 20.1/20.2/20.3's implemented 9 cards only, per
+// rogue-of-sun-development-plan.md's provisional_card_table; the
+// remaining 8 defined-but-not-implemented cards are deliberately absent
+// from every one of these arrays regardless of their CardDefinition
+// floorDropEnabled/lootWeight values (which are 0/false for all 8 — see
+// card-def.ts's CARD_DEFINITIONS), so a future accidental flip of one
+// card's flag alone could never make it appear without also being added
+// here.
+const CARD_GROUND_POOL_FLOOR_1_ADDITIONS: ReadonlyArray<CardId> = ['lovers', 'hanged_man', 'judgement'];
+const CARD_GROUND_POOL_FLOOR_2_ADDITIONS: ReadonlyArray<CardId> = [
+  'high_priestess',
+  'empress',
+  'chariot',
+  'strength',
+  'death',
+];
+const CARD_GROUND_POOL_FLOOR_3_ADDITIONS: ReadonlyArray<CardId> = ['wheel_of_fortune'];
+
+/**
+ * The full staged card candidate list for `floor` (Phase 20.0e), mirroring
+ * getGroundItemPoolForFloor's cumulative floor-staging shape exactly (same
+ * floor<=1/===2/>=3 tiers) but drawn from the card-specific arrays above.
+ */
+function getCardGroundPoolForFloor(floor: number): CardId[] {
+  if (floor <= 1) return [...CARD_GROUND_POOL_FLOOR_1_ADDITIONS];
+  if (floor === 2) return [...CARD_GROUND_POOL_FLOOR_1_ADDITIONS, ...CARD_GROUND_POOL_FLOOR_2_ADDITIONS];
+  return [
+    ...CARD_GROUND_POOL_FLOOR_1_ADDITIONS,
+    ...CARD_GROUND_POOL_FLOOR_2_ADDITIONS,
+    ...CARD_GROUND_POOL_FLOOR_3_ADDITIONS,
+  ];
+}
+
+/** A single ground-item draw candidate paired with its relative draw weight. */
+export interface WeightedGroundItemCandidate {
+  id: ItemId;
+  weight: number;
+}
+
+/**
+ * Every pre-Phase-20 (non-card) ground item's relative weight (Phase
+ * 20.0e): a flat constant applied uniformly, preserving the exact uniform
+ * distribution `drawGroundItemSelection` gave every item before cards
+ * existed — rogue-of-sun-development-plan.md's "既存の非カード床itemは
+ * 各weight 10として相対的な均等性を維持する". Not read anywhere except
+ * getWeightedGroundItemPoolForFloor below.
+ */
+export const BASE_GROUND_ITEM_WEIGHT = 10;
+
+/**
+ * The combined weighted candidate list for `floor` (Phase 20.0e):
+ * `getGroundItemPoolForFloor(floor)`'s pre-existing non-card items (each
+ * at BASE_GROUND_ITEM_WEIGHT) plus this floor's card candidates (Phase
+ * 20.1/20.2/20.3's 9 implemented cards only, per
+ * getCardGroundPoolForFloor above) at their own CardDefinition.lootWeight
+ * — filtered to `floorDropEnabled && lootWeight > 0`, so a card with
+ * either flag left at its Phase 20.0a neutral value never becomes
+ * selectable regardless of whether it appears in a
+ * CARD_GROUND_POOL_FLOOR_*_ADDITIONS array. `excludedIds` lets the caller
+ * (state.ts) apply the same already-unlocked-enchantment exclusion it
+ * already applies to the non-card pool before this function ever runs,
+ * for parity with the pre-Phase-20 call site — see
+ * drawWeightedGroundItemSelection's own doc comment for how the
+ * within-draw enchantment non-repeat rule is preserved.
+ */
+export function getWeightedGroundItemPoolForFloor(
+  floor: number,
+  excludedIds?: ReadonlySet<ItemId>,
+): WeightedGroundItemCandidate[] {
+  const baseIds = getGroundItemPoolForFloor(floor).filter((id) => !excludedIds?.has(id));
+  const baseCandidates: WeightedGroundItemCandidate[] = baseIds.map((id) => ({
+    id,
+    weight: BASE_GROUND_ITEM_WEIGHT,
+  }));
+  const cardCandidates: WeightedGroundItemCandidate[] = getCardGroundPoolForFloor(floor)
+    .filter((id) => !excludedIds?.has(id))
+    .map((id) => ({ id, weight: CARD_DEFINITIONS[id].lootWeight }))
+    .filter((c) => CARD_DEFINITIONS[c.id as CardId].floorDropEnabled && c.weight > 0);
+  return [...baseCandidates, ...cardCandidates];
+}
+
+/**
+ * Draws `count` item ids from `candidates` (Phase 20.0e), each draw
+ * weighted by its own `weight` (cumulative-weight roll, same fixed-table
+ * pattern as item-def.ts's drawGroundItemCount above), consuming exactly
+ * one `rng()` call per draw regardless of candidate count or duplicates —
+ * same RNG-consumption contract as the uniform `drawGroundItemSelection`
+ * above. Preserves that function's within-draw enchantment non-repeat
+ * rule unchanged: once an ENCHANTMENT_ITEM_IDS member is drawn, it is
+ * removed from the working candidate list so it can never be drawn a
+ * second time on the same floor, while every other id (ordinary item or
+ * card) remains eligible for repeated draws.
+ */
+export function drawWeightedGroundItemSelection(
+  count: number,
+  candidates: ReadonlyArray<WeightedGroundItemCandidate>,
+  rng: () => number,
+): ItemId[] {
+  let working = candidates.slice();
+  const result: ItemId[] = [];
+  for (let i = 0; i < count; i++) {
+    const totalWeight = working.reduce((sum, c) => sum + c.weight, 0);
+    const roll = rng() * totalWeight;
+    let cumulative = 0;
+    let picked = working[working.length - 1].id;
+    for (const candidate of working) {
+      cumulative += candidate.weight;
+      if (roll < cumulative) {
+        picked = candidate.id;
+        break;
+      }
+    }
+    result.push(picked);
+    if (ENCHANTMENT_ITEM_IDS.includes(picked)) {
+      working = working.filter((c) => c.id !== picked);
     }
   }
   return result;

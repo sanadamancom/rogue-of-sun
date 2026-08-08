@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { toDirection4 } from './game/direction';
 import { ENEMY_DEFINITIONS } from './game/enemy-def';
 import { ITEM_DEFINITIONS } from './game/item-def';
+import { CARD_DEFINITIONS, CARD_IDS_IN_ORDER } from './game/card-def';
 import { ELEMENT_DISPLAY_NAMES, ALL_ELEMENT_IDS } from './game/element-def';
 import { ARMOR_DEFINITIONS } from './game/armor-def';
 import { WEAPON_DEFINITIONS } from './game/weapon-def';
@@ -47,7 +48,7 @@ import {
   toggleAbilityOverlay,
 } from './game/ability';
 import { EFFECT_DEFINITIONS, getActiveEffects } from './game/effects';
-import { processTurn, TurnResult, ELEMENT_ENCHANTMENT_SOL_COST } from './game/turn';
+import { processTurn, TurnResult, ELEMENT_ENCHANTMENT_SOL_COST, isCardIdentified } from './game/turn';
 import { DIRECTION_VECTORS, EnemyType, GameState, Direction8 } from './game/types';
 import { CAMERA_VIEW_WIDTH, CAMERA_VIEW_HEIGHT } from './game/camera';
 import { canTakeDashStep, shouldStopDashAfterStep } from './game/dash';
@@ -1479,6 +1480,25 @@ class MainScene extends Phaser.Scene {
   private readonly MOVE_DURATION = 220;
   private activeAnimations = 0;
 
+  /**
+   * The name to show for `itemId` in the Inventory overlay (Phase 20.0b):
+   * a not-yet-identified card's placeholder name
+   * (CARD_DEFINITIONS[itemId].unidentifiedDisplayName) instead of its real
+   * displayName, so the true species never leaks through the list or
+   * detail view before identification. Every non-card item is unaffected
+   * (falls straight through to ITEM_DEFINITIONS[itemId].displayName, same
+   * as before this phase).
+   */
+  private displayedItemName(itemId: import('./game/types').ItemId): string {
+    if ((CARD_IDS_IN_ORDER as readonly string[]).includes(itemId)) {
+      const cardId = itemId as import('./game/types').CardId;
+      if (!isCardIdentified(this.state, cardId)) {
+        return CARD_DEFINITIONS[cardId].unidentifiedDisplayName;
+      }
+    }
+    return ITEM_DEFINITIONS[itemId].displayName;
+  }
+
   private rootMenuItems(): string[] {
     // spec 9.2: 装備/能力 are conditional on an independent feature
     // existing — this game has no independent equip screen (equip
@@ -1850,13 +1870,14 @@ class MainScene extends Phaser.Scene {
             const marker = i === this.state.selectedItemIndex ? '> ' : '  ';
             const equipMark = entry.itemId === this.state.equippedWeaponId || entry.itemId === this.state.equippedArmorId ? 'E ' : '  ';
             const count = def.category === 'consumable' ? `x${entry.count}` : '';
-            listLines.push(`${marker}${equipMark}${def.glyph}${def.displayName} ${count}`);
+            const displayName = this.displayedItemName(entry.itemId);
+            listLines.push(`${marker}${equipMark}${def.glyph}${displayName} ${count}`);
           });
         }
         const selected = selectedItemId(this.state);
         if (selected) {
           const def = ITEM_DEFINITIONS[selected];
-          detailLines.push(def.displayName);
+          detailLines.push(this.displayedItemName(selected));
           if (def.category === 'weapon') {
             const w = WEAPON_DEFINITIONS[selected as 'sword' | 'spear' | 'hammer'];
             detailLines.push(`攻撃${w.attackPower}・射程${w.reach}`);
@@ -1874,8 +1895,7 @@ class MainScene extends Phaser.Scene {
       }
       case 'item_actions': {
         const selected = selectedItemId(this.state);
-        const def = selected ? ITEM_DEFINITIONS[selected] : null;
-        listLines.push(def ? def.displayName : '行動', '');
+        listLines.push(selected ? this.displayedItemName(selected) : '行動', '');
         this.currentItemActions().forEach((action, i) => {
           listLines.push(`${i === this.itemActionIndex ? '> ' : '  '}${action}`);
         });

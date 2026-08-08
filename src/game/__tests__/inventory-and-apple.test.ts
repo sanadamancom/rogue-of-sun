@@ -219,7 +219,7 @@ describe('pickup (auto-pickup on move)', () => {
       groundItems: [{ id: 0, itemId: 'apple', pos: { x: 3, y: 1 } }],
     });
     const result = processTurn(state, { type: 'move', direction: 'E' });
-    expect(result.events).toContainEqual({ type: 'item_picked_up', itemId: 'apple' });
+    expect(result.events).toContainEqual({ type: 'item_picked_up', itemId: 'apple', unidentifiedCard: false });
   });
 
   it('does not pick up anything when moving onto a tile with no ground item', () => {

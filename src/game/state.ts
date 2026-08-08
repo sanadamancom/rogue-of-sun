@@ -13,7 +13,8 @@ import { createInitialActor, createInitialEnemy } from './turn';
 import { chooseDarkRoomIndex } from './dark-rooms';
 import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
 import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
-import { createEmptyInventory, drawGroundItemCount, drawGroundItemSelection, getGroundItemPoolForFloor } from './item-def';
+import { createEmptyInventory, drawGroundItemCount, drawWeightedGroundItemSelection, getWeightedGroundItemPoolForFloor } from './item-def';
+import { CARD_IDS_IN_ORDER } from './card-def';
 import { generateSunlightLayer } from './sunlight';
 import { HUNGER_MAX } from './hunger';
 import {
@@ -22,7 +23,7 @@ import {
   PROGRESSION_INITIAL_UNSPENT_ABILITY_POINTS,
 } from './progression';
 import { INITIAL_ABILITY_VALUES } from './ability';
-import { Actor, ActiveEffect, AbilityValues, ElementId, EnchantmentId, EnemyActor, EnemyType, GameState, GroundItem, Inventory, ItemId, TrapTile, Vec2, WeaponId, ArmorId, Direction8 } from './types';
+import { Actor, ActiveEffect, AbilityValues, CardId, ElementId, EnchantmentId, EnemyActor, EnemyType, GameState, GroundItem, Inventory, ItemId, TrapTile, Vec2, WeaponId, ArmorId, Direction8 } from './types';
 
 /** Generates a random run seed without relying on Math.random's implicit global state at call sites. */
 export function randomSeed(): number {
@@ -59,6 +60,31 @@ interface CarryOverStats {
   experience: number;
   unspentAbilityPoints: number;
   abilities: AbilityValues;
+  identifiedCardIds: CardId[];
+}
+
+/**
+ * Normalizes a possibly-absent/possibly-corrupted `identifiedCardIds`
+ * value into a clean, deduplicated `CardId[]` containing only recognized
+ * card ids, preserving first-seen order. Used by both
+ * advanceToNextFloor's carry-over (defensive normalization of a value
+ * that already passed through a prior floor) and would be the same
+ * function a future save/load path should reuse (Phase 20.0b's
+ * additive-default-and-normalize requirement) — see
+ * types.ts's GameState.identifiedCardIds doc comment.
+ */
+export function normalizeIdentifiedCardIds(value: CardId[] | undefined): CardId[] {
+  if (!value) return [];
+  const known = new Set<CardId>(CARD_IDS_IN_ORDER);
+  const seen = new Set<CardId>();
+  const result: CardId[] = [];
+  for (const id of value) {
+    if (known.has(id) && !seen.has(id)) {
+      seen.add(id);
+      result.push(id);
+    }
+  }
+  return result;
 }
 
 /** Fixed initial/maximum solar energy for a brand new run (Phase 09.1; Phase 15.1 rebalance raises this from 5 to 15 to match the player's initial max LIFE — see docs/history/phase-15-1-core-combat-rebalance.md). */
@@ -267,17 +293,24 @@ function buildFloorState(
   const itemCountRng = createRng(floorSeed ^ 0xa3c17f05);
   const itemCount = drawGroundItemCount(itemCountRng);
 
-  // Ground item selection (Phase 15.4b): drawn from this floor's
-  // cumulative staged pool (item-def.ts's getGroundItemPoolForFloor),
-  // with already-unlocked enchantment ids filtered out first (they can
-  // never be drawn again once carried over as unlocked), using its own
-  // independent RNG stream — separate from both the count stream above
-  // and the placement stream below, per implementation_requirements'
-  // "種類抽選と座標抽選のRNGストリームを分離する".
+  // Ground item selection (Phase 15.4b; Phase 20.0e adds weighted card
+  // candidates): drawn from this floor's combined weighted candidate list
+  // (item-def.ts's getWeightedGroundItemPoolForFloor — the pre-existing
+  // non-card pool at BASE_GROUND_ITEM_WEIGHT each, plus Phase
+  // 20.1/20.2/20.3's 9 implemented cards at their own lootWeight), with
+  // already-unlocked enchantment ids filtered out first (they can never
+  // be drawn again once carried over as unlocked) via the same
+  // `excludedIds` parameter the unweighted pool used to be `.filter()`ed
+  // with directly, using its own independent RNG stream — separate from
+  // both the count stream above and the placement stream below, per
+  // implementation_requirements' "種類抽選と座標抽選のRNGストリームを分
+  // 離する". Still exactly one rng() call per drawn slot, unchanged from
+  // before cards existed — see drawWeightedGroundItemSelection's doc
+  // comment.
   const alreadyUnlocked = getAlreadyUnlockedEnchantmentItemIds(carry);
-  const floorItemPool = getGroundItemPoolForFloor(floor).filter((id) => !alreadyUnlocked.has(id));
+  const weightedFloorItemPool = getWeightedGroundItemPoolForFloor(floor, alreadyUnlocked);
   const itemSelectionRng = createRng(floorSeed ^ 0x5c2e91d3);
-  const selectedItemIds = drawGroundItemSelection(itemCount, floorItemPool, itemSelectionRng);
+  const selectedItemIds = drawWeightedGroundItemSelection(itemCount, weightedFloorItemPool, itemSelectionRng);
 
   // Phase 16.1 early-resource-and-combat-pressure rebalance: floor 1's
   // ground-item pool has 11 candidate ids but 'chocolate' (the only
@@ -426,6 +459,13 @@ function buildFloorState(
     // object per call (never the same reference as `carry.abilities`),
     // matching activeEffects's own per-call-copy reasoning above.
     abilities: carry ? { ...carry.abilities } : { ...INITIAL_ABILITY_VALUES },
+    // Card identification (Phase 20.0b/20.3): carried over across floor
+    // transitions like abilities; a brand new run or a post-death retry
+    // (both go through createInitialState/restart, which never pass a
+    // carry) always starts empty. A fresh array per call (never the same
+    // reference as `carry.identifiedCardIds`), matching abilities' own
+    // per-call-copy reasoning above.
+    identifiedCardIds: carry ? [...carry.identifiedCardIds] : [],
     // Ability overlay state (Phase 13.2): never carried over across
     // floor transitions or restarts — always closed with no pending
     // confirmation at the start of a floor/run, like inventoryOpen/
@@ -482,6 +522,15 @@ export function advanceToNextFloor(state: GameState): GameState {
     experience: state.experience ?? PROGRESSION_INITIAL_EXPERIENCE,
     unspentAbilityPoints: state.unspentAbilityPoints ?? PROGRESSION_INITIAL_UNSPENT_ABILITY_POINTS,
     abilities: state.abilities ? { ...state.abilities } : { ...INITIAL_ABILITY_VALUES },
+    // Phase 20.0b/20.3: `state.identifiedCardIds` may be absent (schemaVersion
+    // 7 pre-Phase-20 saves/fixtures never set it — see types.ts's
+    // GameState.identifiedCardIds doc comment) — defaults to empty, same
+    // additive-default pattern as hunger/activeEffects/level above (no
+    // schemaVersion bump). Also defensively normalizes away any
+    // duplicate or unrecognized CardId that might reach here from a
+    // stale/corrupted value, so a malformed carry can never propagate
+    // duplicates or invalid ids forward — see normalizeIdentifiedCardIds.
+    identifiedCardIds: normalizeIdentifiedCardIds(state.identifiedCardIds),
   };
   return buildFloorState(state.runSeed, state.floor + 1, state.turn, carry);
 }

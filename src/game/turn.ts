@@ -23,10 +23,13 @@ import { canPlaceWebNow, expireWebs, placeWeb } from './web';
 import { isSunlitAt } from './sunlight';
 import { GameEvent } from './events';
 import { applyExperienceGain } from './progression';
-import { getPowerDamageBonus, getPlayerSpeed, getElementalMindBonus } from './ability';
+import { getPowerDamageBonus, getPlayerSpeed, getElementalMindBonus, getAbilities, BODY_MAX_HP_PER_RANK, MIND_MAX_SOL_PER_RANK } from './ability';
+import { CARD_DEFINITIONS, CARD_IDS_IN_ORDER } from './card-def';
 import {
+  AbilityId,
   Actor,
   ALL_DIRECTIONS,
+  CardId,
   Direction8,
   DIRECTION_VECTORS,
   ElementalAffinity,
@@ -705,7 +708,14 @@ function applyPlayerAction(
         }
       } else if (hasInventoryCapacity(state)) {
         state.inventory[item.itemId] = (state.inventory[item.itemId] ?? 0) + 1;
-        events.push({ type: 'item_picked_up', itemId: item.itemId });
+        // Phase 20.0b: a card is picked up without being identified by
+        // that act alone (rogue-of-sun-card-effects-spec.md's "取得しただ
+        // けでは鑑定しない") — the event carries whether this species is
+        // still unidentified so message-log.ts's formatEvent can show the
+        // unidentified placeholder name instead of the real one.
+        const isCard = (CARD_IDS_IN_ORDER as readonly string[]).includes(item.itemId);
+        const unidentifiedCard = isCard && !isCardIdentified(state, item.itemId as CardId);
+        events.push({ type: 'item_picked_up', itemId: item.itemId, unidentifiedCard });
       } else {
         // Phase 11.1: inventory is at INVENTORY_CAPACITY. Put the ground
         // item back exactly as it was (id/type/position/state untouched)
@@ -960,6 +970,16 @@ function applyItemUse(
     return { consumed: false, attacked: false, defeated: false };
   }
 
+  // Phase 20.1/20.2/20.3 card core loop: any of the 17 CardIds routes to
+  // applyCardUse instead of the antidote/banana/heal/solar branches below
+  // (a card never has healAmount/solarAmount/hungerAmount set — see
+  // item-def.ts's ITEM_DEFINITIONS card entries' doc comment). Checked
+  // first, before every other itemId-specific branch, since none of
+  // those apply to any card.
+  if ((CARD_IDS_IN_ORDER as readonly string[]).includes(itemId)) {
+    return applyCardUse(state, itemId as CardId, events);
+  }
+
   // Antidote / panacea (Phase 12.4 status-ailment removal foundation):
   // each removes status ailments rather than restoring HP/SOL/hunger or
   // granting/refreshing an effect, so both are handled by their own
@@ -1034,6 +1054,308 @@ function applyItemUse(
 
   // No other item effect is registered yet.
   return { consumed: false, attacked: false, defeated: false };
+}
+
+// ---------------------------------------------------------------------
+// Phase 20.0b/20.1/20.2/20.3: card identification, sealed-state gating,
+// and the 9 implemented cards' use transaction. See card-def.ts's
+// CARD_DEFINITIONS for each card's metadata and
+// rogue-of-sun-card-effects-spec.md for the authoritative per-card rules.
+// ---------------------------------------------------------------------
+
+/** Whether `cardId`'s species has been identified this run (see types.ts's GameState.identifiedCardIds doc comment). */
+export function isCardIdentified(state: GameState, cardId: CardId): boolean {
+  return (state.identifiedCardIds ?? []).includes(cardId);
+}
+
+/**
+ * Marks `cardId`'s species identified if not already, pushing exactly one
+ * 'card_identified' event the first time (never a duplicate for an
+ * already-identified species — rogue-of-sun-card-effects-spec.md's "一度
+ * 鑑定したCardIdは同一run中に未鑑定へ戻さない" / no re-identification
+ * event either). Identification is per-species, never per-copy: this has
+ * no notion of "which copy" — every copy of `cardId` currently or later
+ * held is affected identically by one call.
+ */
+function markCardIdentified(state: GameState, cardId: CardId, events: GameEvent[]): void {
+  const ids = state.identifiedCardIds ?? [];
+  if (ids.includes(cardId)) return;
+  state.identifiedCardIds = [...ids, cardId];
+  events.push({ type: 'card_identified', cardId });
+}
+
+/**
+ * Whether normal card use is currently locked out (Phase 20.0b "封印状
+ * 態"), reusing the exact same activeEffects mechanism as attack_up/
+ * movement_slow/poison via a dedicated 'sealed' EffectId (see effects.ts's
+ * EFFECT_DEFINITIONS.sealed doc comment for why no grant source exists
+ * yet this phase — only the check here is wired up).
+ */
+function isCardUseSealed(state: GameState): boolean {
+  return getActiveEffect(state, 'sealed') !== undefined;
+}
+
+/**
+ * Phase 20.3 common death-resolution function: the single place
+ * judgement's interrupt is implemented, called from every lethal cause —
+ * both the pre-existing end-of-turn confirmation (enemy attack, poison,
+ * starvation — all of which only reach LIFE 0 later in processTurn) and,
+ * as of this correction, immediately after a card's own lethal effect
+ * (death/hanged_man), so a judgement-driven revival happens *before*
+ * processTurn's normal post-action pipeline (resolveEnemiesAction/
+ * hunger/poison) runs for this same turn — restoring the "revived
+ * player still gets a normal enemy/environment phase this turn" behavior
+ * rather than losing it to resolveEnemiesAction's already-dead-on-entry
+ * guard. Idempotent and side-effect-free when the player is already
+ * alive (a no-op call from the end-of-turn confirmation after an
+ * already-resolved card death is safe and never double-consumes or
+ * double-triggers). Never itself pushes 'player_defeated' or transitions
+ * state.phase — those remain the caller's responsibility, since this
+ * function may run mid-turn, well before the turn's natural end.
+ */
+function resolveDeathIfDefeated(state: GameState, events: GameEvent[]): void {
+  if (state.player.alive) return;
+  const judgementOwned = state.inventory.judgement ?? 0;
+  if (judgementOwned > 0) {
+    state.inventory.judgement = judgementOwned - 1;
+    state.player.hp = state.player.maxHp;
+    state.player.alive = true;
+    markCardIdentified(state, 'judgement', events);
+    events.push({ type: 'judgement_triggered' });
+  }
+}
+
+/**
+ * Finalizes a successful manual card use: consumes exactly one copy,
+ * identifies the species (a no-op if already identified), and pushes
+ * 'card_used'. Callers are responsible for having already applied the
+ * card's own effect and confirmed success *before* calling this — this
+ * function itself has no failure path, matching effects.ts's
+ * grantOrRefreshEffect precedent (failure is always decided upstream of
+ * the "commit" step). Never touches turn progression itself — like every
+ * other apply*Use function, returning `consumed: true` lets processTurn's
+ * normal pipeline advance the turn exactly once.
+ */
+function finishSuccessfulCardUse(state: GameState, cardId: CardId, events: GameEvent[]): void {
+  const owned = state.inventory[cardId] ?? 0;
+  state.inventory[cardId] = owned - 1;
+  markCardIdentified(state, cardId, events);
+  events.push({ type: 'card_used', cardId });
+}
+
+/**
+ * Applies a flat ability-rank increase from a permanent-growth card
+ * (high_priestess/empress/chariot/strength/wheel_of_fortune), reusing
+ * exactly the same body/mind/speed side effects allocateAbilityPoint
+ * applies for a point-allocated rank increase (ability.ts) — maxHp/
+ * current-HP for body, maxSolarEnergy for mind, every enemy's
+ * actionGauge reset for speed — except: consumes no unspentAbilityPoints,
+ * enforces no ABILITY_RANK_CAP (no card in rogue-of-sun-card-effects-spec.md
+ * describes a capped/failing permanent-growth use), and supports a
+ * multi-point `amount` (wheel_of_fortune's +2) rather than always +1.
+ * power has no side effect to mutate here: getPowerDamageBonus (ability.ts)
+ * already derives its bonus fresh from the current power rank on every
+ * read, so incrementing state.abilities.power alone is sufficient — same
+ * reasoning as allocateAbilityPoint's own power branch (absent because
+ * there is nothing to do there either).
+ */
+function applyCardAbilityIncrease(state: GameState, ability: AbilityId, amount: number): void {
+  const abilities = getAbilities(state);
+  abilities[ability] += amount;
+  state.abilities = abilities;
+  if (ability === 'body') {
+    state.player.maxHp += BODY_MAX_HP_PER_RANK * amount;
+    state.player.hp = Math.min(state.player.maxHp, state.player.hp + BODY_MAX_HP_PER_RANK * amount);
+  } else if (ability === 'mind') {
+    state.maxSolarEnergy += MIND_MAX_SOL_PER_RANK * amount;
+  } else if (ability === 'speed') {
+    for (const enemy of state.enemies) {
+      enemy.actionGauge = 0;
+    }
+  }
+}
+
+/** high_priestess/empress/chariot/strength: always succeeds, +1 to the given ability. */
+function applyAbilityGrowthCardUse(
+  state: GameState,
+  cardId: CardId,
+  ability: AbilityId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  applyCardAbilityIncrease(state, ability, 1);
+  finishSuccessfulCardUse(state, cardId, events);
+  return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
+ * wheel_of_fortune: picks one of the 4 abilities with equal probability
+ * via state.combatRngState (the game's shared seeded PRNG stream — see
+ * types.ts's GameState.combatRngState doc comment), consuming exactly one
+ * roll (rollPercent, 0..99), mapped to 4 equal 25-wide buckets in
+ * ABILITY_IDS-matching order (body/mind/power/speed). Always succeeds;
+ * the chosen ability is raised by 2 (not 1) via applyCardAbilityIncrease.
+ */
+function applyWheelOfFortuneUse(
+  state: GameState,
+  cardId: CardId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const { roll, nextState } = rollPercent(state.combatRngState);
+  state.combatRngState = nextState;
+  const abilities: AbilityId[] = ['body', 'mind', 'power', 'speed'];
+  const chosen = abilities[Math.min(3, Math.floor(roll / 25))];
+  applyCardAbilityIncrease(state, chosen, 2);
+  finishSuccessfulCardUse(state, cardId, events);
+  return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
+ * lovers: restores current SOL to max. Fails (no consumption, no
+ * identification, no turn) when SOL is already at max — same
+ * full-resource-rejection pattern as apple's full_hp / sun_fruit's
+ * sol_full above, per rogue-of-sun-card-effects-spec.md's unresolved-item
+ * resolution (existing item precedent takes priority over the earlier
+ * audit's alternative recommendation).
+ */
+function applyLoversCardUse(
+  state: GameState,
+  cardId: CardId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  if (state.solarEnergy >= state.maxSolarEnergy) {
+    events.push({ type: 'card_use_failed', cardId, reason: 'no_effect' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+  state.solarEnergy = state.maxSolarEnergy;
+  finishSuccessfulCardUse(state, cardId, events);
+  return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
+ * hanged_man: swaps current LIFE and SOL as integer values (never a
+ * ratio), each clamped to the *other* stat's own max
+ * (newLife = min(oldSol, maxHp), newSol = min(oldSol's counterpart...)) —
+ * see rogue-of-sun-card-effects-spec.md's calculation. Fails (no
+ * consumption, no identification, no turn, no RNG) when the computed
+ * post-swap LIFE and SOL both equal their pre-swap values (a true no-op
+ * swap). A post-swap LIFE of 0 is allowed through to the normal death
+ * pipeline — this function itself never sets state.player.alive; the
+ * existing per-turn playerDefeated confirmation (see the judgement
+ * interrupt below) picks it up exactly like any other HP-reaching-0 cause.
+ */
+function applyHangedManCardUse(
+  state: GameState,
+  cardId: CardId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const oldLife = state.player.hp;
+  const oldSol = state.solarEnergy;
+  const newLife = Math.min(oldSol, state.player.maxHp);
+  const newSol = Math.min(oldLife, state.maxSolarEnergy);
+  if (newLife === oldLife && newSol === oldSol) {
+    events.push({ type: 'card_use_failed', cardId, reason: 'no_effect' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+  state.player.hp = newLife;
+  state.solarEnergy = newSol;
+  finishSuccessfulCardUse(state, cardId, events);
+  if (state.player.hp <= 0) {
+    // Phase 20.2/20.3: unlike every existing damage source (enemy
+    // attack, starvation, poison), no other code path syncs player.alive
+    // to a card-driven direct HP write — this line is the single point
+    // that does so for hanged_man. resolveDeathIfDefeated is called
+    // immediately after (not deferred to the end-of-turn confirmation),
+    // so a held judgement revives the player before processTurn's normal
+    // post-action pipeline (resolveEnemiesAction/hunger/poison) runs for
+    // this same turn — see that function's doc comment for why this
+    // ordering matters (a revival discovered only at the end-of-turn
+    // confirmation would have already lost this turn's enemy phase).
+    state.player.alive = false;
+    resolveDeathIfDefeated(state, events);
+  }
+  return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
+ * death: always succeeds (never fails, even at full SOL — per
+ * rogue-of-sun-card-effects-spec.md's "現在SOLが最大でも使用可能"). Order
+ * (per spec's death.order): consume+identify first (finishSuccessfulCardUse),
+ * then LIFE to 0, then SOL to max — never stopping LIFE at 1. This
+ * function itself never sets state.player.alive or checks judgement; the
+ * existing per-turn playerDefeated confirmation (see the judgement
+ * interrupt below) handles both uniformly for every LIFE-reaching-0 cause,
+ * death included — see that code's own doc comment for why no per-cause
+ * duplication is needed.
+ */
+function applyDeathCardUse(
+  state: GameState,
+  cardId: CardId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  finishSuccessfulCardUse(state, cardId, events);
+  state.player.hp = 0;
+  state.solarEnergy = state.maxSolarEnergy;
+  // Phase 20.3: see hanged_man's identical doc comment above — death's
+  // direct HP write needs the same explicit alive sync, since no other
+  // code path performs it for a card-driven HP change. Calling
+  // resolveDeathIfDefeated immediately after (rather than deferring to
+  // the end-of-turn confirmation) is what lets a held judgement revive
+  // the player in time for this same turn's normal enemy/environment
+  // phase to still run — see that function's doc comment.
+  state.player.alive = false;
+  resolveDeathIfDefeated(state, events);
+  return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
+ * Resolves a manual card use (Phase 20.1/20.2/20.3's 9 implemented
+ * cards). Dispatches by cardId; the 8 defined-but-not-implemented cards
+ * (emperor/justice/temperance/devil/tower/star/moon/sun) always fail here
+ * regardless of how they reached inventory (e.g. a test fixture placing
+ * one directly) — never treated as a successful use, per
+ * rogue-of-sun-development-plan.md's prohibited "未実装カードを使用成功
+ * 扱いにすること". judgement (useMode 'automatic') is defensively
+ * rejected with no event, since it is never offered as a normal-use
+ * candidate in the first place (its Inventory entry exists but
+ * inventory.ts's selection routing still resolves it to a 'use_item'
+ * PlayerAction like any other consumable — this is the actual point that
+ * silently no-ops it, matching the existing owned<=0 guard's silent-reject
+ * precedent above rather than adding a new UI-level carve-out).
+ */
+function applyCardUse(
+  state: GameState,
+  cardId: CardId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const def = CARD_DEFINITIONS[cardId];
+  if (def.useMode !== 'manual') {
+    return { consumed: false, attacked: false, defeated: false };
+  }
+  if (isCardUseSealed(state)) {
+    events.push({ type: 'card_use_failed', cardId, reason: 'sealed' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+  switch (cardId) {
+    case 'high_priestess':
+      return applyAbilityGrowthCardUse(state, cardId, 'mind', events);
+    case 'empress':
+      return applyAbilityGrowthCardUse(state, cardId, 'body', events);
+    case 'chariot':
+      return applyAbilityGrowthCardUse(state, cardId, 'speed', events);
+    case 'strength':
+      return applyAbilityGrowthCardUse(state, cardId, 'power', events);
+    case 'wheel_of_fortune':
+      return applyWheelOfFortuneUse(state, cardId, events);
+    case 'lovers':
+      return applyLoversCardUse(state, cardId, events);
+    case 'hanged_man':
+      return applyHangedManCardUse(state, cardId, events);
+    case 'death':
+      return applyDeathCardUse(state, cardId, events);
+    default:
+      events.push({ type: 'card_use_failed', cardId, reason: 'not_implemented' });
+      return { consumed: false, attacked: false, defeated: false };
+  }
 }
 
 /**
@@ -2301,6 +2623,26 @@ function resolveEnemiesAction(
   state: GameState,
   events: GameEvent[],
 ): { acted: boolean; attacked: boolean } {
+  // Phase 20.3 fix: before any card could end the player's turn early
+  // (death/hanged_man's direct HP writes — see applyDeathCardUse/
+  // applyHangedManCardUse), the player was always alive on entry here,
+  // since every other death cause (enemy attack, poison, starvation) was
+  // itself resolved no earlier than this same function or strictly after
+  // it in processTurn's pipeline. That invariant no longer holds
+  // unconditionally now that applyPlayerAction (which runs before this
+  // call) can itself set state.player.alive = false. This guard restores
+  // it explicitly: if the player is already dead entering this call, no
+  // enemy takes any action or produces any event this turn — the shared
+  // playerDefeated confirmation point (further down processTurn) is
+  // reached with no further world-state mutation in between, exactly as
+  // required for card-driven deaths (rogue-of-sun-card-effects-spec.md's
+  // "既存の死亡原因ごとに個別実装を複製せず、死亡確定前の共通境界へ接続
+  // する"). Every existing enemy-attack/damage calculation below this
+  // guard is otherwise completely unchanged.
+  if (!state.player.alive) {
+    return { acted: false, attacked: false };
+  }
+
   let acted = false;
   let attacked = false;
 
@@ -2681,9 +3023,30 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
   // applyPoisonTick's own doc comment for the full ordering rationale.
   applyPoisonTick(state, events, poisonTrapTriggeredThisAction);
 
-  const playerDefeated = !state.player.alive;
+  // Phase 20.3: `playerDefeated` is the single confirmation point every
+  // *pre-existing* LIFE-reaching-0 cause funnels through this same turn —
+  // normal enemy attacks (resolveEnemyAttackHit), the kraken tentacle,
+  // starvation, and poison (applyPoisonTick just above) all set
+  // state.player.alive = false no earlier than this same call, at or
+  // before this line. Card-driven lethal causes (death/hanged_man) now
+  // resolve judgement immediately after their own effect instead of
+  // waiting for this point (see resolveDeathIfDefeated's doc comment for
+  // why) — calling the same shared function here as well keeps this the
+  // single implementation for every cause, and is a safe no-op if a card
+  // already resolved (revived or not) earlier this turn: resolveDeathIfDefeated
+  // returns immediately when the player is already alive, and never
+  // double-consumes/double-triggers when the player is still dead (no
+  // judgement was available either time). `let` (not `const`) because a
+  // successful judgement trigger overwrites this back to false so the
+  // gameover transition below and the regen/hunger `if (state.player.alive)`
+  // guards further down all see the revived state consistently.
+  let playerDefeated = !state.player.alive;
   if (playerDefeated) {
-    events.push({ type: 'player_defeated' });
+    resolveDeathIfDefeated(state, events);
+    playerDefeated = !state.player.alive;
+    if (playerDefeated) {
+      events.push({ type: 'player_defeated' });
+    }
   }
 
   let playerRegenerated = false;
