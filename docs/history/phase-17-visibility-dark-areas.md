@@ -469,3 +469,33 @@ feature branch `phase-17-2-dark-areas` 上での実装完了、試遊待ち。ma
 ### 12.11 状態
 
 修正版もfeature branch `phase-17-2-dark-areas`上での再試遊待ち。mainへの統合は行っていない。Phase 18以降は未着手。
+
+## 13. Phase 17完了
+
+作成日: 2026-08-08
+main統合前HEAD: `1ca9f5fe481f87c1e84ac55f1ed469dff56a6532`（"docs: accept phase 17 visibility baseline"）
+統合したcommit: `007d2c66535a6164f0dbbb991f3a08d983f10a4e`（"feat: add dark rooms with reduced visibility"）、`9d29633b95a55b3e1f7c2250d017ee17cac13f74`（"fix: improve dark room visibility"）
+
+### 13.1 手動再試遊結果
+
+視認性修正後の単一HTML（`rogue-of-sun-phase17-2-dark-room-visibility-preview-9d29633b95a5.html`）を手動試遊した。初版（`007d2c6`、明度低下のみの暗色表現）では暗い部屋の位置を認識できず不合格だったが、修正版（`9d29633`、青紫・濃紺系の寒色色相＋距離3段階暗度）では暗い部屋であることを認識できた。修正版を試遊合格とする。
+
+### 13.2 採用した仕様
+
+以下を含むPhase 17全体の実装をそのまま採用する（今回の完了記録により仕様変更は行っていない）：
+
+- Phase 17.0の視界制限基盤（比較試作）
+- Phase 17.1のsymmetric shadowcasting・角抜け禁止規則による遮蔽、探索記憶（unexplored / explored_not_visible / currently_visible）
+- 通常通路の半径4視界、通常部屋の部屋全体表示
+- Phase 17.2の暗い部屋（1フロア原則1室、開始部屋・出口部屋を除外、既存RNG非干渉の決定論的選択）
+- 暗い部屋内の半径3視界（symmetric shadowcasting・角抜け禁止規則を再利用）
+- 暗い部屋の青紫・濃紺系寒色色相、距離0〜1（near）・2（middle）・3（edge）の3段階暗度
+- 暗い部屋外から見える入口付近への同系色相（outside band）適用
+
+### 13.3 Phase 17完了
+
+Phase 17（視界・探索記憶・暗い区画）を完了とする。`phase-17-2-dark-areas`ブランチをmainへ`--ff-only`で統合した（merge commitなし、squash・amendなし、既存2commitのhashは維持）。
+
+### 13.4 別件: 装備解除バグ（今回未対応）
+
+試遊中に、装備したアイテムを外せない場合があることを確認した。同じ種類の装備を複数所持している場合に限定される可能性があるが、再現条件・原因とも未確定であり、今回は原因を断定しない。この不具合はPhase 17の視界・探索記憶・暗い部屋とは別件であり、Phase 17の完了条件には含めない。今回は調査・再現テスト作成・修正のいずれも行わず、development planへ未調査の既知バグとして記録するに留める。後日のバグ修正フェーズでまとめて対応する。
