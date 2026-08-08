@@ -1625,6 +1625,47 @@ export function buildExportFilename(telemetry: RunTelemetry): string {
 
 export interface TelemetryDocument {
   schemaVersion: 7;
+  /**
+   * The most recently main-integrated, fully-completed development
+   * Phase's identifier (maintenance-game-version-policy), independent of
+   * `schemaVersion`: this identifies which *gameplay* milestone produced
+   * the recorded events (game rules, balance, available mechanics),
+   * while `schemaVersion` identifies the telemetry *payload*'s own
+   * structural/interpretation compatibility. The two are updated on
+   * unrelated triggers and must never be conflated — a Phase can change
+   * gameplay without touching the payload shape (no schemaVersion bump),
+   * and a payload-shape change can happen without any gameplay milestone
+   * completing (no gameVersion bump). Rules for updating this field:
+   *   - format is always 'phase-<integer>' (e.g. 'phase-18'); no
+   *     sub-phase number (e.g. never 'phase-18.2') is included, since
+   *     sub-phases within one Phase are implementation increments toward
+   *     that Phase's single, eventually-integrated gameplay milestone
+   *   - updated only when a complete Phase's production gameplay or
+   *     telemetry-meaning changes have been merged to main via
+   *     `--ff-only` — never for a mid-Phase feature branch, never for a
+   *     docs/playtest-HTML/test-only change with no production gameplay
+   *     effect
+   *   - a Phase split across multiple sub-phase branches (e.g. Phase
+   *     18.1/18.2/18.3) only advances this value once, at the point the
+   *     *whole* Phase has been integrated to main — not at each
+   *     sub-phase's own integration
+   *   - this value is not, and must never become, a save/replay
+   *     compatibility gate: this codebase has no save/load mechanism,
+   *     and buildTelemetryDocument's output is a one-way, download-only
+   *     JSON export (see main.ts's export button) that is never read
+   *     back into GameState or RunTelemetry — so retroactively changing
+   *     this policy or value can never break loading old data, because
+   *     nothing in this codebase ever loads old telemetry data
+   *
+   * Historical note: this field was introduced at 'phase-10.3.1' and
+   * bumped twice more (10.3.2, 10.3.3) during the Phase 10.3 telemetry
+   * work itself, then bumped once to 'phase-12.3' and left there
+   * unmaintained through every subsequent Phase (13 through 17) despite
+   * many gameplay-affecting integrations — there was no enforced update
+   * rule until this policy. 'phase-18' (Phase 18's trap discovery,
+   * clairvoyance fruit, and minimap integration — see docs/history/
+   * phase-18-1/2/3-*.md) is the first value assigned under this policy.
+   */
   gameVersion: string;
   run: {
     seed: number;
@@ -1637,6 +1678,9 @@ export interface TelemetryDocument {
   summary: RunSummary;
   events: RunEvent[];
 }
+
+/** Single source of truth for TelemetryDocument.gameVersion (maintenance-game-version-policy) — see that field's doc comment for the update rule. */
+export const CURRENT_GAME_VERSION = 'phase-18';
 
 /**
  * Builds the full exportable document: JSON.stringify of the return
@@ -1651,7 +1695,7 @@ export function buildTelemetryDocument(telemetry: RunTelemetry, finalState: Game
   const summary = computeRunSummary(telemetry, finalState);
   return {
     schemaVersion: 7,
-    gameVersion: 'phase-12.3',
+    gameVersion: CURRENT_GAME_VERSION,
     run: {
       seed: telemetry.seed,
       result: telemetry.result,

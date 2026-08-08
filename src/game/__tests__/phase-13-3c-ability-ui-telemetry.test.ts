@@ -16,6 +16,7 @@ import {
   buildTelemetryDocument,
   computeRunSummary,
   createRunTelemetry,
+  CURRENT_GAME_VERSION,
   finalizeRun,
   recordTurn,
   snapshotForTurn,
@@ -344,5 +345,32 @@ describe('Phase 13.3c ability-rank telemetry snapshot (endingAbilityRanks)', () 
     buildTelemetryDocument(telemetry, s);
     expect(s.combatRngState).toBe(rngBefore);
     expect(JSON.stringify(s.abilities)).toBe(abilitiesBefore);
+  });
+});
+
+describe('maintenance-game-version-policy: gameVersion', () => {
+  it("the export document's gameVersion is 'phase-18' (the most recently main-integrated Phase)", () => {
+    const s = freshState();
+    s.enemies = [];
+    const telemetry = createRunTelemetry(s);
+    step(s, { type: 'wait' }, telemetry);
+    const doc = buildTelemetryDocument(telemetry, s);
+    expect(doc.gameVersion).toBe('phase-18');
+    expect(doc.gameVersion).toBe(CURRENT_GAME_VERSION);
+  });
+
+  it('gameVersion and schemaVersion are independent values: schemaVersion stays 7 regardless of gameVersion', () => {
+    const s = freshState();
+    s.enemies = [];
+    const telemetry = createRunTelemetry(s);
+    step(s, { type: 'wait' }, telemetry);
+    const doc = buildTelemetryDocument(telemetry, s);
+    expect(doc.schemaVersion).toBe(7);
+    expect(doc.gameVersion).toBe('phase-18');
+    // Neither field is derived from the other — confirms they are two
+    // independently-tracked identifiers (gameplay milestone vs payload
+    // structure), not a single combined version.
+    expect(typeof doc.schemaVersion).toBe('number');
+    expect(typeof doc.gameVersion).toBe('string');
   });
 });
