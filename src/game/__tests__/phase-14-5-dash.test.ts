@@ -123,7 +123,7 @@ describe('Phase 14.5 UI overhaul: shouldStopDashAfterStep', () => {
   it('stops after stepping onto a known (triggered) trap', () => {
     const map = buildMap(['#######', '#.....#', '#######'], [{ x: 1, y: 1, width: 5, height: 1 }]);
     const state = freshState(map, { x: 1, y: 1 }, {
-      traps: [{ id: 0, pos: { x: 3, y: 1 }, triggered: true, trapType: 'slow_trap' }],
+      traps: [{ id: 0, pos: { x: 3, y: 1 }, revealed: true, triggered: true, trapType: 'slow_trap' }],
     });
     expect(shouldStopDashAfterStep(state, { x: 2, y: 1 }, { x: 3, y: 1 })).toBe(true);
   });
@@ -131,7 +131,7 @@ describe('Phase 14.5 UI overhaul: shouldStopDashAfterStep', () => {
   it('does not stop for an undiscovered (untriggered) trap', () => {
     const map = buildMap(['#######', '#.....#', '#######'], [{ x: 1, y: 1, width: 5, height: 1 }]);
     const state = freshState(map, { x: 1, y: 1 }, {
-      traps: [{ id: 0, pos: { x: 3, y: 1 }, triggered: false, trapType: 'slow_trap' }],
+      traps: [{ id: 0, pos: { x: 3, y: 1 }, revealed: false, triggered: false, trapType: 'slow_trap' }],
     });
     expect(shouldStopDashAfterStep(state, { x: 2, y: 1 }, { x: 3, y: 1 })).toBe(false);
   });

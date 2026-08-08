@@ -428,7 +428,7 @@ describe('turn order and side-effect isolation (Phase 12.4)', () => {
   });
 
   it('poison_trap and slow_trap remain unaffected by these items existing', () => {
-    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, triggered: false, trapType: 'poison_trap' };
+    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, revealed: false, triggered: false, trapType: 'poison_trap' };
     const state = freshState({ traps: [trap] });
     processTurn(state, { type: 'move', direction: 'E' });
     processTurn(state, { type: 'move', direction: 'E' });

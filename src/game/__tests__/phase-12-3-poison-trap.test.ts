@@ -79,12 +79,12 @@ function freshState(overrides?: Partial<GameState>): GameState {
 
 describe('trap types (Phase 12.3)', () => {
   it('slow_trap has an explicit trapType', () => {
-    const trap: TrapTile = { id: 0, pos: { x: 5, y: 3 }, triggered: false, trapType: 'slow_trap' };
+    const trap: TrapTile = { id: 0, pos: { x: 5, y: 3 }, revealed: false, triggered: false, trapType: 'slow_trap' };
     expect(trap.trapType).toBe('slow_trap');
   });
 
   it('poison_trap has an explicit trapType', () => {
-    const trap: TrapTile = { id: 0, pos: { x: 5, y: 3 }, triggered: false, trapType: 'poison_trap' };
+    const trap: TrapTile = { id: 0, pos: { x: 5, y: 3 }, revealed: false, triggered: false, trapType: 'poison_trap' };
     expect(trap.trapType).toBe('poison_trap');
   });
 
@@ -107,7 +107,7 @@ describe('trap types (Phase 12.3)', () => {
 
 describe('slow_trap backward compatibility (Phase 12.3)', () => {
   it('slow_trap still triggers movement_slow, unchanged from Phase 12.2', () => {
-    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, triggered: false, trapType: 'slow_trap' };
+    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, revealed: false, triggered: false, trapType: 'slow_trap' };
     const state = freshState({ traps: [trap] });
     processTurn(state, { type: 'move', direction: 'E' });
     processTurn(state, { type: 'move', direction: 'E' });
@@ -194,12 +194,12 @@ describe('poison_trap placement (Phase 12.3)', () => {
 
 describe('poison_trap trigger (Phase 12.3)', () => {
   function poisonTrapState(overrides?: Partial<GameState>): GameState {
-    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, triggered: false, trapType: 'poison_trap' };
+    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, revealed: false, triggered: false, trapType: 'poison_trap' };
     return freshState({ traps: [trap], ...overrides });
   }
 
   it('only the player can trigger it: an enemy walking over it does not trigger', () => {
-    const trap: TrapTile = { id: 0, pos: { x: 17, y: 3 }, triggered: false, trapType: 'poison_trap' };
+    const trap: TrapTile = { id: 0, pos: { x: 17, y: 3 }, revealed: false, triggered: false, trapType: 'poison_trap' };
     const state = freshState({
       player: createInitialActor({ x: 2, y: 3 }, 30, 10, 0, 90, 0),
       enemies: [createInitialEnemy('bok', { x: 9, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
@@ -500,7 +500,7 @@ describe('ordering: poison vs enemy attack / starvation / regen (Phase 12.3)', (
   });
 
   it('poison_trap trigger turn with no prior poison deals no damage', () => {
-    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, triggered: false, trapType: 'poison_trap' };
+    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, revealed: false, triggered: false, trapType: 'poison_trap' };
     const state = freshState({ traps: [trap] });
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'move', direction: 'E' });
@@ -509,7 +509,7 @@ describe('ordering: poison vs enemy attack / starvation / regen (Phase 12.3)', (
   });
 
   it('slow_trap trigger turn with existing poison still ticks poison normally', () => {
-    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, triggered: false, trapType: 'slow_trap' };
+    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, revealed: false, triggered: false, trapType: 'slow_trap' };
     const state = freshState({
       traps: [trap],
       activeEffects: [{ id: 'poison', strength: 3, remainingTurns: 10 }],
@@ -539,7 +539,7 @@ describe('compatibility: attack_up, movement_slow, poison simultaneously (Phase 
   });
 
   it('poison_trap trigger turn skips only poison, not simultaneously active attack_up/movement_slow', () => {
-    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, triggered: false, trapType: 'poison_trap' };
+    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, revealed: false, triggered: false, trapType: 'poison_trap' };
     const state = freshState({
       traps: [trap],
       activeEffects: [
@@ -555,7 +555,7 @@ describe('compatibility: attack_up, movement_slow, poison simultaneously (Phase 
   });
 
   it('poison_trap trigger move still runs the additional enemy phase if movement_slow was already active', () => {
-    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, triggered: false, trapType: 'poison_trap' };
+    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, revealed: false, triggered: false, trapType: 'poison_trap' };
     const state = freshState({
       traps: [trap],
       enemies: [createInitialEnemy('bok', { x: 9, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
@@ -568,7 +568,7 @@ describe('compatibility: attack_up, movement_slow, poison simultaneously (Phase 
   });
 
   it('slow_trap trigger move does not run the additional enemy phase, per Phase 12.2', () => {
-    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, triggered: false, trapType: 'slow_trap' };
+    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, revealed: false, triggered: false, trapType: 'slow_trap' };
     const state = freshState({
       traps: [trap],
       enemies: [createInitialEnemy('bok', { x: 9, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],

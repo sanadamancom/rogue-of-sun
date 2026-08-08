@@ -296,22 +296,42 @@ export type TrapType = 'slow_trap' | 'poison_trap';
 
 /**
  * A hidden floor trap (Phase 12.2 slow trap, extended in Phase 12.3 with
- * `trapType` to support poison_trap alongside it): a fixture (per
- * Fixture's 'trap' literal, reserved since Phase 02 but never backed by
- * real data until Phase 12.2), not an actor or ground item. `id` is
- * stable per-floor (unique across all traps on a floor regardless of
- * type — slow_trap and poison_trap share one id sequence via a single
+ * `trapType` to support poison_trap alongside it; Phase 18.1 adds the
+ * `revealed` discovery state described below): a fixture (per Fixture's
+ * 'trap' literal, reserved since Phase 02 but never backed by real data
+ * until Phase 12.2), not an actor or ground item. `id` is stable
+ * per-floor (unique across all traps on a floor regardless of type —
+ * slow_trap and poison_trap share one id sequence via a single
  * GameState.traps array, per implementation_policy's "鈍足罠と毒罠で別々
- * のGameState配列を作る"禁止). `triggered` starts false (hidden, dormant,
- * renders identically to plain floor) and becomes true the instant the
- * player's own successful move lands on its tile — a triggered trap is
- * revealed but permanently inert (one_shot), stays in the array (so it
- * keeps rendering its "revealed and inactive" symbol) and never fires
- * again.
+ * のGameState配列を作る"禁止).
+ *
+ * Phase 18.1 three-state discovery model, expressed with two independent
+ * booleans rather than a string enum (keeps `triggered`'s existing
+ * meaning and every existing read site — turn.ts's trigger loop,
+ * main.ts's old triggered-only rendering check — valid unchanged):
+ *   - hidden:               revealed=false, triggered=false
+ *   - revealed_untriggered: revealed=true,  triggered=false
+ *   - triggered_inactive:   revealed=true,  triggered=true
+ * Invariant: `triggered=true` implies `revealed=true` — a trap is never
+ * constructed or updated into `triggered=true, revealed=false`. There is
+ * no save/load mechanism in this codebase, so no legacy-data migration
+ * path exists or is needed for old `triggered`-only data.
+ *
+ * `revealed` starts false (hidden; renders identically to plain floor,
+ * per Phase 18.1's "未発見罠の座標、種別、存在を画面へ漏らさない") and is
+ * set true the instant the player's own successful move lands on this
+ * trap's tile (this phase's only discovery path — a future phase may add
+ * others, e.g. a clairvoyance item, without touching this field's
+ * semantics). `triggered` still starts false and becomes true on that
+ * exact same step (Phase 18.1 does not yet introduce a discovery path
+ * that reveals a trap without also triggering it) — a triggered trap is
+ * permanently inert (one_shot), stays in the array (so it keeps
+ * rendering its "revealed and inactive" symbol) and never fires again.
  */
 export interface TrapTile {
   id: number;
   pos: Vec2;
+  revealed: boolean;
   triggered: boolean;
   trapType: TrapType;
 }

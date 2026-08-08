@@ -226,7 +226,7 @@ function buildFloorState(
   const slowTrapRng = createRng(floorSeed ^ 0x1a6f83c5);
   const slowTrapPos = chooseTrapPosition(map, map.rooms, placement.start, placement.exit, slowTrapExclusions, slowTrapRng);
   if (slowTrapPos) {
-    traps.push({ id: traps.length, pos: slowTrapPos, triggered: false, trapType: 'slow_trap' });
+    traps.push({ id: traps.length, pos: slowTrapPos, revealed: false, triggered: false, trapType: 'slow_trap' });
   }
 
   // Poison trap placement (Phase 12.3): prefers a different room from
@@ -257,7 +257,7 @@ function buildFloorState(
     );
   }
   if (poisonTrapPos) {
-    traps.push({ id: traps.length, pos: poisonTrapPos, triggered: false, trapType: 'poison_trap' });
+    traps.push({ id: traps.length, pos: poisonTrapPos, revealed: false, triggered: false, trapType: 'poison_trap' });
   }
 
   // Ground item count (Phase 15.4b): drawn once from item-def.ts's

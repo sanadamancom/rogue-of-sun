@@ -642,6 +642,13 @@ function applyPlayerAction(
     for (const trap of (state.traps ?? []).filter(
       (t) => !t.triggered && t.pos.x === destination.x && t.pos.y === destination.y,
     )) {
+      // Phase 18.1: stepping onto a trap always reveals it (whether it
+      // was hidden or already revealed_untriggered — this phase's only
+      // discovery path also triggers, so this assignment is a no-op when
+      // already true) before marking it triggered, keeping the
+      // revealed=true-implies-nothing-else / triggered=true-implies-
+      // revealed=true invariant intact at every intermediate step.
+      trap.revealed = true;
       trap.triggered = true;
       events.push({ type: 'trap_triggered', trapType: trap.trapType });
       const effectId = trap.trapType === 'slow_trap' ? 'movement_slow' : 'poison';

@@ -204,12 +204,12 @@ describe('trap placement via createInitialState (Phase 12.2)', () => {
 
 describe('trap trigger (Phase 12.2)', () => {
   function trapState(overrides?: Partial<GameState>): GameState {
-    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, triggered: false, trapType: 'slow_trap' };
+    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, revealed: false, triggered: false, trapType: 'slow_trap' };
     return freshState({ traps: [trap], ...overrides });
   }
 
   it('only the player can trigger it: an enemy walking over it does not trigger', () => {
-    const trap: TrapTile = { id: 0, pos: { x: 17, y: 3 }, triggered: false, trapType: 'slow_trap' };
+    const trap: TrapTile = { id: 0, pos: { x: 17, y: 3 }, revealed: false, triggered: false, trapType: 'slow_trap' };
     const state = freshState({
       player: createInitialActor({ x: 2, y: 3 }, 30, 10, 0, 90, 0),
       enemies: [createInitialEnemy('bok', { x: 9, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
@@ -254,7 +254,7 @@ describe('trap trigger (Phase 12.2)', () => {
 
   it('the trigger turn itself does not run an additional enemy phase', () => {
     // Enemy several tiles east of the trap tile; one chase step per phase.
-    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, triggered: false, trapType: 'slow_trap' };
+    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, revealed: false, triggered: false, trapType: 'slow_trap' };
     const state = freshState({
       player: createInitialActor({ x: 2, y: 3 }, 30, 10, 0, 90, 0),
       enemies: [createInitialEnemy('bok', { x: 9, y: 3 }, 1000, 0, 0, 0, 0, 90, 0)],
@@ -490,7 +490,7 @@ describe('compatibility: attack_up (Phase 12.2)', () => {
   });
 
   it('a trap-trigger turn skips only movement_slow, not a simultaneously active attack_up', () => {
-    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, triggered: false, trapType: 'slow_trap' };
+    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, revealed: false, triggered: false, trapType: 'slow_trap' };
     const state = freshState({
       traps: [trap],
       activeEffects: [{ id: 'attack_up', strength: 5, remainingTurns: 8 }],
@@ -530,7 +530,7 @@ describe('HUD label content (Phase 12.2, via EFFECT_DEFINITIONS)', () => {
 
 describe('telemetry/regression guards (Phase 12.2)', () => {
   it('does not change combatRngState purely from trap trigger or duration progression', () => {
-    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, triggered: false, trapType: 'slow_trap' };
+    const trap: TrapTile = { id: 0, pos: { x: 4, y: 3 }, revealed: false, triggered: false, trapType: 'slow_trap' };
     const state = freshState({ traps: [trap], combatRngState: 12345 });
     const before = state.combatRngState;
     processTurn(state, { type: 'move', direction: 'E' });

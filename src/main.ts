@@ -1073,28 +1073,55 @@ class MainScene extends Phaser.Scene {
   }
 
   /**
-   * Draws only revealed (triggered) traps as a simple asset-free warning
-   * mark, in the same plain-Graphics style as drawWebs (no new image
-   * asset, per fixed_specification.trap.rendering's "発動後は新規外部
-   * 画像を使わず、既存描画方式に合う簡素な罠記号を表示する"):
-   * slow_trap keeps its existing Phase 12.2 dull-orange circle-with-X
-   * (unchanged, per Phase 12.3's "既存slow_trapのオレンジ色の円＋X字を
-   * 変更しない"); poison_trap (Phase 12.3) is a purple diamond outline
-   * with a center dot, visually distinct from slow_trap's circle so the
-   * two are never confused at a glance. Untriggered traps of either type
-   * are deliberately skipped entirely — they render identically to plain
-   * floor (fixed_specification.trap.rendering's "未発動時は通常床と完全
-   * に同じ表示にする"), so there is nothing to draw for them. Redrawn
-   * every turn/reset like drawWebs (a trap can flip from hidden to
-   * revealed at most once per run, so this is cheap either way).
+   * Draws only revealed traps (Phase 18.1: `revealed=true`, either
+   * `revealed_untriggered` or `triggered_inactive` — `revealed=false`
+   * traps are skipped entirely and render identically to plain floor,
+   * per fixed_specification.trap.rendering's original "未発動時は通常床
+   * と完全に同じ表示にする", now keyed off `revealed` instead of
+   * `triggered` since discovery and triggering are no longer the same
+   * instant in principle, even though this phase's only discovery path
+   * still sets both together).
+   *
+   * `triggered_inactive` keeps the exact pre-18.1 visuals unchanged
+   * (fixed_specification.trap.rendering's "発動後は新規外部画像を使わず、
+   * 既存描画方式に合う簡素な罠記号を表示する"): slow_trap's dull-orange
+   * circle-with-X, poison_trap's purple diamond-with-dot.
+   *
+   * `revealed_untriggered` (Phase 18.1 new state) uses the same base
+   * shape per trapType so its species stays identifiable, but in a
+   * thinner, undecorated warning-yellow outline with no fill and no
+   * X/center-dot — visually distinct at a glance from the inert
+   * triggered mark so a player can tell "known, still live" apart from
+   * "known, already spent" without reading trapType text.
+   *
+   * Redrawn every turn/reset like drawWebs.
    */
   private drawTraps(): void {
     this.trapGraphics.clear();
     for (const trap of this.state.traps ?? []) {
-      if (!trap.triggered) continue;
+      if (!trap.revealed) continue;
       const cx = trap.pos.x * TILE_SIZE + TILE_SIZE / 2;
       const cy = trap.pos.y * TILE_SIZE + TILE_SIZE / 2;
       const r = TILE_SIZE * 0.28;
+
+      if (!trap.triggered) {
+        // revealed_untriggered: thin warning-yellow outline only, no
+        // fill/X/dot — deliberately less "finished" looking than the
+        // triggered marks below.
+        this.trapGraphics.lineStyle(1.5, 0xd4c93a, 0.85);
+        if (trap.trapType === 'poison_trap') {
+          this.trapGraphics.beginPath();
+          this.trapGraphics.moveTo(cx, cy - r);
+          this.trapGraphics.lineTo(cx + r, cy);
+          this.trapGraphics.lineTo(cx, cy + r);
+          this.trapGraphics.lineTo(cx - r, cy);
+          this.trapGraphics.closePath();
+          this.trapGraphics.strokePath();
+        } else {
+          this.trapGraphics.strokeCircle(cx, cy, r);
+        }
+        continue;
+      }
 
       if (trap.trapType === 'poison_trap') {
         this.trapGraphics.lineStyle(2, 0x9b4dca, 0.85);
