@@ -63,6 +63,7 @@ import {
   RepeatTimer,
 } from './game/input-router';
 import { roomIndexContaining } from './game/mapgen';
+import { getMinimapTrapMarkers } from './game/minimap';
 import { computeCurrentVisibility, isInRoomBounds, pointKey as visibilityPointKey } from './game/visibility';
 import { DARK_ROOM_FLOOR_COLOR, DARK_ROOM_WALL_COLOR, darkRoomBand } from './game/dark-room-visuals';
 
@@ -1234,10 +1235,9 @@ class MainScene extends Phaser.Scene {
     // only the untriggered/triggered distinction gets its own color:
     // untriggered stays a bright warning color, triggered is deliberately
     // muted (lower alpha) to read as spent/inert at a glance.
-    for (const trap of this.state.traps ?? []) {
-      if (!trap.revealed) continue;
-      this.minimapGraphics.fillStyle(0xd4c93a, trap.triggered ? 0.35 : 0.85);
-      this.minimapGraphics.fillRect(trap.pos.x * tileW, trap.pos.y * tileH, Math.ceil(tileW), Math.ceil(tileH));
+    for (const marker of getMinimapTrapMarkers(this.state.traps)) {
+      this.minimapGraphics.fillStyle(0xd4c93a, marker.alpha);
+      this.minimapGraphics.fillRect(marker.pos.x * tileW, marker.pos.y * tileH, Math.ceil(tileW), Math.ceil(tileH));
     }
 
     for (const enemy of this.state.enemies) {
