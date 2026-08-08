@@ -56,6 +56,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
       banana: 0,
       antidote: 0,
       panacea: 0,
+      clairvoyance_fruit: 0,
     },
     inventoryOpen: false,
     selectedItemIndex: 0,

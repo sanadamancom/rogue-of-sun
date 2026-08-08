@@ -259,6 +259,20 @@ export function formatEvent(event: GameEvent): string {
       return '攻撃力上昇はすでに最大時間有効で、バナナは使えない。';
     case 'trap_triggered':
       return event.trapType === 'poison_trap' ? '毒の罠を踏んだ！' : '鈍足の罠を踏んだ！';
+    // Phase 18.1/18.2: trap_revealed has no dedicated user-facing line of
+    // its own — the player-move ('step') case is always immediately
+    // followed by 'trap_triggered' in the same turn's event list, whose
+    // existing message above already communicates the discovery; a
+    // separate "罠を発見した" line for the same instant would just
+    // duplicate it (telemetry.simultaneous_step's "プレイヤー向け既存ログ
+    // を二重表示しない"). The 'clairvoyance' case is summarized once by
+    // 'clairvoyance_used' below instead of per-trap. formatEvents filters
+    // out this empty string before returning, so it never shows as a
+    // blank line.
+    case 'trap_revealed':
+      return '';
+    case 'clairvoyance_used':
+      return event.revealedCount > 0 ? 'フロアの罠が見えるようになった。' : '罠は見つからなかった。';
     case 'poison_damage':
       return `毒で${event.actualDamage}ダメージを受けた。`;
     case 'antidote_used':

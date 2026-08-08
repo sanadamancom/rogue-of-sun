@@ -717,6 +717,11 @@ export type ItemId =
   | 'banana'
   | 'antidote'
   | 'panacea'
+  // Phase 18.2 clairvoyance fruit: an ordinary stacking consumable (like
+  // banana/antidote/panacea) whose use effect is handled by its own
+  // turn.ts function rather than healAmount/solarAmount/hungerAmount —
+  // see item-def.ts's ITEM_DEFINITIONS.clairvoyance_fruit doc comment.
+  | 'clairvoyance_fruit'
   // Phase 14.2 five-element acquisition: one-time unlock ground items
   // for the four non-sol elements, following the same
   // pickup-directly-unlocks-and-never-enters-inventory pattern as

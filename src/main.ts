@@ -1217,6 +1217,29 @@ class MainScene extends Phaser.Scene {
       this.minimapGraphics.fillRect(this.state.exit.x * tileW, this.state.exit.y * tileH, Math.ceil(tileW), Math.ceil(tileH));
     }
 
+    // Phase 18.2: revealed traps (both revealed_untriggered and
+    // triggered_inactive — never hidden ones) always draw here,
+    // independent of this.exploredTiles/isCurrentlyVisible — a
+    // clairvoyance-revealed trap in never-explored territory must still
+    // show its marker (minimap's "千里眼で発見した罠は、未探索領域にあっ
+    // ても罠記号だけ表示する") without this loop ever touching
+    // exploredTiles itself, so no surrounding floor/wall/room shape is
+    // newly disclosed by drawing it (minimap's "罠記号の表示によって周囲
+    // の床、壁、部屋形状を新たに描画しない"). Drawn before
+    // enemies/items/player below so those more important symbols always
+    // paint over a trap marker on the same tile, never the reverse
+    // (minimap's "罠記号がプレイヤー、敵、出口などの重要記号を不当に隠さ
+    // ない描画順にする"). slow_trap/poison_trap intentionally share one
+    // shape here (minimap.rules doesn't require telling them apart) —
+    // only the untriggered/triggered distinction gets its own color:
+    // untriggered stays a bright warning color, triggered is deliberately
+    // muted (lower alpha) to read as spent/inert at a glance.
+    for (const trap of this.state.traps ?? []) {
+      if (!trap.revealed) continue;
+      this.minimapGraphics.fillStyle(0xd4c93a, trap.triggered ? 0.35 : 0.85);
+      this.minimapGraphics.fillRect(trap.pos.x * tileW, trap.pos.y * tileH, Math.ceil(tileW), Math.ceil(tileH));
+    }
+
     for (const enemy of this.state.enemies) {
       if (!enemy.alive) continue;
       if (!this.isCurrentlyVisible(enemy.pos)) continue;

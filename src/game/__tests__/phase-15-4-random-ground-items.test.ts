@@ -70,19 +70,19 @@ describe('Phase 15.4b: ground item count distribution', () => {
 });
 
 describe('Phase 15.4b: staged ground item pool', () => {
-  it('floor 1 pool has exactly 11 ids', () => {
-    expect(getGroundItemPoolForFloor(1)).toHaveLength(11);
+  it('floor 1 pool has exactly 12 ids', () => {
+    expect(getGroundItemPoolForFloor(1)).toHaveLength(12);
   });
 
-  it('floor 2 pool has exactly 15 ids', () => {
-    expect(getGroundItemPoolForFloor(2)).toHaveLength(15);
+  it('floor 2 pool has exactly 16 ids', () => {
+    expect(getGroundItemPoolForFloor(2)).toHaveLength(16);
   });
 
-  it('floor 3 pool has exactly 16 ids (every registered item)', () => {
+  it('floor 3 pool has exactly 17 ids (every registered item)', () => {
     const pool = getGroundItemPoolForFloor(3);
-    expect(pool).toHaveLength(16);
-    expect(new Set(pool).size).toBe(16); // no duplicate ids within the pool itself
-    expect(Object.keys(ITEM_DEFINITIONS)).toHaveLength(16);
+    expect(pool).toHaveLength(17);
+    expect(new Set(pool).size).toBe(17); // no duplicate ids within the pool itself
+    expect(Object.keys(ITEM_DEFINITIONS)).toHaveLength(17);
   });
 
   it('floor 1 pool contains exactly the specified ids', () => {
@@ -99,6 +99,7 @@ describe('Phase 15.4b: staged ground item pool', () => {
         'flame_enchantment',
         'antidote',
         'panacea',
+        'clairvoyance_fruit',
       ]),
     );
   });

@@ -222,6 +222,15 @@ export type RunEventPayload =
   // event exists for anyone wanting poison-specific detail without
   // re-deriving it from player_damaged + a source filter.
   | { type: 'poison_damage'; actualDamage: number; hpBefore: number; hpAfter: number }
+  // Phase 18.1/18.2: mirrors events.ts's 'trap_triggered'/'trap_revealed'
+  // GameEvents 1:1 (trapType carried through unchanged; 'source'
+  // distinguishes ordinary player-step discovery from a clairvoyance
+  // fruit use — see turn.ts's revealTrap, the single point both paths
+  // funnel through). Kept as two distinct RunEvent types rather than one
+  // generic "trap_event" so a consumer can filter discovery from
+  // activation without a payload-shape branch.
+  | { type: 'trap_revealed'; trapType: import('./types').TrapType; source: 'step' | 'clairvoyance' }
+  | { type: 'trap_triggered'; trapType: import('./types').TrapType }
   // Phase 15.2 recovery/satiety/status rebalance: previously
   // starvation_damage had no TelemetryEvent translation at all (see
   // translateGameEvent's 'starvation_damage' case) — mirrors
@@ -952,6 +961,23 @@ function translateGameEvent(
       // Same reasoning as antidote_used above — amount stays 1
       // regardless of how many status ailments this single use cured.
       pushEvent(telemetry, after, consumed, { type: 'item_used', itemId: event.itemId, effect: 'status_cure', amount: 1 });
+      break;
+    }
+    case 'trap_revealed': {
+      pushEvent(telemetry, after, consumed, { type: 'trap_revealed', trapType: event.trapType, source: event.source });
+      break;
+    }
+    case 'trap_triggered': {
+      pushEvent(telemetry, after, consumed, { type: 'trap_triggered', trapType: event.trapType });
+      break;
+    }
+    case 'clairvoyance_used': {
+      // Phase 18.2: reuses item_used's existing extensible effect:string/
+      // amount:number shape (same precedent as antidote_used/
+      // panacea_used above), with amount carrying revealedCount (0 is a
+      // valid, expected value — clairvoyance_fruit.consumption's "hidden
+      // 罠が0件でも使用は成立する").
+      pushEvent(telemetry, after, consumed, { type: 'item_used', itemId: event.itemId, effect: 'trap_reveal', amount: event.revealedCount });
       break;
     }
     default:

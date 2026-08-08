@@ -642,13 +642,14 @@ function applyPlayerAction(
     for (const trap of (state.traps ?? []).filter(
       (t) => !t.triggered && t.pos.x === destination.x && t.pos.y === destination.y,
     )) {
-      // Phase 18.1: stepping onto a trap always reveals it (whether it
-      // was hidden or already revealed_untriggered — this phase's only
-      // discovery path also triggers, so this assignment is a no-op when
-      // already true) before marking it triggered, keeping the
+      // Phase 18.1/18.2: stepping onto a trap always reveals it first
+      // (via the same revealTrap shared with applyClairvoyanceUse — a
+      // no-op, no-event call when already revealed_untriggered, keeping
+      // trap_revealed's "すでにrevealed=trueの罠について再記録しない"
+      // rule intact) before marking it triggered, so the
       // revealed=true-implies-nothing-else / triggered=true-implies-
-      // revealed=true invariant intact at every intermediate step.
-      trap.revealed = true;
+      // revealed=true invariant holds at every intermediate step.
+      revealTrap(trap, events, 'step');
       trap.triggered = true;
       events.push({ type: 'trap_triggered', trapType: trap.trapType });
       const effectId = trap.trapType === 'slow_trap' ? 'movement_slow' : 'poison';
@@ -972,6 +973,16 @@ function applyItemUse(
     return applyPanaceaUse(state, itemId, events);
   }
 
+  // Clairvoyance fruit (Phase 18.2): reveals every currently-hidden trap
+  // on this floor, handled by its own function since it reads/writes
+  // GameState.traps rather than player.hp/solarEnergy/hunger/
+  // activeEffects. Checked before the banana/hungerAmount/healAmount/
+  // solarAmount branches below since clairvoyance_fruit has none of
+  // those set (same precedent as banana/antidote/panacea above).
+  if (itemId === 'clairvoyance_fruit') {
+    return applyClairvoyanceUse(state, itemId, events);
+  }
+
   // Banana (Phase 12.1 temporary-effect foundation): grants/refreshes
   // attack_up, handled by its own function since it reads/writes
   // effects.ts state rather than player.hp/solarEnergy/hunger. Checked
@@ -1200,6 +1211,72 @@ function applyPanaceaUse(
   }
   state.inventoryOpen = false;
   return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
+ * Clairvoyance fruit use (Phase 18.2): reveals every currently-hidden
+ * trap on this floor at once (`revealed` false -> true for each; never
+ * touches `triggered` — a trap this reveals stays in the
+ * revealed_untriggered state per Phase 18.1's three-state model until a
+ * later move actually steps onto it). Deliberately always succeeds (owned
+ * <= 0 aside) regardless of how many traps exist or how many were newly
+ * revealed — clairvoyance_fruit.consumption's "hidden罠が0件でも使用は
+ *成立する" / "hidden罠が0件でもアイテムを消費する" / "hidden罠が0件でも
+ * 1ターン消費する" — unlike antidote/panacea (which reject when nothing
+ * would change), there is no failure branch here at all once ownership is
+ * confirmed. Consumes exactly one clairvoyance_fruit and one turn either
+ * way. `revealTrap` (below) is the single shared entry point for
+ * revealing a trap, so this and the player-move discovery path in
+ * applyPlayerAction's move branch share the exact same invariant-
+ * preserving logic and the exact same 'trap_revealed' event shape,
+ * differing only in `source`.
+ */
+function applyClairvoyanceUse(
+  state: GameState,
+  itemId: import('./types').ItemId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const owned = state.inventory[itemId] ?? 0;
+  if (owned <= 0) {
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  let revealedCount = 0;
+  for (const trap of state.traps ?? []) {
+    if (revealTrap(trap, events, 'clairvoyance')) revealedCount++;
+  }
+
+  state.inventory[itemId] = owned - 1;
+  events.push({ type: 'clairvoyance_used', itemId, revealedCount });
+  state.inventoryOpen = false;
+  return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
+ * Shared trap-discovery entry point (Phase 18.2), used by both the
+ * player-move trigger branch (applyPlayerAction) and applyClairvoyanceUse
+ * above, so the revealed=false-implies-nothing / triggered=true-implies-
+ * revealed=true invariant (Phase 18.1) and the 'trap_revealed' event's
+ * emission rule are defined in exactly one place. Sets `trap.revealed =
+ * true` and pushes 'trap_revealed' only when the trap was actually hidden
+ * (revealed was false) — a no-op, no-event call on an already-revealed
+ * trap, matching trap_revealed.trap_revealed's "すでにrevealed=trueの罠
+ * について再記録しない". Returns whether it actually revealed the trap
+ * (used by applyClairvoyanceUse to count newly-discovered traps for its
+ * message/telemetry). Never touches `triggered` — the caller (the move
+ * branch's trigger loop) sets that separately, in the same order every
+ * time: revealTrap first, then triggered = true, so revealed is always
+ * true by the moment triggered becomes true.
+ */
+function revealTrap(
+  trap: import('./types').TrapTile,
+  events: GameEvent[],
+  source: 'step' | 'clairvoyance',
+): boolean {
+  if (trap.revealed) return false;
+  trap.revealed = true;
+  events.push({ type: 'trap_revealed', trapType: trap.trapType, source });
+  return true;
 }
 
 /**

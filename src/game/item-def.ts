@@ -188,6 +188,23 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     consumable: true,
     stackable: true,
   },
+  // Clairvoyance fruit (Phase 18.2): reveals every currently-hidden trap
+  // on the floor at once (TrapTile.revealed false -> true; never touches
+  // `triggered` — see turn.ts's applyClairvoyanceUse) rather than
+  // restoring HP/SOL/hunger or granting a status effect, so it has none
+  // of healAmount/solarAmount/hungerAmount set — turn.ts's applyItemUse
+  // special-cases itemId === 'clairvoyance_fruit' (mirroring banana/
+  // antidote/panacea). Ordinary stacking consumable, following the same
+  // provisional-emoji-glyph precedent as every other item without a
+  // processed sprite asset yet (see this file's `glyph` doc comment).
+  clairvoyance_fruit: {
+    id: 'clairvoyance_fruit',
+    displayName: '千里眼の実',
+    glyph: '🔮',
+    category: 'consumable',
+    consumable: true,
+    stackable: true,
+  },
   // Flame/frost/cloud/earth enchantments (Phase 14.2 five-element
   // acquisition): one-time unlock pickups, exactly like sol_enchantment
   // above — deliberately excluded from ITEM_IDS_IN_ORDER so they never
@@ -232,7 +249,7 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
 };
 
 /** Fixed display/iteration order for items (Phase 08.2: apple; Phase 08.3 adds sword; Phase 08.4 adds armor; Phase 08.5 adds spear; Phase 08.7 adds hammer; Phase 09.1 adds sun_fruit; Phase 09.2 adds solar_gun). */
-export const ITEM_IDS_IN_ORDER: ItemId[] = ['apple', 'sword', 'armor', 'spear', 'hammer', 'sun_fruit', 'solar_gun', 'chocolate', 'banana', 'antidote', 'panacea'];
+export const ITEM_IDS_IN_ORDER: ItemId[] = ['apple', 'sword', 'armor', 'spear', 'hammer', 'sun_fruit', 'solar_gun', 'chocolate', 'banana', 'antidote', 'panacea', 'clairvoyance_fruit'];
 
 /** An inventory with every registered item at count 0 (used for new-run initialization). */
 export function createEmptyInventory(): Inventory {
@@ -315,6 +332,7 @@ const GROUND_ITEM_POOL_FLOOR_1: ReadonlyArray<ItemId> = [
   'flame_enchantment',
   'antidote',
   'panacea',
+  'clairvoyance_fruit',
 ];
 const GROUND_ITEM_POOL_FLOOR_2_ADDITIONS: ReadonlyArray<ItemId> = ['spear', 'hammer', 'frost_enchantment', 'cloud_enchantment'];
 const GROUND_ITEM_POOL_FLOOR_3_ADDITIONS: ReadonlyArray<ItemId> = ['earth_enchantment'];

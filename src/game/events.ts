@@ -198,6 +198,22 @@ export type GameEvent =
   // duplication) — this event exists purely to identify the trigger
   // moment (and which trap type) itself for messaging/telemetry.
   | { type: 'trap_triggered'; trapType: TrapType }
+  // Phase 18.1/18.2: fired the instant a TrapTile's `revealed` flips
+  // false -> true — either from the player's own successful move landing
+  // on a still-hidden trap tile (source: 'step', always immediately
+  // followed by 'trap_triggered' for that same trap in the same
+  // processTurn call — see turn.ts's move branch), or from a clairvoyance
+  // fruit use (source: 'clairvoyance', never followed by 'trap_triggered'
+  // — clairvoyance never sets `triggered`). Never fired for a trap that
+  // was already revealed (see turn.ts's revealTrap, the single shared
+  // entry point for both sources).
+  | { type: 'trap_revealed'; trapType: TrapType; source: 'step' | 'clairvoyance' }
+  // Phase 18.2 clairvoyance fruit: fired once per use, regardless of how
+  // many traps existed or were newly revealed (revealedCount can be 0 —
+  // see turn.ts's applyClairvoyanceUse, which always succeeds once
+  // ownership is confirmed). message-log.ts branches its wording on
+  // whether revealedCount > 0.
+  | { type: 'clairvoyance_used'; itemId: ItemId; revealedCount: number }
   // Phase 12.3 poison trap: fired once per successful player turn while
   // poison is active (after the turn the trap that granted it was
   // triggered), applying poison's fixed per-tick damage. `actualDamage`

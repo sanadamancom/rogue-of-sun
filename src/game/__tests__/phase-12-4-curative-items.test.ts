@@ -379,7 +379,7 @@ describe('panacea (Phase 12.4)', () => {
 
   it('petrified player without panacea still gets the normal forced skip', () => {
     const state = freshState({
-      inventory: { ...createEmptyInventory(), panacea: 0 },
+      inventory: { ...createEmptyInventory(), panacea: 0, clairvoyance_fruit: 0 },
       player: { ...createInitialActor({ x: 2, y: 3 }, 30, 10, 0, 90, 0), petrified: true },
     });
     const result = processTurn(state, { type: 'wait' });
