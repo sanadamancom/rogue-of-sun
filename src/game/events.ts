@@ -306,10 +306,32 @@ export type GameEvent =
   // this event pre-resolving one), so no additional information is
   // disclosed by including the id here.
   | { type: 'card_used'; cardId: CardId }
-  | { type: 'card_use_failed'; cardId: CardId; reason: 'sealed' | 'not_implemented' | 'no_valid_target' | 'no_effect' }
+  | { type: 'card_use_failed'; cardId: CardId; reason: 'sealed' | 'not_implemented' | 'no_valid_target' | 'no_effect' | 'insufficient_resource' }
   | { type: 'card_identified'; cardId: CardId }
   // Phase 20.3: judgement's automatic death-interrupt. Fired at most once
   // per death-confirmation point (turn.ts's playerDefeated check), never
   // alongside 'player_defeated' for the same confirmation (see turn.ts's
   // doc comment there) — the two are mutually exclusive per turn.
-  | { type: 'judgement_triggered' };
+  | { type: 'judgement_triggered' }
+  // Phase 20.4 room-wide combat cards (justice/devil/tower). One
+  // 'card_room_damage' per affected enemy (never per-card-use), so a
+  // 0-target use produces none of these; 'card_room_effect_resolved'
+  // always fires exactly once per successful use regardless of
+  // targetCount, explicitly reporting 0 when the room was empty/the
+  // player was on a corridor tile (rogue-of-sun-development-plan.md
+  // 20.4's "対象となる敵がいなかったことをログへ出す").
+  | {
+      type: 'card_room_damage';
+      cardId: CardId;
+      enemyType: import('./types').EnemyType;
+      targetId: number;
+      damage: number;
+      targetHpBefore: number;
+      targetHpAfter: number;
+    }
+  | { type: 'card_room_effect_resolved'; cardId: CardId; targetCount: number }
+  // tower only: the self-inflicted portion of its simultaneous
+  // resolution, reported separately from 'card_room_damage' (which is
+  // enemy-only) since the player is never one of getSameRoomEnemies'
+  // targets.
+  | { type: 'card_self_damage'; cardId: CardId; damage: number; hpBefore: number; hpAfter: number };

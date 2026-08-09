@@ -22,7 +22,8 @@ import { rollPercent } from './rng';
 import { canPlaceWebNow, expireWebs, placeWeb } from './web';
 import { isSunlitAt } from './sunlight';
 import { GameEvent } from './events';
-import { applyExperienceGain } from './progression';
+import { applyExperienceGain, getLevel } from './progression';
+import { roomIndexContaining } from './mapgen';
 import { getPowerDamageBonus, getPlayerSpeed, getElementalMindBonus, getAbilities, BODY_MAX_HP_PER_RANK, MIND_MAX_SOL_PER_RANK } from './ability';
 import { CARD_DEFINITIONS, CARD_IDS_IN_ORDER } from './card-def';
 import {
@@ -1387,6 +1388,128 @@ function applyDeathCardUse(
   return { consumed: true, attacked: false, defeated: false };
 }
 
+/**
+ * The list of currently-alive enemies in the same generated room as the
+ * player (Phase 20.4 shared room-targeting), snapshotted once at call
+ * time in `state.enemies`' own stable array order (never re-queried
+ * mid-effect, so a mid-resolution defeat/drop never changes who else is
+ * still a pending target). Empty when the player is on a corridor/
+ * doorway tile (never falls back to "use to nearest enemy" or any other
+ * substitute). Uses dungeon-generation room geometry, never the 9x7
+ * camera viewport.
+ */
+function getSameRoomEnemies(state: GameState): EnemyActor[] {
+  const roomIndex = roomIndexContaining(state.map.rooms, state.player.pos);
+  if (roomIndex < 0) return [];
+  return state.enemies.filter((e) => e.alive && roomIndexContaining(state.map.rooms, e.pos) === roomIndex);
+}
+
+/**
+ * justice (Phase 20.4 provisional spec): deals `max(1, maxLife -
+ * currentLife)` fixed (unmitigated, no hit roll) damage to every enemy
+ * in the player's current room, computed once from the pre-effect LIFE
+ * values (never per-enemy). Always succeeds — including with 0 targets
+ * (corridor or an empty room) — per the zero-effect-success contract;
+ * an empty target list still consumes/identifies/advances the turn. No
+ * RNG. Defeated enemies route through the shared defeatEnemyIfNeeded
+ * choke point (experience/level-ups), never a duplicated defeat path.
+ */
+function applyJusticeCardUse(
+  state: GameState,
+  cardId: CardId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const damage = Math.max(1, state.player.maxHp - state.player.hp);
+  const targets = getSameRoomEnemies(state);
+  for (const target of targets) {
+    const targetId = target.id ?? 0;
+    const before = target.hp;
+    target.hp = Math.max(0, target.hp - damage);
+    events.push({ type: 'card_room_damage', cardId, enemyType: target.type, targetId, damage, targetHpBefore: before, targetHpAfter: target.hp });
+    defeatEnemyIfNeeded(state, target, targetId, events);
+  }
+  finishSuccessfulCardUse(state, cardId, events);
+  events.push({ type: 'card_room_effect_resolved', cardId, targetCount: targets.length });
+  return { consumed: true, attacked: targets.length > 0, defeated: targets.some((t) => t.hp <= 0) };
+}
+
+/** devil's fixed SOL cost (Phase 20.4 provisional value, Phase 27 final tuning target). */
+const DEVIL_SOL_COST = 3;
+/** devil's fixed per-enemy damage (Phase 20.4 provisional value, Phase 27 final tuning target). */
+const DEVIL_DAMAGE = 5;
+
+/**
+ * devil (Phase 20.4 provisional spec): costs DEVIL_SOL_COST SOL; fails
+ * outright (no SOL/card/identify/turn/RNG change) if current SOL is
+ * below that cost. Otherwise always succeeds — including with 0 targets
+ * — dealing DEVIL_DAMAGE fixed (unmitigated) damage to every enemy in
+ * the player's current room. No new disruption/status effect this phase
+ * (per rogue-of-sun-card-effects-spec.md's provisional scope). No RNG.
+ */
+function applyDevilCardUse(
+  state: GameState,
+  cardId: CardId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  if (state.solarEnergy < DEVIL_SOL_COST) {
+    events.push({ type: 'card_use_failed', cardId, reason: 'insufficient_resource' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+  state.solarEnergy -= DEVIL_SOL_COST;
+  const targets = getSameRoomEnemies(state);
+  for (const target of targets) {
+    const targetId = target.id ?? 0;
+    const before = target.hp;
+    target.hp = Math.max(0, target.hp - DEVIL_DAMAGE);
+    events.push({ type: 'card_room_damage', cardId, enemyType: target.type, targetId, damage: DEVIL_DAMAGE, targetHpBefore: before, targetHpAfter: target.hp });
+    defeatEnemyIfNeeded(state, target, targetId, events);
+  }
+  finishSuccessfulCardUse(state, cardId, events);
+  events.push({ type: 'card_room_effect_resolved', cardId, targetCount: targets.length });
+  return { consumed: true, attacked: targets.length > 0, defeated: targets.some((t) => t.hp <= 0) };
+}
+
+/** tower's damage-per-level multiplier (Phase 20.4 provisional value, Phase 27 final tuning target). */
+const TOWER_DAMAGE_PER_LEVEL = 3;
+
+/**
+ * tower (Phase 20.4 provisional spec): deals `TOWER_DAMAGE_PER_LEVEL *
+ * getLevel(state)` fixed (unmitigated — never reduced by emperor_shield,
+ * since it is self-inflicted, not an enemy attack) damage to every enemy
+ * in the player's current room *and to the player themselves*, computed
+ * once and applied to a snapshot of targets taken before any damage is
+ * applied (so a mid-resolution player death never skips remaining
+ * enemies' damage). Outside a room, only the player is affected. Always
+ * succeeds (the player is always a target). No RNG. After all damage is
+ * applied, the player's own common death-confirmation path
+ * (resolveDeathIfDefeated) runs exactly once, same as every other
+ * card-driven HP-to-0 cause — never duplicated here.
+ */
+function applyTowerCardUse(
+  state: GameState,
+  cardId: CardId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const damage = TOWER_DAMAGE_PER_LEVEL * getLevel(state);
+  const enemyTargets = getSameRoomEnemies(state);
+  finishSuccessfulCardUse(state, cardId, events);
+  for (const target of enemyTargets) {
+    const targetId = target.id ?? 0;
+    const before = target.hp;
+    target.hp = Math.max(0, target.hp - damage);
+    events.push({ type: 'card_room_damage', cardId, enemyType: target.type, targetId, damage, targetHpBefore: before, targetHpAfter: target.hp });
+    defeatEnemyIfNeeded(state, target, targetId, events);
+  }
+  const playerHpBefore = state.player.hp;
+  state.player.hp = Math.max(0, state.player.hp - damage);
+  events.push({ type: 'card_self_damage', cardId, damage, hpBefore: playerHpBefore, hpAfter: state.player.hp });
+  if (state.player.hp <= 0) {
+    state.player.alive = false;
+    resolveDeathIfDefeated(state, events);
+  }
+  events.push({ type: 'card_room_effect_resolved', cardId, targetCount: enemyTargets.length });
+  return { consumed: true, attacked: true, defeated: enemyTargets.some((t) => t.hp <= 0) };
+}
 
 /**
  * Resolves a manual card use (Phase 20.1/20.2/20.3's 9 implemented
@@ -1427,6 +1550,12 @@ function applyCardUse(
       return applyAbilityGrowthCardUse(state, cardId, 'power', events);
     case 'emperor':
       return applyEmperorCardUse(state, cardId, events);
+    case 'justice':
+      return applyJusticeCardUse(state, cardId, events);
+    case 'devil':
+      return applyDevilCardUse(state, cardId, events);
+    case 'tower':
+      return applyTowerCardUse(state, cardId, events);
     case 'wheel_of_fortune':
       return applyWheelOfFortuneUse(state, cardId, events);
     case 'lovers':

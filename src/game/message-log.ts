@@ -325,6 +325,7 @@ export function formatEvent(event: GameEvent): string {
       if (event.reason === 'sealed') return `封印されていて、${name}は使えない。`;
       if (event.reason === 'no_valid_target') return `${name}を使ったが、対象がいない。`;
       if (event.reason === 'no_effect') return `${name}を使ったが、何も起こらなかった。`;
+      if (event.reason === 'insufficient_resource') return `SOLが足りず、${name}を使えない。`;
       return `${name}はまだ使えない。`;
     }
     case 'card_identified': {
@@ -333,6 +334,19 @@ export function formatEvent(event: GameEvent): string {
     }
     case 'judgement_triggered':
       return '審判のカードが輝き、死の淵から生還した。';
+    case 'card_room_damage': {
+      const cardName = CARD_DEFINITIONS[event.cardId].displayName;
+      const enemyName = ENEMY_DEFINITIONS[event.enemyType].displayName;
+      return `${cardName}の効果で${enemyName}に${event.damage}のダメージ。`;
+    }
+    case 'card_room_effect_resolved': {
+      const cardName = CARD_DEFINITIONS[event.cardId].displayName;
+      return event.targetCount > 0 ? `${cardName}の効果が及んだ。` : `${cardName}を使ったが、対象がいなかった。`;
+    }
+    case 'card_self_damage': {
+      const cardName = CARD_DEFINITIONS[event.cardId].displayName;
+      return `${cardName}の効果で自分自身に${event.damage}のダメージ。`;
+    }
     default: {
       const exhaustiveCheck: never = event;
       throw new Error(`Unhandled game event: ${JSON.stringify(exhaustiveCheck)}`);
