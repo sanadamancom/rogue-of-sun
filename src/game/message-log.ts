@@ -351,6 +351,12 @@ export function formatEvent(event: GameEvent): string {
       const cardName = CARD_DEFINITIONS[event.cardId].displayName;
       return `${cardName}の効果が対象へ及んだ。`;
     }
+    case 'card_refine_applied': {
+      const cardName = CARD_DEFINITIONS[event.cardId].displayName;
+      return event.refineLevelAfter > event.refineLevelBefore
+        ? `${cardName}の効果で装備の輝きが増した。（+${event.refineLevelAfter}）`
+        : `${cardName}を使ったが、これ以上輝きは増さなかった。`;
+    }
     default: {
       const exhaustiveCheck: never = event;
       throw new Error(`Unhandled game event: ${JSON.stringify(exhaustiveCheck)}`);

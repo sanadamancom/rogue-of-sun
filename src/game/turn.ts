@@ -35,6 +35,7 @@ import {
 import {
   createEquipmentInstance,
   ensureAvailableInstanceForEquip,
+  EQUIPMENT_REFINE_LEVEL_CAP,
   findUnequippedInstanceId,
   getEquipmentInstanceById,
   getEquipmentInstances,
@@ -1268,6 +1269,78 @@ function applyAbilityGrowthCardUse(
  * a reuse that leaves remainingTurns unchanged (already at 5) still
  * consumes/identifies/advances the turn.
  */
+/**
+ * moon/sun (Phase 20.5b provisional spec): raises the currently-equipped
+ * weapon (moon) or armor (sun) instance's refineLevel by 1, clamped at
+ * EQUIPMENT_REFINE_LEVEL_CAP (Phase 20.0c's existing shared constant —
+ * never a duplicated local cap). Fails outright (no consume/identify/
+ * turn/RNG) if nothing of the relevant slot is currently equipped — the
+ * target is always the equipped instance, never chosen via
+ * card-target-selection.ts's UI flow (moon/sun explicitly never use that
+ * module — see its own doc comment). Succeeds (zero-effect-success
+ * contract) even when the equipped instance is already at the cap — the
+ * refineLevel simply stays unchanged. Applying the increased refineLevel
+ * to actual attack/defense calculations is out of scope this phase (per
+ * rogue-of-sun-development-plan.md's provisional-value policy — Phase
+ * 24/27's responsibility); this only manages the stored number itself.
+ * No RNG.
+ */
+function applyMoonCardUse(
+  state: GameState,
+  cardId: CardId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const instanceId = state.equippedWeaponInstanceId;
+  if (!instanceId) {
+    events.push({ type: 'card_use_failed', cardId, reason: 'no_valid_target' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+  const instance = getEquipmentInstanceById(state, instanceId);
+  if (!instance) {
+    events.push({ type: 'card_use_failed', cardId, reason: 'no_valid_target' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+  const before = instance.refineLevel;
+  instance.refineLevel = Math.min(EQUIPMENT_REFINE_LEVEL_CAP, instance.refineLevel + 1);
+  finishSuccessfulCardUse(state, cardId, events);
+  events.push({
+    type: 'card_refine_applied',
+    cardId,
+    instanceId,
+    refineLevelBefore: before,
+    refineLevelAfter: instance.refineLevel,
+  });
+  return { consumed: true, attacked: false, defeated: false };
+}
+
+function applySunCardUse(
+  state: GameState,
+  cardId: CardId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const instanceId = state.equippedArmorInstanceId;
+  if (!instanceId) {
+    events.push({ type: 'card_use_failed', cardId, reason: 'no_valid_target' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+  const instance = getEquipmentInstanceById(state, instanceId);
+  if (!instance) {
+    events.push({ type: 'card_use_failed', cardId, reason: 'no_valid_target' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+  const before = instance.refineLevel;
+  instance.refineLevel = Math.min(EQUIPMENT_REFINE_LEVEL_CAP, instance.refineLevel + 1);
+  finishSuccessfulCardUse(state, cardId, events);
+  events.push({
+    type: 'card_refine_applied',
+    cardId,
+    instanceId,
+    refineLevelBefore: before,
+    refineLevelAfter: instance.refineLevel,
+  });
+  return { consumed: true, attacked: false, defeated: false };
+}
+
 function applyEmperorCardUse(
   state: GameState,
   cardId: CardId,
@@ -1713,6 +1786,10 @@ function applyCardUse(
       return applyAbilityGrowthCardUse(state, cardId, 'power', events);
     case 'emperor':
       return applyEmperorCardUse(state, cardId, events);
+    case 'moon':
+      return applyMoonCardUse(state, cardId, events);
+    case 'sun':
+      return applySunCardUse(state, cardId, events);
     case 'justice':
       return applyJusticeCardUse(state, cardId, events);
     case 'devil':

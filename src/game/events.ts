@@ -341,4 +341,9 @@ export type GameEvent =
   // target (never a stale/unconfirmed one, since this only fires after
   // resolveCardTargetEffect returns success) for message-log.ts/telemetry
   // to describe without re-deriving it.
-  | { type: 'card_target_effect_resolved'; cardId: CardId; target: import('./card-target-selection').CardTargetRef };
+  | { type: 'card_target_effect_resolved'; cardId: CardId; target: import('./card-target-selection').CardTargetRef }
+  // Phase 20.5b: moon/sun's refineLevel increase on the currently-
+  // equipped instance. Fires on every success, including the
+  // zero-effect case (already at EQUIPMENT_REFINE_LEVEL_CAP) — compare
+  // refineLevelBefore/After to tell them apart without a separate flag.
+  | { type: 'card_refine_applied'; cardId: CardId; instanceId: string; refineLevelBefore: number; refineLevelAfter: number };
