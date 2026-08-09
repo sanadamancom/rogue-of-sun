@@ -951,6 +951,15 @@ export type PlayerAction =
   | { type: 'wait' }
   | { type: 'action' }
   | { type: 'use_item'; itemId: ItemId }
+  // Phase 20.5a: temperance/star use a confirmed target (already
+  // selected/re-validated via card-target-selection.ts's UI-layer flow
+  // in main.ts) rather than the plain 'use_item' action every other card
+  // uses — the target itself must travel with the action since
+  // processTurn resolves in a single call with no cross-turn selection
+  // state of its own. `target` is whatever confirmCardTargetSelection
+  // last returned; processTurn re-validates it again itself (never
+  // trusts the caller) before applying any effect.
+  | { type: 'use_targeted_card'; cardId: 'temperance' | 'star'; target: import('./card-target-selection').CardTargetRef }
   | { type: 'equip_weapon'; weaponId: WeaponId }
   | { type: 'equip_armor'; armorId: ArmorId }
   | { type: 'toggle_enchantment' }

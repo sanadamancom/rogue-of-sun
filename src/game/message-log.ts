@@ -347,6 +347,10 @@ export function formatEvent(event: GameEvent): string {
       const cardName = CARD_DEFINITIONS[event.cardId].displayName;
       return `${cardName}の効果で自分自身に${event.damage}のダメージ。`;
     }
+    case 'card_target_effect_resolved': {
+      const cardName = CARD_DEFINITIONS[event.cardId].displayName;
+      return `${cardName}の効果が対象へ及んだ。`;
+    }
     default: {
       const exhaustiveCheck: never = event;
       throw new Error(`Unhandled game event: ${JSON.stringify(exhaustiveCheck)}`);

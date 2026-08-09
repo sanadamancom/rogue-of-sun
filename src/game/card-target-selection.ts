@@ -100,27 +100,37 @@ export function getTemperanceCandidates(state: GameState): CardTargetRef[] {
 }
 
 /**
- * Whether `itemId`'s category (consumable/weapon/armor) has at least one
- * *other* eligible ItemId in the game's full item roster — i.e. whether
- * transforming `itemId` into "a different item of the same category"
- * could ever produce a result. Pure item-roster question, independent of
- * what the player currently owns (star's transform target is drawn from
- * the category's roster, not from inventory — reusable as-is by Phase
- * 20.5a's actual transform-target draw). A card is never counted as an
- * alternate for any category. With the current 1-species ArmorId
- * ('armor' only), every armor instance therefore has 0 alternates and is
- * excluded from star's candidates by getStarCandidates below — an
- * intentional, tested consequence of the current item roster, not a bug.
+ * The full list of eligible transform-target ItemIds for `itemId`'s
+ * category (Phase 20.5a's actual draw pool): every ItemId in
+ * ITEM_IDS_IN_ORDER's canonical order sharing `itemId`'s category,
+ * excluding all 17 cards, STAR_INELIGIBLE_ITEM_IDS members, and
+ * `itemId` itself. Pure item-roster question, independent of what the
+ * player currently owns. hasAlternateTransformCategory below is exactly
+ * `getTransformCandidatesForItem(itemId).length > 0`.
  */
-export function hasAlternateTransformCategory(itemId: ItemId): boolean {
+export function getTransformCandidatesForItem(itemId: ItemId): ItemId[] {
   const category = ITEM_DEFINITIONS[itemId].category;
-  return ITEM_IDS_IN_ORDER.some(
+  return ITEM_IDS_IN_ORDER.filter(
     (candidateId) =>
       candidateId !== itemId &&
       !CARD_ID_SET.has(candidateId) &&
       !STAR_INELIGIBLE_ITEM_IDS.has(candidateId) &&
       ITEM_DEFINITIONS[candidateId].category === category,
   );
+}
+
+/**
+ * Whether `itemId`'s category (consumable/weapon/armor) has at least one
+ * *other* eligible ItemId in the game's full item roster — i.e. whether
+ * transforming `itemId` into "a different item of the same category"
+ * could ever produce a result. A card is never counted as an alternate
+ * for any category. With the current 1-species ArmorId ('armor' only),
+ * every armor instance therefore has 0 alternates and is excluded from
+ * star's candidates by getStarCandidates below — an intentional, tested
+ * consequence of the current item roster, not a bug.
+ */
+export function hasAlternateTransformCategory(itemId: ItemId): boolean {
+  return getTransformCandidatesForItem(itemId).length > 0;
 }
 
 /**

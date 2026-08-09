@@ -604,18 +604,24 @@ describe('Phase 20.0d: card target selection foundation', () => {
   });
 
   describe('unregistered_resolver', () => {
-    it('temperance and star have no production resolver registered', () => {
-      expect(CARD_TARGET_EFFECT_RESOLVERS.temperance).toBeUndefined();
-      expect(CARD_TARGET_EFFECT_RESOLVERS.star).toBeUndefined();
+    it('temperance and star now have production resolvers registered (Phase 20.5a)', () => {
+      expect(CARD_TARGET_EFFECT_RESOLVERS.temperance).toBeDefined();
+      expect(CARD_TARGET_EFFECT_RESOLVERS.star).toBeDefined();
     });
 
-    it('resolveCardTargetEffect returns a typed failure when no resolver is registered', () => {
+    it('resolveCardTargetEffect returns a typed failure when no resolver is registered for a card', () => {
       const { state, instances } = stateWithWeaponInstances(1);
       instances[0].cursed = true;
       instances[0].curseRevealed = true;
       const target: CardTargetRef = { kind: 'equipment_instance', instanceId: instances[0].instanceId };
-      const transaction = resolveCardTargetEffect(state, 'temperance', target);
-      expect(transaction).toEqual({ status: 'failure', reason: 'no_resolver_registered' });
+      const saved = CARD_TARGET_EFFECT_RESOLVERS.temperance;
+      delete CARD_TARGET_EFFECT_RESOLVERS.temperance;
+      try {
+        const transaction = resolveCardTargetEffect(state, 'temperance', target);
+        expect(transaction).toEqual({ status: 'failure', reason: 'no_resolver_registered' });
+      } finally {
+        CARD_TARGET_EFFECT_RESOLVERS.temperance = saved;
+      }
     });
 
     it('an unregistered-resolver failure carries no state/RNG and leaves state unchanged', () => {
@@ -624,15 +630,21 @@ describe('Phase 20.0d: card target selection foundation', () => {
       instances[0].curseRevealed = true;
       const before = JSON.stringify(state);
       const rngBefore = state.combatRngState;
-      const transaction = resolveCardTargetEffect(state, 'temperance', {
-        kind: 'equipment_instance',
-        instanceId: instances[0].instanceId,
-      });
-      expect('nextState' in transaction).toBe(false);
-      expect(JSON.stringify(state)).toBe(before);
-      expect(state.combatRngState).toBe(rngBefore);
-      expect(state.turn).toBe(state.turn);
-      expect(state.identifiedCardIds ?? []).toEqual([]);
+      const saved = CARD_TARGET_EFFECT_RESOLVERS.temperance;
+      delete CARD_TARGET_EFFECT_RESOLVERS.temperance;
+      try {
+        const transaction = resolveCardTargetEffect(state, 'temperance', {
+          kind: 'equipment_instance',
+          instanceId: instances[0].instanceId,
+        });
+        expect('nextState' in transaction).toBe(false);
+        expect(JSON.stringify(state)).toBe(before);
+        expect(state.combatRngState).toBe(rngBefore);
+        expect(state.turn).toBe(state.turn);
+        expect(state.identifiedCardIds ?? []).toEqual([]);
+      } finally {
+        CARD_TARGET_EFFECT_RESOLVERS.temperance = saved;
+      }
     });
   });
 

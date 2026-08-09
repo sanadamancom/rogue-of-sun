@@ -27,10 +27,17 @@ import { roomIndexContaining } from './mapgen';
 import { getPowerDamageBonus, getPlayerSpeed, getElementalMindBonus, getAbilities, BODY_MAX_HP_PER_RANK, MIND_MAX_SOL_PER_RANK } from './ability';
 import { CARD_DEFINITIONS, CARD_IDS_IN_ORDER } from './card-def';
 import {
+  CARD_TARGET_EFFECT_RESOLVERS,
+  getTransformCandidatesForItem,
+  isCardTargetStillValid,
+  resolveCardTargetEffect,
+} from './card-target-selection';
+import {
   createEquipmentInstance,
   ensureAvailableInstanceForEquip,
   findUnequippedInstanceId,
   getEquipmentInstanceById,
+  getEquipmentInstances,
   isEquippedArmorCurseLocked,
   isEquippedWeaponCurseLocked,
   normalizeEquipmentInstances,
@@ -49,6 +56,7 @@ import {
   EnemyActor,
   EnemyType,
   GameState,
+  ItemId,
   PlayerAction,
   Vec2,
   WeaponId,
@@ -512,6 +520,15 @@ function applyPlayerAction(
   // consumed action.
   if (action.type === 'use_item') {
     return applyItemUse(state, action.itemId, events);
+  }
+
+  // Phase 20.5a: temperance/star, whose target was already
+  // selected/re-validated once by main.ts's UI-layer selection flow
+  // (card-target-selection.ts). processTurn never trusts that prior
+  // validation on faith — applyTargetedCardUse re-validates `target`
+  // against the live state itself before applying anything.
+  if (action.type === 'use_targeted_card') {
+    return applyTargetedCardUse(state, action.cardId, action.target, events);
   }
 
   if (action.type === 'equip_weapon') {
@@ -1509,6 +1526,152 @@ function applyTowerCardUse(
   }
   events.push({ type: 'card_room_effect_resolved', cardId, targetCount: enemyTargets.length });
   return { consumed: true, attacked: true, defeated: enemyTargets.some((t) => t.hp <= 0) };
+}
+
+/**
+ * temperance's registered CardTargetEffectResolver (Phase 20.5a):
+ * clears `cursed` on the targeted equipment instance. Only ever called
+ * by resolveCardTargetEffect against an isolated working-state clone —
+ * never the live state directly. Fails if the target isn't (or is no
+ * longer, on this working copy) an equipment_instance that is both
+ * cursed and curseRevealed — the exact same eligibility
+ * getTemperanceCandidates already enforces, re-checked here defensively
+ * since a resolver must never assume its input is still valid.
+ * curseRevealed is never reset to false: a solved curse's discovery
+ * stays part of this run's history, per
+ * rogue-of-sun-card-effects-spec.md's "curse-knownは判明済みの履歴とし
+ * て維持し、未判明へ戻さない".
+ */
+function resolveTemperanceEffect(workingState: GameState, target: import('./card-target-selection').CardTargetRef): import('./card-target-selection').CardTargetEffectOutcome {
+  if (target.kind !== 'equipment_instance') return { success: false };
+  const instance = getEquipmentInstances(workingState).find((i) => i.instanceId === target.instanceId);
+  if (!instance || !instance.cursed || !instance.curseRevealed) return { success: false };
+  instance.cursed = false;
+  return { success: true };
+}
+
+/**
+ * star's registered CardTargetEffectResolver (Phase 20.5a): transforms
+ * the targeted item/equipment individual into a different ItemId of the
+ * same category, drawn from getTransformCandidatesForItem's roster-wide
+ * candidate list (never from what the player currently owns, and never
+ * including any card). 0 candidates -> failure (no RNG consumed on this
+ * working-state clone, so the caller's real combatRngState is
+ * unaffected either since the whole clone is discarded on failure). 1
+ * candidate -> deterministic, no RNG. 2+ candidates -> exactly one
+ * rollPercent draw against workingState.combatRngState, canonical order
+ * fixed by ITEM_IDS_IN_ORDER (via getTransformCandidatesForItem).
+ *
+ * inventory_item target: decrements the original stack by 1 (removing
+ * the key entirely is unnecessary — Inventory tolerates 0 — matching
+ * every other card's existing consume pattern) and increments the
+ * transformed ItemId's stack by 1.
+ *
+ * equipment_instance target: the original instance is removed from
+ * equipmentInstances outright (never reused — a fresh instance is
+ * always minted via createEquipmentInstance, so refineLevel/cursed/
+ * curseRevealed never carry over, per rogue-of-sun-card-effects-spec.md's
+ * "refineLevelを引き継がず...curse状態を引き継がない"), inventory counts
+ * for both the original and new ItemId are adjusted, and — if the
+ * original was currently equipped — the new instance is auto-equipped
+ * into the exact same slot, so no intermediate unequipped state is ever
+ * observable outside this resolver.
+ */
+function resolveStarEffect(workingState: GameState, target: import('./card-target-selection').CardTargetRef): import('./card-target-selection').CardTargetEffectOutcome {
+  let originalItemId: ItemId;
+  if (target.kind === 'inventory_item') {
+    originalItemId = target.itemId;
+  } else {
+    const instance = getEquipmentInstances(workingState).find((i) => i.instanceId === target.instanceId);
+    if (!instance) return { success: false };
+    originalItemId = instance.definitionId;
+  }
+
+  const candidates = getTransformCandidatesForItem(originalItemId);
+  if (candidates.length === 0) return { success: false };
+
+  let chosen: ItemId;
+  if (candidates.length === 1) {
+    chosen = candidates[0];
+  } else {
+    const { roll, nextState } = rollPercent(workingState.combatRngState);
+    workingState.combatRngState = nextState;
+    const index = Math.min(candidates.length - 1, Math.floor((roll / 100) * candidates.length));
+    chosen = candidates[index];
+  }
+
+  if (target.kind === 'inventory_item') {
+    const owned = workingState.inventory[originalItemId] ?? 0;
+    workingState.inventory[originalItemId] = Math.max(0, owned - 1);
+    workingState.inventory[chosen] = (workingState.inventory[chosen] ?? 0) + 1;
+    return { success: true };
+  }
+
+  const instances = getEquipmentInstances(workingState);
+  const index = instances.findIndex((i) => i.instanceId === target.instanceId);
+  if (index < 0) return { success: false };
+  const wasEquippedWeapon = workingState.equippedWeaponInstanceId === target.instanceId;
+  const wasEquippedArmor = workingState.equippedArmorInstanceId === target.instanceId;
+  instances.splice(index, 1);
+  const ownedOriginal = workingState.inventory[originalItemId] ?? 0;
+  workingState.inventory[originalItemId] = Math.max(0, ownedOriginal - 1);
+  const newInstance = createEquipmentInstance(workingState, chosen as import('./types').WeaponId | import('./types').ArmorId);
+  workingState.inventory[chosen] = (workingState.inventory[chosen] ?? 0) + 1;
+  if (wasEquippedWeapon) {
+    workingState.equippedWeaponId = chosen as import('./types').WeaponId;
+    workingState.equippedWeaponInstanceId = newInstance.instanceId;
+  }
+  if (wasEquippedArmor) {
+    workingState.equippedArmorId = chosen as import('./types').ArmorId;
+    workingState.equippedArmorInstanceId = newInstance.instanceId;
+  }
+  return { success: true };
+}
+
+CARD_TARGET_EFFECT_RESOLVERS.temperance = resolveTemperanceEffect;
+CARD_TARGET_EFFECT_RESOLVERS.star = resolveStarEffect;
+
+/**
+ * Resolves a 'use_targeted_card' action (Phase 20.5a: temperance/star).
+ * Re-validates everything itself rather than trusting the caller's
+ * prior selection: ownership, sealed state, and (via
+ * resolveCardTargetEffect's isolation) the target's continued validity
+ * and the effect's own success. Only a successful CardTargetEffectTransaction
+ * gets committed onto the live `state` (via Object.assign of the
+ * isolated working-state clone's fields — see resolveCardTargetEffect's
+ * own doc comment for why that clone is always a complete, valid
+ * GameState safe to assign wholesale) together with the same
+ * finishSuccessfulCardUse commit every other card uses. A failure of any
+ * kind — not owned, sealed, stale target, 0 transform candidates —
+ * leaves `state` completely untouched.
+ */
+function applyTargetedCardUse(
+  state: GameState,
+  cardId: 'temperance' | 'star',
+  target: import('./card-target-selection').CardTargetRef,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const owned = state.inventory[cardId] ?? 0;
+  if (owned <= 0) {
+    return { consumed: false, attacked: false, defeated: false };
+  }
+  if (isCardUseSealed(state)) {
+    events.push({ type: 'card_use_failed', cardId, reason: 'sealed' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+  if (!isCardTargetStillValid(state, cardId, target)) {
+    events.push({ type: 'card_use_failed', cardId, reason: 'no_valid_target' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+  const transaction = resolveCardTargetEffect(state, cardId, target);
+  if (transaction.status !== 'success') {
+    events.push({ type: 'card_use_failed', cardId, reason: 'no_valid_target' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+  Object.assign(state, transaction.nextState);
+  finishSuccessfulCardUse(state, cardId, events);
+  events.push({ type: 'card_target_effect_resolved', cardId, target });
+  return { consumed: true, attacked: false, defeated: false };
 }
 
 /**

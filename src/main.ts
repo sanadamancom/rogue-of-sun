@@ -12,7 +12,6 @@ import {
   moveCardTargetCursor,
   PendingCardTargetEffectHolder,
   refreshCardTargetSelection,
-  resolveCardTargetEffect,
 } from './game/card-target-selection';
 import { ELEMENT_DISPLAY_NAMES, ALL_ELEMENT_IDS } from './game/element-def';
 import { ARMOR_DEFINITIONS } from './game/armor-def';
@@ -1809,41 +1808,38 @@ class MainScene extends Phaser.Scene {
         break;
       }
       case 'card_target_selection': {
-        // Phase 20.0d correction: confirm re-validates the cursored
-        // target against live GameState before doing anything else.
+        // Phase 20.5a: confirm re-validates the cursored target against
+        // live GameState, then dispatches the SAME 'use_targeted_card'
+        // PlayerAction any other production caller would (never a
+        // UI-only shortcut) — turn.ts's applyTargetedCardUse
+        // re-validates the target *again* itself before applying
+        // anything, commits the effect, consumes the card, identifies
+        // it, and advances the turn, exactly like every other
+        // successful card use. This is the actual production connection
+        // point for temperance/star (CARD_TARGET_EFFECT_RESOLVERS is no
+        // longer empty as of Phase 20.5a).
         //
-        // - Valid target: hand it to resolveCardTargetEffect, which
-        //   returns a fully isolated CardTargetEffectTransaction —
-        //   { status: 'failure', reason } or { status: 'success',
-        //   nextState }. The transaction is then handed to
-        //   this.pendingCardTargetEffect.setFromTransaction(...)
-        //   (PendingCardTargetEffectHolder — see card-target-selection.ts):
-        //   a success transaction becomes the new pending effect; a
-        //   failure transaction clears any existing one outright. This
-        //   phase never calls `.take()`/`.peek()` to assign `nextState`
-        //   into `this.state` — CARD_TARGET_EFFECT_RESOLVERS is empty in
-        //   production, so every real attempt currently resolves to
-        //   failure anyway; the holder only ever contains a non-null
-        //   value once Phase 20.5a registers a real resolver. Phase
-        //   20.5a is what pairs a prepared effect with the same
-        //   consume/identify/advance-turn commit steps every other
-        //   card's finishSuccessfulCardUse already performs.
         // - Stale target (no longer in the current candidate set —
         //   e.g. discarded or its curse state changed since selection
         //   began): re-generate the candidate list. If candidates
         //   remain, selection continues with the cursor clamped into
-        //   the refreshed range (pending stays cleared). If none remain,
-        //   exit to item_actions.
-        //
-        // No branch here consumes the card, identifies it, advances the
-        // turn, consumes RNG, or commits `this.state` to anything.
+        //   the refreshed range. If none remain, exit to item_actions.
         if (this.cardTargetSelection) {
           const target = confirmCardTargetSelection(this.state, this.cardTargetSelection);
           if (target) {
-            const transaction = resolveCardTargetEffect(this.state, this.cardTargetSelection.cardId, target);
-            this.pendingCardTargetEffect.setFromTransaction(this.cardTargetSelection.cardId, target, transaction);
+            const cardId = this.cardTargetSelection.cardId;
+            const playerBefore = { ...this.state.player.pos };
+            const enemiesBefore = this.state.enemies.map((enemy) => ({ ...enemy.pos }));
+            const turnSnapshot = snapshotForTurn(this.state);
+            const gameAction: import('./game/types').PlayerAction = { type: 'use_targeted_card', cardId, target };
+            const result = processTurn(this.state, gameAction);
+            recordTurn(this.telemetry, gameAction, result, turnSnapshot, this.state);
+            finalizeRun(this.telemetry, this.state);
+            this.applyTurnResult(result, playerBefore, enemiesBefore);
+            this.pendingCardTargetEffect.clear();
             this.cardTargetSelection = null;
-            this.menuScreen = 'item_actions';
+            this.state.inventoryOpen = true;
+            this.menuScreen = 'items';
           } else {
             this.pendingCardTargetEffect.clear();
             const refreshed = refreshCardTargetSelection(this.state, this.cardTargetSelection);

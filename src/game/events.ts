@@ -334,4 +334,11 @@ export type GameEvent =
   // resolution, reported separately from 'card_room_damage' (which is
   // enemy-only) since the player is never one of getSameRoomEnemies'
   // targets.
-  | { type: 'card_self_damage'; cardId: CardId; damage: number; hpBefore: number; hpAfter: number };
+  | { type: 'card_self_damage'; cardId: CardId; damage: number; hpBefore: number; hpAfter: number }
+  // Phase 20.5a: temperance/star's successful target-selected effect.
+  // Pushed exactly once per success, alongside the ordinary card_used
+  // event finishSuccessfulCardUse already pushes — carries the resolved
+  // target (never a stale/unconfirmed one, since this only fires after
+  // resolveCardTargetEffect returns success) for message-log.ts/telemetry
+  // to describe without re-deriving it.
+  | { type: 'card_target_effect_resolved'; cardId: CardId; target: import('./card-target-selection').CardTargetRef };
