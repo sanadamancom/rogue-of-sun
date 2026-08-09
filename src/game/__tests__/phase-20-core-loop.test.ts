@@ -553,24 +553,22 @@ describe('Phase 20 core loop', () => {
     ];
     const notYetImplemented: CardId[] = ['emperor', 'justice', 'temperance', 'devil', 'tower', 'star', 'moon', 'sun'];
 
-    it('floor 1 only offers lovers/hanged_man/judgement among cards', () => {
+    it('no card (implemented or not) appears in the floor 1 weighted pool — floor loot design deferred to Phase 21+ (rogue-of-sun-development-plan.md), floorDropEnabled stays false for all 17', () => {
       const pool = getWeightedGroundItemPoolForFloor(1);
-      const cardIds = pool.filter((c) => (implemented as readonly string[]).includes(c.id)).map((c) => c.id);
-      expect(new Set(cardIds)).toEqual(new Set(['lovers', 'hanged_man', 'judgement']));
+      const cardIds = pool.filter((c) => (CARD_IDS_IN_ORDER as readonly string[]).includes(c.id)).map((c) => c.id);
+      expect(cardIds).toEqual([]);
     });
 
-    it('floor 2 adds high_priestess/empress/chariot/strength/death', () => {
+    it('no card appears in the floor 2 weighted pool', () => {
       const pool = getWeightedGroundItemPoolForFloor(2);
-      const cardIds = new Set(pool.filter((c) => (implemented as readonly string[]).includes(c.id)).map((c) => c.id));
-      expect(cardIds).toEqual(
-        new Set(['lovers', 'hanged_man', 'judgement', 'high_priestess', 'empress', 'chariot', 'strength', 'death']),
-      );
+      const cardIds = pool.filter((c) => (CARD_IDS_IN_ORDER as readonly string[]).includes(c.id)).map((c) => c.id);
+      expect(cardIds).toEqual([]);
     });
 
-    it('floor 3 adds wheel_of_fortune (all 9 implemented cards eligible)', () => {
+    it('no card appears in the floor 3 weighted pool, even though implemented cards\' effects now exist', () => {
       const pool = getWeightedGroundItemPoolForFloor(3);
-      const cardIds = new Set(pool.filter((c) => (implemented as readonly string[]).includes(c.id)).map((c) => c.id));
-      expect(cardIds).toEqual(new Set(implemented));
+      const cardIds = pool.filter((c) => (implemented as readonly string[]).includes(c.id)).map((c) => c.id);
+      expect(cardIds).toEqual([]);
     });
 
     it('none of the 8 not-yet-implemented cards ever appear in any floor pool', () => {
