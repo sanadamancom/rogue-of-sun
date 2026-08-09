@@ -379,17 +379,8 @@ describe('Phase 20 core loop', () => {
       expect(state.player.alive).toBe(false);
     });
 
-    it('the 8 not-yet-implemented cards are never treated as a successful use even when held', () => {
-      const notYetImplemented: CardId[] = [
-        'emperor',
-        'justice',
-        'temperance',
-        'devil',
-        'tower',
-        'star',
-        'moon',
-        'sun',
-      ];
+    it('the 4 not-yet-implemented cards are never treated as a successful use even when held', () => {
+      const notYetImplemented: CardId[] = ['temperance', 'star', 'moon', 'sun'];
       for (const id of notYetImplemented) {
         const state = withCard(stateWithCards(), id, 1);
         const result = processTurn(state, { type: 'use_item', itemId: id });
@@ -729,11 +720,11 @@ describe('Phase 20 core loop', () => {
 
     it('every genuine rejection path (sealed, unimplemented) advances the turn by 0', () => {
       const sealedState = { ...withCard(stateWithCards(), 'empress', 1), activeEffects: [{ id: 'sealed' as const, strength: 0, remainingTurns: 5 }] };
-      const unimplementedState = withCard(stateWithCards(), 'emperor', 1);
+      const unimplementedState = withCard(stateWithCards(), 'temperance', 1);
 
       const cases: { state: GameState; itemId: CardId }[] = [
         { state: sealedState, itemId: 'empress' },
-        { state: unimplementedState, itemId: 'emperor' },
+        { state: unimplementedState, itemId: 'temperance' },
       ];
       for (const { state, itemId } of cases) {
         const turnBefore = state.turn;

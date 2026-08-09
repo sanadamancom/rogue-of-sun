@@ -216,8 +216,25 @@ export function getEffectivePlayerDefense(state: GameState): number {
  * resolveSpiderEnemy, resolveKrakenEnemy) so defense is applied
  * uniformly.
  */
+/**
+ * Emperor's temporary mitigation rate (Phase 20.3 provisional value,
+ * Phase 27 final tuning target): applied only here, inside
+ * getIncomingDamage — the single funnel every enemy-direct-damage site
+ * (melee, ranged, kraken tentacle) already routes through — so no
+ * per-attack-site duplication is needed. Starvation/poison never call
+ * getIncomingDamage (confirmed by this phase's audit — see turn.ts's own
+ * doc comments on those call sites), so they are excluded automatically
+ * by this same choke point, not by a separate exclusion list.
+ */
+export const EMPEROR_DAMAGE_REDUCTION = 0.5;
+
 export function getIncomingDamage(state: GameState, attackPower: number): number {
-  return computeIncomingDamage(attackPower, getEffectivePlayerDefense(state));
+  const raw = computeIncomingDamage(attackPower, getEffectivePlayerDefense(state));
+  if (raw <= 0) return raw;
+  if (getActiveEffect(state, 'emperor_shield')) {
+    return Math.max(1, Math.ceil(raw * (1 - EMPEROR_DAMAGE_REDUCTION)));
+  }
+  return raw;
 }
 
 /**
@@ -240,6 +257,44 @@ export function getIncomingDamage(state: GameState, attackPower: number): number
  * an attack attempt, not a whiff). On a hit, behaves exactly as
  * pre-10.3's damage/sol-enchantment/defeat resolution.
  */
+/**
+ * Shared enemy-defeat resolution (Phase 20.4 extraction): if `target.hp`
+ * has just reached 0, marks it defeated, pushes `enemy_defeated`, and
+ * awards experience (including any resulting level-ups) — the single
+ * choke point every damage-dealing path (player melee/reach attacks, and
+ * now justice/devil/tower's room-wide card damage) routes through, so an
+ * enemy is never double-awarded and every path shares identical
+ * defeat/experience/level-up handling. No key or item-drop system exists
+ * in production yet (confirmed by this phase's audit) — nothing else to
+ * connect here. A no-op if `target.hp > 0`.
+ */
+function defeatEnemyIfNeeded(state: GameState, target: EnemyActor, targetId: number, events: GameEvent[]): boolean {
+  if (target.hp > 0) return false;
+  target.alive = false;
+  events.push({ type: 'enemy_defeated', enemyType: target.type, targetId });
+
+  const experienceReward = ENEMY_DEFINITIONS[target.type].experienceReward;
+  const gainResult = applyExperienceGain(state, experienceReward);
+  events.push({
+    type: 'experience_gained',
+    amount: experienceReward,
+    enemyId: targetId,
+    enemyType: target.type,
+    level: gainResult.newLevel,
+    experience: gainResult.remainingExperience,
+  });
+  for (const levelUp of gainResult.levelUps) {
+    events.push({
+      type: 'player_leveled_up',
+      previousLevel: levelUp.level - 1,
+      newLevel: levelUp.level,
+      abilityPointsGained: levelUp.abilityPointsGained,
+      unspentAbilityPoints: levelUp.unspentAbilityPointsAfter,
+    });
+  }
+  return true;
+}
+
 function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: GameEvent[]): { hit: boolean; defeated: boolean } {
   const weaponId = state.equippedWeaponId;
   const targetId = target.id ?? 0;
@@ -359,34 +414,7 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
     });
   }
   if (defeated) {
-    target.alive = false;
-    events.push({ type: 'enemy_defeated', enemyType: target.type, targetId });
-
-    // Phase 13.1 experience/level/ability-point progression foundation:
-    // exactly one experience award per enemy actually transitioning to
-    // defeated here (this is the sole enemy_defeated choke point, so this
-    // can never double-award for the same enemy). Never touches hp,
-    // attack, defense, or any other combat stat — see progression.ts's
-    // doc comment.
-    const experienceReward = ENEMY_DEFINITIONS[target.type].experienceReward;
-    const gainResult = applyExperienceGain(state, experienceReward);
-    events.push({
-      type: 'experience_gained',
-      amount: experienceReward,
-      enemyId: targetId,
-      enemyType: target.type,
-      level: gainResult.newLevel,
-      experience: gainResult.remainingExperience,
-    });
-    for (const levelUp of gainResult.levelUps) {
-      events.push({
-        type: 'player_leveled_up',
-        previousLevel: levelUp.level - 1,
-        newLevel: levelUp.level,
-        abilityPointsGained: levelUp.abilityPointsGained,
-        unspentAbilityPoints: levelUp.unspentAbilityPointsAfter,
-      });
-    }
+    defeatEnemyIfNeeded(state, target, targetId, events);
   }
   return { hit: true, defeated };
 }
@@ -1213,6 +1241,32 @@ function applyAbilityGrowthCardUse(
 }
 
 /**
+ * emperor (Phase 20.3 provisional spec): grants/refreshes the
+ * emperor_shield temporary effect (5 turns, EMPEROR_DAMAGE_REDUCTION
+ * mitigation on enemy-direct damage — see getIncomingDamage). Always
+ * succeeds, including on reuse while already active (refreshes back to
+ * 5 remaining turns rather than stacking — grantOrRefreshEffect's
+ * existing never-stack-strength contract). No RNG. Zero-effect-success:
+ * a reuse that leaves remainingTurns unchanged (already at 5) still
+ * consumes/identifies/advances the turn.
+ */
+function applyEmperorCardUse(
+  state: GameState,
+  cardId: CardId,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const result = grantOrRefreshEffect(state, 'emperor_shield');
+  const def = EFFECT_DEFINITIONS.emperor_shield;
+  finishSuccessfulCardUse(state, cardId, events);
+  events.push(
+    result === 'granted'
+      ? { type: 'effect_granted', effectId: 'emperor_shield', strength: def.strength, remainingTurns: def.duration }
+      : { type: 'effect_refreshed', effectId: 'emperor_shield', strength: def.strength, remainingTurns: def.duration },
+  );
+  return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
  * wheel_of_fortune: picks one of the 4 abilities with equal probability
  * via state.combatRngState (the game's shared seeded PRNG stream — see
  * types.ts's GameState.combatRngState doc comment), consuming exactly one
@@ -1333,6 +1387,7 @@ function applyDeathCardUse(
   return { consumed: true, attacked: false, defeated: false };
 }
 
+
 /**
  * Resolves a manual card use (Phase 20.1/20.2/20.3's 9 implemented
  * cards). Dispatches by cardId; the 8 defined-but-not-implemented cards
@@ -1370,6 +1425,8 @@ function applyCardUse(
       return applyAbilityGrowthCardUse(state, cardId, 'speed', events);
     case 'strength':
       return applyAbilityGrowthCardUse(state, cardId, 'power', events);
+    case 'emperor':
+      return applyEmperorCardUse(state, cardId, events);
     case 'wheel_of_fortune':
       return applyWheelOfFortuneUse(state, cardId, events);
     case 'lovers':

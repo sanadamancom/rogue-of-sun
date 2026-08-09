@@ -712,7 +712,7 @@ export interface GameState {
  * grant source is added this phase; only its blocking check and the
  * shared decrement/expiry machinery are wired up.
  */
-export type EffectId = 'attack_up' | 'movement_slow' | 'poison' | 'sealed';
+export type EffectId = 'attack_up' | 'movement_slow' | 'poison' | 'sealed' | 'emperor_shield';
 
 /**
  * Phase 13.2 ability point allocation foundation: the 4 fixed-key ability

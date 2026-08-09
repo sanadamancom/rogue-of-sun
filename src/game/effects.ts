@@ -83,6 +83,20 @@ export const EFFECT_DEFINITIONS: Record<EffectId, EffectDefinition> = {
     strength: 0,
     duration: 10,
   },
+  // Phase 20.3: emperor's temporary 50%-mitigation shield. `strength` is
+  // unused (the mitigation rate is a fixed constant — see turn.ts's
+  // EMPEROR_DAMAGE_REDUCTION — not a per-grant value); only presence and
+  // remainingTurns matter, exactly like sealed above. Re-using this same
+  // activeEffects/grantOrRefreshEffect mechanism (never-stacking refresh
+  // to a fixed duration on reuse) is what "残りターンを5へ更新する...
+  // 加算や多重stackはしない" requires, with no new duration-tracking
+  // system.
+  emperor_shield: {
+    id: 'emperor_shield',
+    displayName: '皇帝の加護',
+    strength: 0,
+    duration: 5,
+  },
 };
 
 /**
