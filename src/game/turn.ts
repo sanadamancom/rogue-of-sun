@@ -26,6 +26,16 @@ import { applyExperienceGain } from './progression';
 import { getPowerDamageBonus, getPlayerSpeed, getElementalMindBonus, getAbilities, BODY_MAX_HP_PER_RANK, MIND_MAX_SOL_PER_RANK } from './ability';
 import { CARD_DEFINITIONS, CARD_IDS_IN_ORDER } from './card-def';
 import {
+  createEquipmentInstance,
+  ensureAvailableInstanceForEquip,
+  findUnequippedInstanceId,
+  getEquipmentInstanceById,
+  isEquippedArmorCurseLocked,
+  isEquippedWeaponCurseLocked,
+  normalizeEquipmentInstances,
+  removeUnequippedInstance,
+} from './equipment-instance';
+import {
   AbilityId,
   Actor,
   ALL_DIRECTIONS,
@@ -708,6 +718,21 @@ function applyPlayerAction(
         }
       } else if (hasInventoryCapacity(state)) {
         state.inventory[item.itemId] = (state.inventory[item.itemId] ?? 0) + 1;
+        // Phase 20.0c: a floor-generated weapon/armor is already its own
+        // EquipmentInstance by the time it's picked up (state.ts's
+        // buildFloorState mints it, curse roll included, at floor-
+        // generation time — see that loop's doc comment) — picking it up
+        // never re-rolls or re-creates anything; it's the exact same
+        // instance, still referenced by `item.equipmentInstanceId`.
+        // Falling back to creating a fresh (never-cursed) instance only
+        // covers a ground weapon/armor that somehow reached the floor
+        // through a non-floor-generation path without one already set
+        // (defensive; no such path exists in production this phase).
+        if (item.itemId === 'sword' || item.itemId === 'spear' || item.itemId === 'hammer' || item.itemId === 'solar_gun' || item.itemId === 'armor') {
+          if (!item.equipmentInstanceId || !getEquipmentInstanceById(state, item.equipmentInstanceId)) {
+            createEquipmentInstance(state, item.itemId);
+          }
+        }
         // Phase 20.0b: a card is picked up without being identified by
         // that act alone (rogue-of-sun-card-effects-spec.md's "取得しただ
         // けでは鑑定しない") — the event carries whether this species is
@@ -1624,7 +1649,29 @@ function applyWeaponEquip(
     return { consumed: false, attacked: false, defeated: false };
   }
 
+  // Phase 20.0c: a discovered-cursed currently-equipped weapon cannot be
+  // swapped away via normal equip (rogue-of-sun-development-plan.md
+  // 20.0c's "判明済みの呪い装備を通常操作では装備解除できない" — there is
+  // no separate 'unequip' action in this game; equipping a different
+  // weapon is the only way to change equippedWeaponId, so blocking the
+  // swap here is the complete implementation of that rule). Rejected
+  // before touching inventory/equipment state or consuming a turn.
+  normalizeEquipmentInstances(state);
+  if (isEquippedWeaponCurseLocked(state)) {
+    events.push({ type: 'weapon_equip_blocked', weaponId, reason: 'cursed' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  const instance = ensureAvailableInstanceForEquip(state, weaponId, state.equippedWeaponInstanceId);
   state.equippedWeaponId = weaponId;
+  state.equippedWeaponInstanceId = instance.instanceId;
+  if (instance.cursed) {
+    // Phase 20.0c: equipping a cursed instance is the discovery moment
+    // (rogue-of-sun-development-plan.md 20.0c's "呪われた装備を装備した
+    // 時点でcurseRevealed=trueになる") — cursed itself is never set here;
+    // only whether it's already-cursed status becomes known.
+    instance.curseRevealed = true;
+  }
   events.push({ type: 'weapon_equipped', weaponId });
   state.inventoryOpen = false;
   return { consumed: true, attacked: false, defeated: false };
@@ -1652,7 +1699,19 @@ function applyArmorEquip(
     return { consumed: false, attacked: false, defeated: false };
   }
 
+  // Phase 20.0c: see applyWeaponEquip's identical doc comment above.
+  normalizeEquipmentInstances(state);
+  if (isEquippedArmorCurseLocked(state)) {
+    events.push({ type: 'armor_equip_blocked', armorId, reason: 'cursed' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  const instance = ensureAvailableInstanceForEquip(state, armorId, state.equippedArmorInstanceId);
   state.equippedArmorId = armorId;
+  state.equippedArmorInstanceId = instance.instanceId;
+  if (instance.cursed) {
+    instance.curseRevealed = true;
+  }
   events.push({ type: 'armor_equipped', armorId });
   state.inventoryOpen = false;
   return { consumed: true, attacked: false, defeated: false };
@@ -1724,7 +1783,27 @@ function applyPlaceItem(
   }
 
   state.inventory[itemId] = owned - 1;
-  state.groundItems.push({ id: state.nextGroundItemId, itemId, pos: { ...state.player.pos } });
+  // Phase 20.0c: unlike discard, placing an item keeps its
+  // EquipmentInstance tracked (never removes it from
+  // state.equipmentInstances) — only its GroundItem gets tagged with the
+  // same equipmentInstanceId — so re-picking it up later resolves back
+  // to this exact individual instead of minting a fresh one
+  // (rogue-of-sun-development-plan.md 20.0c's "placeした装備を床へ戻した
+  // 場合も同一個体を維持する"). isLastEquippedCopy above already rejects
+  // placing the equipped individual outright, so any id found here is
+  // necessarily an unequipped one.
+  let placedEquipmentInstanceId: string | undefined;
+  if (itemId === 'sword' || itemId === 'spear' || itemId === 'hammer' || itemId === 'solar_gun') {
+    placedEquipmentInstanceId = findUnequippedInstanceId(state, itemId, state.equippedWeaponInstanceId);
+  } else if (itemId === 'armor') {
+    placedEquipmentInstanceId = findUnequippedInstanceId(state, itemId, state.equippedArmorInstanceId);
+  }
+  state.groundItems.push({
+    id: state.nextGroundItemId,
+    itemId,
+    pos: { ...state.player.pos },
+    ...(placedEquipmentInstanceId ? { equipmentInstanceId: placedEquipmentInstanceId } : {}),
+  });
   state.nextGroundItemId += 1;
   events.push({ type: 'item_placed', itemId });
   clampSelectedItemIndex(state);
@@ -1757,6 +1836,12 @@ function applyDiscardItem(
   }
 
   state.inventory[itemId] = owned - 1;
+  // Phase 20.0c: see applyPlaceItem's identical doc comment above.
+  if (itemId === 'sword' || itemId === 'spear' || itemId === 'hammer' || itemId === 'solar_gun') {
+    removeUnequippedInstance(state, itemId, state.equippedWeaponInstanceId);
+  } else if (itemId === 'armor') {
+    removeUnequippedInstance(state, itemId, state.equippedArmorInstanceId);
+  }
   events.push({ type: 'item_discarded', itemId });
   clampSelectedItemIndex(state);
   return { consumed: true, attacked: false, defeated: false };

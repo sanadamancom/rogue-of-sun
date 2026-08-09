@@ -177,6 +177,14 @@ export function formatEvent(event: GameEvent): string {
       const name = ITEM_DEFINITIONS[event.armorId].displayName;
       return `${name}はすでに装備している。`;
     }
+    case 'weapon_equip_blocked': {
+      const name = ITEM_DEFINITIONS[event.weaponId].displayName;
+      return `装備中の武器が呪われていて、${name}に持ち替えられない。`;
+    }
+    case 'armor_equip_blocked': {
+      const name = ITEM_DEFINITIONS[event.armorId].displayName;
+      return `装備中の防具が呪われていて、${name}に着替えられない。`;
+    }
     case 'player_whiff':
       return '空振りした。';
     case 'enemy_knocked_back': {

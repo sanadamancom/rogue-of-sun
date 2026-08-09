@@ -128,6 +128,13 @@ export type GameEvent =
   | { type: 'weapon_already_equipped'; weaponId: WeaponId }
   | { type: 'armor_equipped'; armorId: ArmorId }
   | { type: 'armor_already_equipped'; armorId: ArmorId }
+  // Phase 20.0c equipment-instance foundation: pushed instead of
+  // 'weapon_equipped'/'armor_equipped' when the currently-equipped
+  // individual is a discovered curse (cursed && curseRevealed) and the
+  // player tried to equip a different weapon/armor. No inventory,
+  // equipment, or turn change accompanies this event.
+  | { type: 'weapon_equip_blocked'; weaponId: WeaponId; reason: 'cursed' }
+  | { type: 'armor_equip_blocked'; armorId: ArmorId; reason: 'cursed' }
   | { type: 'player_whiff'; weaponId?: WeaponId }
   | { type: 'enemy_knocked_back'; enemyType: EnemyType }
   | { type: 'hammer_recover' }

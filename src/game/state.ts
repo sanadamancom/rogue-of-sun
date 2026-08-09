@@ -15,6 +15,12 @@ import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
 import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
 import { createEmptyInventory, drawGroundItemCount, drawWeightedGroundItemSelection, getWeightedGroundItemPoolForFloor } from './item-def';
 import { CARD_IDS_IN_ORDER } from './card-def';
+import {
+  FLOOR_EQUIPMENT_CURSE_CHANCE,
+  isWeaponOrArmorId,
+  mintEquipmentInstance,
+  normalizeEquipmentInstances,
+} from './equipment-instance';
 import { generateSunlightLayer } from './sunlight';
 import { HUNGER_MAX } from './hunger';
 import {
@@ -23,7 +29,7 @@ import {
   PROGRESSION_INITIAL_UNSPENT_ABILITY_POINTS,
 } from './progression';
 import { INITIAL_ABILITY_VALUES } from './ability';
-import { Actor, ActiveEffect, AbilityValues, CardId, ElementId, EnchantmentId, EnemyActor, EnemyType, GameState, GroundItem, Inventory, ItemId, TrapTile, Vec2, WeaponId, ArmorId, Direction8 } from './types';
+import { Actor, ActiveEffect, AbilityValues, CardId, ElementId, EnchantmentId, EnemyActor, EnemyType, EquipmentInstance, GameState, GroundItem, Inventory, ItemId, TrapTile, Vec2, WeaponId, ArmorId, Direction8 } from './types';
 
 /** Generates a random run seed without relying on Math.random's implicit global state at call sites. */
 export function randomSeed(): number {
@@ -61,6 +67,10 @@ interface CarryOverStats {
   unspentAbilityPoints: number;
   abilities: AbilityValues;
   identifiedCardIds: CardId[];
+  equipmentInstances: EquipmentInstance[];
+  nextEquipmentInstanceId: number;
+  equippedWeaponInstanceId: string | null;
+  equippedArmorInstanceId: string | null;
 }
 
 /**
@@ -344,6 +354,23 @@ function buildFloorState(
   // no valid tile exists for a given draw (unchanged from every prior
   // phase's ground-item placement contract).
   const itemPlacementRng = createRng(floorSeed ^ 0x91b6d8e4);
+  // Phase 20.0c: floor-generated weapon/armor individuals are minted
+  // here (curse roll included) — never at pickup — so a floor-generated
+  // equipment individual's identity and curse result are fixed the
+  // instant it's placed on the floor, before the player ever sees or
+  // picks it up (rogue-of-sun-card-effects-spec.md's "床に存在する段階
+  // で結果が個体へ固定される" / "pickup時に再抽選しない"). Uses its own
+  // independent RNG stream (own XOR constant, like every other stream in
+  // this function), consumed exactly once per floor-generated weapon/
+  // armor ground item — never for a consumable/card ground item, and
+  // never perturbing itemCountRng/itemSelectionRng/itemPlacementRng's own
+  // consumption order. Continues the same counter/array `carry` would
+  // have supplied, so ids never collide across floors and every
+  // previously-held individual's attributes survive unchanged into this
+  // floor's equipmentInstances before any new ones are appended.
+  const equipmentCurseRng = createRng(floorSeed ^ 0xc7d4a19e);
+  const floorEquipmentInstances: EquipmentInstance[] = carry ? carry.equipmentInstances.map((i) => ({ ...i })) : [];
+  let nextFloorEquipmentInstanceId = carry ? carry.nextEquipmentInstanceId : 0;
   const groundItems: GroundItem[] = [];
   for (const itemId of selectedItemIds) {
     const exclusions = [
@@ -354,10 +381,19 @@ function buildFloorState(
       ...groundItems.map((item) => item.pos),
     ];
     const pos = chooseGroundItemPosition(map, placement.start, exclusions, itemPlacementRng);
-    groundItems.push({ id: groundItems.length, itemId, pos });
+    if (isWeaponOrArmorId(itemId)) {
+      const roll = equipmentCurseRng();
+      const cursed = roll < FLOOR_EQUIPMENT_CURSE_CHANCE;
+      const instance = mintEquipmentInstance(nextFloorEquipmentInstanceId, itemId, cursed);
+      nextFloorEquipmentInstanceId += 1;
+      floorEquipmentInstances.push(instance);
+      groundItems.push({ id: groundItems.length, itemId, pos, equipmentInstanceId: instance.instanceId });
+    } else {
+      groundItems.push({ id: groundItems.length, itemId, pos });
+    }
   }
 
-  return {
+  const state: GameState = {
     map,
     player,
     enemies,
@@ -385,6 +421,19 @@ function buildFloorState(
     inventory: carry ? carry.inventory : createEmptyInventory(),
     inventoryOpen: false,
     selectedItemIndex: 0,
+    // Phase 20.0c equipment-instance foundation: carried over across
+    // floor transitions like inventory/equippedWeaponId; a brand new run
+    // always starts with no individuals and the counter at 0. A fresh
+    // array per call (never the same reference as `carry.equipmentInstances`),
+    // matching identifiedCardIds'/abilities' own per-call-copy reasoning.
+    // Phase 20.0c: floorEquipmentInstances/nextFloorEquipmentInstanceId
+    // (computed above, during the ground-item placement loop) already
+    // equal `carry`'s values plus this floor's newly-minted
+    // floor-generated individuals — see that loop's own doc comment.
+    equipmentInstances: floorEquipmentInstances,
+    nextEquipmentInstanceId: nextFloorEquipmentInstanceId,
+    equippedWeaponInstanceId: carry ? carry.equippedWeaponInstanceId : null,
+    equippedArmorInstanceId: carry ? carry.equippedArmorInstanceId : null,
     equippedWeaponId: carry ? carry.equippedWeaponId : null,
     equippedArmorId: carry ? carry.equippedArmorId : null,
     // Always false at the start of a floor — never carried over, even
@@ -480,6 +529,16 @@ function buildFloorState(
     // webs/groundItems.
     sunlight: generateSunlightLayer(map, floor, floorSeed, placement.start),
   };
+  // Phase 20.0c equipment-instance foundation: backfills any missing
+  // default instance against `inventory`'s weapon/armor counts (covers a
+  // legacy/test-constructed `carry`, e.g. one hand-built without ever
+  // populating equipmentInstances) and corrects any malformed per-
+  // instance attribute — see normalizeEquipmentInstances's own doc
+  // comment. Called last, after every other field above is finalized, so
+  // it sees the real `state.inventory`/`state.equipmentInstances` this
+  // floor actually starts with.
+  normalizeEquipmentInstances(state);
+  return state;
 }
 
 /** Builds a fresh GameState for floor 1 of the given run seed. */
@@ -531,6 +590,17 @@ export function advanceToNextFloor(state: GameState): GameState {
     // stale/corrupted value, so a malformed carry can never propagate
     // duplicates or invalid ids forward — see normalizeIdentifiedCardIds.
     identifiedCardIds: normalizeIdentifiedCardIds(state.identifiedCardIds),
+    // Phase 20.0c equipment-instance foundation: additive-default pattern
+    // identical to identifiedCardIds above (no schemaVersion bump — see
+    // types.ts's GameState.equipmentInstances doc comment). Malformed
+    // per-instance attributes and any inventory/instance-count mismatch
+    // are corrected by buildFloorState's own normalizeEquipmentInstances
+    // call on the constructed next-floor state, not here — this only
+    // supplies safe defaults for a possibly-absent legacy `state`.
+    equipmentInstances: state.equipmentInstances ? state.equipmentInstances.map((i) => ({ ...i })) : [],
+    nextEquipmentInstanceId: state.nextEquipmentInstanceId ?? 0,
+    equippedWeaponInstanceId: state.equippedWeaponInstanceId ?? null,
+    equippedArmorInstanceId: state.equippedArmorInstanceId ?? null,
   };
   return buildFloorState(state.runSeed, state.floor + 1, state.turn, carry);
 }

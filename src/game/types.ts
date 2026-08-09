@@ -473,6 +473,18 @@ export interface GameState {
    */
   equippedWeaponId: WeaponId | null;
   /**
+   * Phase 20.0c equipment-instance foundation: which individual weapon
+   * instance (see EquipmentInstance below) is currently equipped, or
+   * null when equippedWeaponId is null or the equipped species has no
+   * tracked instance yet (defensive — normalizeEquipmentInstances in
+   * equipment-instance.ts backfills this on every state-construction
+   * boundary, so this should be non-null whenever equippedWeaponId is
+   * non-null in practice). Optional for the same reason
+   * identifiedCardIds/abilities are: existing GameState fixtures across
+   * the test suite predate this phase and never set it.
+   */
+  equippedWeaponInstanceId?: string | null;
+  /**
    * The currently equipped armor, or null for unarmored (Phase 08.4).
    * Independent of equippedWeaponId — equipping one never affects the
    * other. Equipping never removes the armor from `inventory` and never
@@ -482,6 +494,8 @@ export interface GameState {
    * brand new run.
    */
   equippedArmorId: ArmorId | null;
+  /** Phase 20.0c equipment-instance foundation: the individual armor instance currently equipped — see equippedWeaponInstanceId's identical doc comment above. */
+  equippedArmorInstanceId?: string | null;
   /**
    * Whether the hammer is in recoil (Phase 08.7): set true after any
    * hammer attack via X (hit, kill, failed-knockback, or whiff) — never
@@ -637,6 +651,31 @@ export interface GameState {
    * `carry` value.
    */
   identifiedCardIds?: CardId[];
+  /**
+   * Phase 20.0c equipment-instance foundation: every weapon/armor
+   * individual currently held (equipped or not) this run — see
+   * equipment-instance.ts's EquipmentInstance/CARD_DEFINITIONS-parallel
+   * doc comments. Optional, defaulting to [] when absent (existing
+   * GameState fixtures across the test suite predate this phase);
+   * equipment-instance.ts's normalizeEquipmentInstances is the single
+   * place that backfills missing instances against `inventory`'s counts
+   * for weapon/armor ids. This is deliberately NOT a per-species record
+   * (unlike `inventory`) since multiple simultaneously-held individuals
+   * of the same species must remain distinguishable — see that field's
+   * `instanceId`. Persists across floor transitions like inventory;
+   * resets to [] on a brand new run.
+   */
+  equipmentInstances?: EquipmentInstance[];
+  /**
+   * Phase 20.0c: monotonically-incrementing counter used to mint each
+   * new EquipmentInstance's `instanceId` (equipment-instance.ts's
+   * createEquipmentInstance) — deterministic and RNG-free, mirroring the
+   * existing nextWebId/nextGroundItemId counters. Optional, defaulting
+   * to 0 when absent. Persists across floor transitions (never reset
+   * mid-run, so instance ids never collide across floors); resets to 0
+   * on a brand new run.
+   */
+  nextEquipmentInstanceId?: number;
   /**
    * Whether the ability allocation overlay (P) is currently open. Mutual
    * exclusion with `inventoryOpen` — opening either closes the other (see
@@ -851,6 +890,33 @@ export type WeaponId = 'sword' | 'spear' | 'hammer' | 'solar_gun';
  */
 export type ArmorId = 'armor';
 
+/**
+ * Phase 20.0c equipment-instance foundation: one individual weapon or
+ * armor's persistent identity and per-copy attributes, distinct from the
+ * species-level WEAPON_DEFINITIONS/ARMOR_DEFINITIONS tables (which stay
+ * per-species, unchanged) and from `Inventory`'s per-species counts
+ * (which stay a plain count — `equipmentInstances` is the parallel
+ * per-individual structure, not a replacement). `instanceId` and
+ * `definitionId` are deliberately separate fields (never overloading
+ * WeaponId/ArmorId's existing `id`-shaped usage as an instance
+ * identifier) so a definitionId lookup into WEAPON_DEFINITIONS/
+ * ARMOR_DEFINITIONS is always unambiguous, and so two held individuals
+ * of the same species remain distinguishable. See
+ * equipment-instance.ts's module doc comment for creation/normalization.
+ */
+export interface EquipmentInstance {
+  /** Stable, run-unique identifier for this individual (never reused, never shared with any other instance or with any WeaponId/ArmorId/ItemId/CardId). */
+  instanceId: string;
+  /** Which species (WEAPON_DEFINITIONS/ARMOR_DEFINITIONS key) this individual is. */
+  definitionId: WeaponId | ArmorId;
+  /** Non-negative integer strengthening level, 0 for a freshly-created instance. Phase 20.0c does not itself apply this to damage/defense calculations or allow any card to change it (deferred to Phase 20.5b's Moon/Sun). */
+  refineLevel: number;
+  /** Whether this individual is cursed. Independent of curseRevealed — see that field's own doc comment. */
+  cursed: boolean;
+  /** Whether this individual's curse status has been discovered (equipping a cursed instance sets this true — see turn.ts's applyWeaponEquip/applyArmorEquip). Never true while cursed is false (normalizeEquipmentInstances corrects that combination if ever encountered — see its own doc comment). */
+  curseRevealed: boolean;
+}
+
 /** Stacked item counts held by the player; never negative, absent/0 entries are not shown in UI. */
 export type Inventory = Record<ItemId, number>;
 
@@ -864,6 +930,19 @@ export interface GroundItem {
   id: number;
   itemId: ItemId;
   pos: Vec2;
+  /**
+   * Phase 20.0c equipment-instance foundation: which EquipmentInstance
+   * this ground item already is, for a floor-generated weapon/armor —
+   * set at floor-generation time (state.ts's buildFloorState, where the
+   * curse roll also happens) so the individual's identity/curse result
+   * is fixed while it's still on the floor, never re-rolled at pickup.
+   * Absent for every non-equipment item (consumables, cards) and for any
+   * ground item that isn't itself the origin of a floor-generated
+   * equipment individual (e.g. one placed back down via place_item —
+   * see turn.ts's applyPlaceItem, which now threads the same
+   * equipmentInstanceId through rather than creating a fresh one).
+   */
+  equipmentInstanceId?: string;
 }
 
 export type PlayerAction =

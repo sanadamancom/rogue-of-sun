@@ -3,6 +3,17 @@ import { toDirection4 } from './game/direction';
 import { ENEMY_DEFINITIONS } from './game/enemy-def';
 import { ITEM_DEFINITIONS } from './game/item-def';
 import { CARD_DEFINITIONS, CARD_IDS_IN_ORDER } from './game/card-def';
+import {
+  beginCardTargetSelection,
+  CardTargetSelectionState,
+  confirmCardTargetSelection,
+  describeCardTargetCandidate,
+  isTargetSelectableItemId,
+  moveCardTargetCursor,
+  PendingCardTargetEffectHolder,
+  refreshCardTargetSelection,
+  resolveCardTargetEffect,
+} from './game/card-target-selection';
 import { ELEMENT_DISPLAY_NAMES, ALL_ELEMENT_IDS } from './game/element-def';
 import { ARMOR_DEFINITIONS } from './game/armor-def';
 import { WEAPON_DEFINITIONS } from './game/weapon-def';
@@ -347,9 +358,25 @@ class MainScene extends Phaser.Scene {
 
   // ----- Phase 14.5 SFC-style small-window menu -----
 
-  private menuScreen: 'closed' | 'root' | 'items' | 'item_actions' | 'ability' | 'status' | 'records' | 'other' | 'help' | 'confirm_quit' = 'closed';
+  private menuScreen: 'closed' | 'root' | 'items' | 'item_actions' | 'card_target_selection' | 'ability' | 'status' | 'records' | 'other' | 'help' | 'confirm_quit' = 'closed';
   private menuRootIndex = 0;
   private itemActionIndex = 0;
+  /** Phase 20.0d: transient UI state for temperance/star's target-selection screen — never a GameState field (see card-target-selection.ts's CardTargetSelectionState doc comment). */
+  private cardTargetSelection: CardTargetSelectionState | null = null;
+  /**
+   * Phase 20.0d correction: encapsulated lifecycle holder for a
+   * successful CardTargetEffectTransaction, awaiting a future commit
+   * step (Phase 20.5a) — never a GameState field, never persisted.
+   * Private storage inside PendingCardTargetEffectHolder itself (see
+   * card-target-selection.ts); this field only ever calls that class's
+   * own methods (`setFromTransaction`, `clear`, `peek`/`take`), never
+   * assigns into its internals directly. Cleared via `.clear()` whenever
+   * a new selection begins, on cancel, on a stale-target rejection, and
+   * on restart — and (this phase) `.take()`/`.peek()` are never called
+   * to commit anything into `this.state` — see the
+   * 'card_target_selection' confirm handler.
+   */
+  private readonly pendingCardTargetEffect = new PendingCardTargetEffectHolder();
   private otherIndex = 0;
   private confirmQuitIndex = 0; // 0 = cancel (default), 1 = confirm
   private menuOverlayBg!: Phaser.GameObjects.Graphics;
@@ -1649,6 +1676,11 @@ class MainScene extends Phaser.Scene {
       case 'item_actions':
         this.itemActionIndex = this.wrapIndex(this.itemActionIndex + delta, this.currentItemActions().length);
         break;
+      case 'card_target_selection':
+        if (this.cardTargetSelection) {
+          this.cardTargetSelection = moveCardTargetCursor(this.cardTargetSelection, delta);
+        }
+        break;
       case 'ability':
         moveAbilitySelection(this.state, delta);
         break;
@@ -1734,6 +1766,32 @@ class MainScene extends Phaser.Scene {
           this.menuScreen = 'items';
           break;
         }
+        // Phase 20.0d: temperance/star route into the target-selection
+        // screen instead of an immediate use — neither card has an
+        // effect resolver yet (Phase 20.5a), so this phase only opens
+        // selection; confirm/cancel from that screen never consumes the
+        // card, identifies it, or advances the turn (see
+        // card-target-selection.ts's module doc comment).
+        if (action === '食べる／使う') {
+          const itemId = selectedItemId(this.state);
+          if (itemId && isTargetSelectableItemId(itemId)) {
+            const selection = beginCardTargetSelection(this.state, itemId);
+            if (selection) {
+              this.cardTargetSelection = selection;
+              // Phase 20.0d: never carry a stale pending effect from an
+              // earlier (possibly different-card) selection into a new one.
+              this.pendingCardTargetEffect.clear();
+              this.menuScreen = 'card_target_selection';
+            }
+            // No eligible candidates: falls through to the ordinary
+            // use-item failure path below (e.g. temperance with no
+            // discovered-cursed equipment, star with no valid target),
+            // which already produces the correct "使用不成立" event/log
+            // line via applyCardUse's existing not_implemented rejection
+            // — no separate message is invented here.
+            break;
+          }
+        }
         // 食べる／使う, 装備する, 外す all route through the same
         // selectedInventoryAction-derived action as the old Enter key.
         const playerBefore = { ...this.state.player.pos };
@@ -1748,6 +1806,59 @@ class MainScene extends Phaser.Scene {
         this.applyTurnResult(result, playerBefore, enemiesBefore);
         this.state.inventoryOpen = true;
         this.menuScreen = 'items';
+        break;
+      }
+      case 'card_target_selection': {
+        // Phase 20.0d correction: confirm re-validates the cursored
+        // target against live GameState before doing anything else.
+        //
+        // - Valid target: hand it to resolveCardTargetEffect, which
+        //   returns a fully isolated CardTargetEffectTransaction —
+        //   { status: 'failure', reason } or { status: 'success',
+        //   nextState }. The transaction is then handed to
+        //   this.pendingCardTargetEffect.setFromTransaction(...)
+        //   (PendingCardTargetEffectHolder — see card-target-selection.ts):
+        //   a success transaction becomes the new pending effect; a
+        //   failure transaction clears any existing one outright. This
+        //   phase never calls `.take()`/`.peek()` to assign `nextState`
+        //   into `this.state` — CARD_TARGET_EFFECT_RESOLVERS is empty in
+        //   production, so every real attempt currently resolves to
+        //   failure anyway; the holder only ever contains a non-null
+        //   value once Phase 20.5a registers a real resolver. Phase
+        //   20.5a is what pairs a prepared effect with the same
+        //   consume/identify/advance-turn commit steps every other
+        //   card's finishSuccessfulCardUse already performs.
+        // - Stale target (no longer in the current candidate set —
+        //   e.g. discarded or its curse state changed since selection
+        //   began): re-generate the candidate list. If candidates
+        //   remain, selection continues with the cursor clamped into
+        //   the refreshed range (pending stays cleared). If none remain,
+        //   exit to item_actions.
+        //
+        // No branch here consumes the card, identifies it, advances the
+        // turn, consumes RNG, or commits `this.state` to anything.
+        if (this.cardTargetSelection) {
+          const target = confirmCardTargetSelection(this.state, this.cardTargetSelection);
+          if (target) {
+            const transaction = resolveCardTargetEffect(this.state, this.cardTargetSelection.cardId, target);
+            this.pendingCardTargetEffect.setFromTransaction(this.cardTargetSelection.cardId, target, transaction);
+            this.cardTargetSelection = null;
+            this.menuScreen = 'item_actions';
+          } else {
+            this.pendingCardTargetEffect.clear();
+            const refreshed = refreshCardTargetSelection(this.state, this.cardTargetSelection);
+            if (refreshed) {
+              this.cardTargetSelection = refreshed;
+              // Stay on card_target_selection with the refreshed candidate set.
+            } else {
+              this.cardTargetSelection = null;
+              this.menuScreen = 'item_actions';
+            }
+          }
+        } else {
+          this.pendingCardTargetEffect.clear();
+          this.menuScreen = 'item_actions';
+        }
         break;
       }
       case 'ability': {
@@ -1805,6 +1916,15 @@ class MainScene extends Phaser.Scene {
         break;
       case 'item_actions':
         this.menuScreen = 'items';
+        break;
+      case 'card_target_selection':
+        // Phase 20.0d: cancel discards the selection snapshot and any
+        // pending effect only — never touches inventory/equipment/turn/
+        // identification (see card-target-selection.ts's module doc
+        // comment).
+        this.cardTargetSelection = null;
+        this.pendingCardTargetEffect.clear();
+        this.menuScreen = 'item_actions';
         break;
       case 'other':
         this.menuScreen = 'root';
@@ -1900,6 +2020,22 @@ class MainScene extends Phaser.Scene {
           listLines.push(`${i === this.itemActionIndex ? '> ' : '  '}${action}`);
         });
         detailLines = ['J/Enter：決定　K/Esc：戻る'];
+        break;
+      }
+      case 'card_target_selection': {
+        const selection = this.cardTargetSelection;
+        listLines.push('対象を選ぶ', '');
+        if (selection) {
+          selection.candidates.forEach((ref, i) => {
+            const info = describeCardTargetCandidate(this.state, selection.cardId, ref);
+            const marker = i === selection.cursor ? '> ' : '  ';
+            const equipMark = info.equipped ? 'E ' : '  ';
+            const refine = info.refineLevel ? ` +${info.refineLevel}` : '';
+            const note = info.note ? `（${info.note}）` : '';
+            listLines.push(`${marker}${equipMark}${info.displayName}${refine}${note}`);
+          });
+        }
+        detailLines = ['J/Enter：決定　K/Esc：取消'];
         break;
       }
       case 'ability': {
@@ -2142,6 +2278,10 @@ class MainScene extends Phaser.Scene {
     this.state = createInitialState(runSeed);
     this.telemetry = createRunTelemetry(this.state);
     this.endScreenShownForTelemetry = null;
+    // Phase 20.0d: a new run must never carry over a stale selection or
+    // pending effect from the previous run.
+    this.cardTargetSelection = null;
+    this.pendingCardTargetEffect.clear();
     this.hideEndScreen();
     this.clearMessages();
     this.resetSceneToCurrentState();
