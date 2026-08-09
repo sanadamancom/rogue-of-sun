@@ -94,11 +94,14 @@ describe('Phase 20 core loop', () => {
     });
 
     it('a failed (unsuccessful) use never identifies the card', () => {
-      const state = withCard(stateWithCards(), 'lovers', 1);
-      state.solarEnergy = state.maxSolarEnergy; // already full -> lovers fails
-      const result = processTurn(state, { type: 'use_item', itemId: 'lovers' });
+      let state = withCard(stateWithCards(), 'empress', 1);
+      // Phase 20.2: lovers no longer fails at full SOL (zero-effect-success
+      // contract — see phase-20-2-healing-conversion.test.ts). Sealed
+      // rejection is still a genuine failure, used here instead.
+      state = { ...state, activeEffects: [{ id: 'sealed', strength: 0, remainingTurns: 5 }] };
+      const result = processTurn(state, { type: 'use_item', itemId: 'empress' });
       expect(result.consumed).toBe(false);
-      expect(isCardIdentified(state, 'lovers')).toBe(false);
+      expect(isCardIdentified(state, 'empress')).toBe(false);
     });
 
     it('a successful use identifies the card (effect_succeeded timing)', () => {
@@ -235,14 +238,15 @@ describe('Phase 20 core loop', () => {
       expect(state.solarEnergy).toBe(state.maxSolarEnergy);
     });
 
-    it('lovers fails (no consume/turn) when SOL already at max', () => {
+    it('lovers succeeds (consumes, advances turn) even when SOL is already at max — Phase 20.2 zero-effect-success contract', () => {
       const state = withCard(stateWithCards(), 'lovers', 1);
       state.solarEnergy = state.maxSolarEnergy;
       const turnBefore = state.turn;
       const result = processTurn(state, { type: 'use_item', itemId: 'lovers' });
-      expect(result.consumed).toBe(false);
-      expect(state.inventory.lovers).toBe(1);
-      expect(state.turn).toBe(turnBefore);
+      expect(result.consumed).toBe(true);
+      expect(state.inventory.lovers).toBe(0);
+      expect(state.turn).toBe(turnBefore + 1);
+      expect(state.solarEnergy).toBe(state.maxSolarEnergy);
     });
 
     it('hanged_man swaps LIFE and SOL as integers, clamped to the other max', () => {
@@ -272,7 +276,7 @@ describe('Phase 20 core loop', () => {
       expect(state.solarEnergy).toBe(10);
     });
 
-    it('hanged_man fails (no consume/turn) when the swap is a true no-op', () => {
+    it('hanged_man succeeds (consumes, advances turn) even when the swap is a numeric no-op (L == S) — Phase 20.2 zero-effect-success contract', () => {
       const state = withCard(stateWithCards(), 'hanged_man', 1);
       state.player.hp = state.player.maxHp;
       state.solarEnergy = state.player.maxHp <= state.maxSolarEnergy ? state.player.maxHp : state.maxSolarEnergy;
@@ -282,8 +286,10 @@ describe('Phase 20 core loop', () => {
       state.solarEnergy = same;
       const turnBefore = state.turn;
       const result = processTurn(state, { type: 'use_item', itemId: 'hanged_man' });
-      expect(result.consumed).toBe(false);
-      expect(state.turn).toBe(turnBefore);
+      expect(result.consumed).toBe(true);
+      expect(state.turn).toBe(turnBefore + 1);
+      expect(state.player.hp).toBe(same);
+      expect(state.solarEnergy).toBe(same);
     });
 
     it('hanged_man LIFE 0 after swap proceeds to normal death (no judgement held)', () => {
@@ -721,9 +727,23 @@ describe('Phase 20 core loop', () => {
       }
     });
 
-    it('every rejection path (sealed, unimplemented, full-SOL, no-op swap) advances the turn by 0', () => {
+    it('every genuine rejection path (sealed, unimplemented) advances the turn by 0', () => {
       const sealedState = { ...withCard(stateWithCards(), 'empress', 1), activeEffects: [{ id: 'sealed' as const, strength: 0, remainingTurns: 5 }] };
       const unimplementedState = withCard(stateWithCards(), 'emperor', 1);
+
+      const cases: { state: GameState; itemId: CardId }[] = [
+        { state: sealedState, itemId: 'empress' },
+        { state: unimplementedState, itemId: 'emperor' },
+      ];
+      for (const { state, itemId } of cases) {
+        const turnBefore = state.turn;
+        const result = processTurn(state, { type: 'use_item', itemId });
+        expect(result.consumed).toBe(false);
+        expect(state.turn).toBe(turnBefore);
+      }
+    });
+
+    it('lovers and hanged_man now advance the turn by exactly 1 even in their former zero-effect cases (Phase 20.2)', () => {
       const loversFullState = withCard(stateWithCards(), 'lovers', 1);
       const hangedManNoOpState = withCard(stateWithCards(), 'hanged_man', 1);
       const same = Math.min(hangedManNoOpState.player.maxHp, hangedManNoOpState.maxSolarEnergy);
@@ -731,16 +751,14 @@ describe('Phase 20 core loop', () => {
       hangedManNoOpState.solarEnergy = same;
 
       const cases: { state: GameState; itemId: CardId }[] = [
-        { state: sealedState, itemId: 'empress' },
-        { state: unimplementedState, itemId: 'emperor' },
         { state: loversFullState, itemId: 'lovers' },
         { state: hangedManNoOpState, itemId: 'hanged_man' },
       ];
       for (const { state, itemId } of cases) {
         const turnBefore = state.turn;
         const result = processTurn(state, { type: 'use_item', itemId });
-        expect(result.consumed).toBe(false);
-        expect(state.turn).toBe(turnBefore);
+        expect(result.consumed).toBe(true);
+        expect(state.turn).toBe(turnBefore + 1);
       }
     });
 

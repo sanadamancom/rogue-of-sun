@@ -137,6 +137,8 @@ export function formatEvent(event: GameEvent): string {
       return '太陽の実を使い、太陽エネルギーが回復した。';
     case 'sun_fruit_use_failed':
       return '太陽エネルギーは満タンだ。';
+    case 'lovers_used':
+      return event.recovered > 0 ? `恋人を使い、SOLが${event.recovered}回復した。` : '恋人を使ったが、SOLは満タンだった。';
     case 'chocolate_used':
       return `チョコレートを食べ、満腹度が${event.recovered}回復した。`;
     case 'chocolate_use_failed':

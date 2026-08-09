@@ -1235,24 +1235,23 @@ function applyWheelOfFortuneUse(
 }
 
 /**
- * lovers: restores current SOL to max. Fails (no consumption, no
- * identification, no turn) when SOL is already at max — same
- * full-resource-rejection pattern as apple's full_hp / sun_fruit's
- * sol_full above, per rogue-of-sun-card-effects-spec.md's unresolved-item
- * resolution (existing item precedent takes priority over the earlier
- * audit's alternative recommendation).
+ * lovers (Phase 20.2 zero-effect-success contract): restores current SOL
+ * to max. Always succeeds — even when SOL is already at max — per
+ * rogue-of-sun-development-plan.md's common_item_use_contract
+ * "使用処理そのものを完了できる場合は、実際の状態変化が0でも使用成立と
+ * する". Consumes/identifies/advances the turn regardless; the actual
+ * recovered amount (0 when already full) is reported via `lovers_used`
+ * (same shape as sun_fruit_used) rather than rejecting the use.
  */
 function applyLoversCardUse(
   state: GameState,
   cardId: CardId,
   events: GameEvent[],
 ): { consumed: boolean; attacked: boolean; defeated: boolean } {
-  if (state.solarEnergy >= state.maxSolarEnergy) {
-    events.push({ type: 'card_use_failed', cardId, reason: 'no_effect' });
-    return { consumed: false, attacked: false, defeated: false };
-  }
+  const recovered = state.maxSolarEnergy - state.solarEnergy;
   state.solarEnergy = state.maxSolarEnergy;
   finishSuccessfulCardUse(state, cardId, events);
+  events.push({ type: 'lovers_used', recovered });
   return { consumed: true, attacked: false, defeated: false };
 }
 
@@ -1273,14 +1272,16 @@ function applyHangedManCardUse(
   cardId: CardId,
   events: GameEvent[],
 ): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  // Phase 20.2 zero-effect-success contract: always succeeds, even when
+  // L and S are equal (a numerically no-op swap) — per
+  // rogue-of-sun-development-plan.md's "LとSが同値で結果の状態変化が0
+  // でも使用成立とする". Both newLife/newSol are computed simultaneously
+  // from the pre-swap oldLife/oldSol (never chaining one result into the
+  // other's calculation), matching the spec's integer-swap rule exactly.
   const oldLife = state.player.hp;
   const oldSol = state.solarEnergy;
   const newLife = Math.min(oldSol, state.player.maxHp);
   const newSol = Math.min(oldLife, state.maxSolarEnergy);
-  if (newLife === oldLife && newSol === oldSol) {
-    events.push({ type: 'card_use_failed', cardId, reason: 'no_effect' });
-    return { consumed: false, attacked: false, defeated: false };
-  }
   state.player.hp = newLife;
   state.solarEnergy = newSol;
   finishSuccessfulCardUse(state, cardId, events);

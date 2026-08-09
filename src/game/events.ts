@@ -97,6 +97,12 @@ export type GameEvent =
   | { type: 'item_discarded'; itemId: ItemId }
   | { type: 'item_discard_failed'; itemId: ItemId; reason: 'equipped' | 'item_unavailable' }
   | { type: 'sun_fruit_used'; itemId: ItemId; recovered: number }
+  // Phase 20.2 zero-effect-success contract: lovers always succeeds
+  // (consume/identify/turn), even at full SOL — this event reports the
+  // actual recovered amount (0 when already full), same shape as
+  // sun_fruit_used above, so message-log.ts can distinguish "recovered
+  // some" from "already full" without a new generic mechanism.
+  | { type: 'lovers_used'; recovered: number }
   | { type: 'sun_fruit_use_failed'; itemId: ItemId; reason: 'sol_full' }
   // Phase 11.3 hunger: chocolate_used/chocolate_use_failed follow the same
   // shape as sun_fruit_used/sun_fruit_use_failed above. hunger_low_warning
