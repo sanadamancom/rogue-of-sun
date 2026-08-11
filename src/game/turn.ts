@@ -147,9 +147,22 @@ export const REGEN_AMOUNT_PER_TICK = 1;
  * 0). Always added to, never a replacement for, player.attack — see
  * getEffectiveAttackPower and combat.ts's computeAttackDamage.
  */
+/**
+ * refineLevel's per-level flat bonus (Phase 20.5b contract correction:
+ * rogue-of-sun-card-effects-spec.md's "武器の強化値は既存の与ダメージ計算、
+ * 防具の強化値は既存の防御計算へ加算する" confirms this is an in-scope
+ * connection this phase, not a Phase 24/27 deferral — only the final
+ * numeric value is provisional). Applied identically to weapon attack
+ * bonus and armor defense bonus below.
+ */
+export const EQUIPMENT_REFINE_LEVEL_DAMAGE_BONUS_PER_LEVEL = 1;
+
 function getPlayerWeaponBonus(state: GameState): number {
   if (state.equippedWeaponId) {
-    return WEAPON_DEFINITIONS[state.equippedWeaponId].attackPower;
+    const base = WEAPON_DEFINITIONS[state.equippedWeaponId].attackPower;
+    const instance = state.equippedWeaponInstanceId ? getEquipmentInstanceById(state, state.equippedWeaponInstanceId) : undefined;
+    const refineBonus = (instance?.refineLevel ?? 0) * EQUIPMENT_REFINE_LEVEL_DAMAGE_BONUS_PER_LEVEL;
+    return base + refineBonus;
   }
   return 0;
 }
@@ -200,7 +213,10 @@ export function getEffectiveAttackPower(state: GameState): number {
  */
 export function getEffectiveArmorValue(state: GameState): number {
   if (state.equippedArmorId) {
-    return ARMOR_DEFINITIONS[state.equippedArmorId].armorValue;
+    const base = ARMOR_DEFINITIONS[state.equippedArmorId].armorValue;
+    const instance = state.equippedArmorInstanceId ? getEquipmentInstanceById(state, state.equippedArmorInstanceId) : undefined;
+    const refineBonus = (instance?.refineLevel ?? 0) * EQUIPMENT_REFINE_LEVEL_DAMAGE_BONUS_PER_LEVEL;
+    return base + refineBonus;
   }
   return 0;
 }
@@ -1270,20 +1286,26 @@ function applyAbilityGrowthCardUse(
  * consumes/identifies/advances the turn.
  */
 /**
- * moon/sun (Phase 20.5b provisional spec): raises the currently-equipped
- * weapon (moon) or armor (sun) instance's refineLevel by 1, clamped at
- * EQUIPMENT_REFINE_LEVEL_CAP (Phase 20.0c's existing shared constant —
- * never a duplicated local cap). Fails outright (no consume/identify/
- * turn/RNG) if nothing of the relevant slot is currently equipped — the
- * target is always the equipped instance, never chosen via
- * card-target-selection.ts's UI flow (moon/sun explicitly never use that
- * module — see its own doc comment). Succeeds (zero-effect-success
- * contract) even when the equipped instance is already at the cap — the
- * refineLevel simply stays unchanged. Applying the increased refineLevel
- * to actual attack/defense calculations is out of scope this phase (per
- * rogue-of-sun-development-plan.md's provisional-value policy — Phase
- * 24/27's responsibility); this only manages the stored number itself.
- * No RNG.
+ * moon/sun (Phase 20.5b contract correction — rogue-of-sun-card-effects-spec.md
+ * is authoritative here, superseding this function's earlier provisional
+ * doc comment): raises the currently-equipped weapon (moon) or armor
+ * (sun) instance's refineLevel by exactly 1. Fails outright (no consume/
+ * identify/turn/RNG, and no `card_refine_applied` event) in two cases:
+ * nothing of the relevant slot is currently equipped, or the equipped
+ * instance is already at EQUIPMENT_REFINE_LEVEL_CAP — per the spec's
+ * "強化上限に達した装備は対象にできない...使用不成立とする". This is
+ * NOT a zero-effect-success case (unlike lovers/hanged_man's contract);
+ * an at-cap equipped instance is a genuine rejection, identical in shape
+ * to "no_valid_target". The target is always the equipped instance,
+ * never chosen via card-target-selection.ts's UI flow (moon/sun
+ * explicitly never use that module). The resulting refineLevel is
+ * applied to actual attack/defense calculations via
+ * getPlayerWeaponBonus/getEffectiveArmorValue (see
+ * EQUIPMENT_REFINE_LEVEL_DAMAGE_BONUS_PER_LEVEL above) — the spec's
+ * "武器の強化値は既存の与ダメージ計算、防具の強化値は既存の防御計算へ
+ * 加算する" confirms this connection is in-scope this phase, not
+ * deferred; only the per-level bonus's exact numeric value remains
+ * Phase 27-provisional. No RNG.
  */
 function applyMoonCardUse(
   state: GameState,
@@ -1300,8 +1322,12 @@ function applyMoonCardUse(
     events.push({ type: 'card_use_failed', cardId, reason: 'no_valid_target' });
     return { consumed: false, attacked: false, defeated: false };
   }
+  if (instance.refineLevel >= EQUIPMENT_REFINE_LEVEL_CAP) {
+    events.push({ type: 'card_use_failed', cardId, reason: 'refine_cap_reached' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
   const before = instance.refineLevel;
-  instance.refineLevel = Math.min(EQUIPMENT_REFINE_LEVEL_CAP, instance.refineLevel + 1);
+  instance.refineLevel = before + 1;
   finishSuccessfulCardUse(state, cardId, events);
   events.push({
     type: 'card_refine_applied',
@@ -1328,8 +1354,12 @@ function applySunCardUse(
     events.push({ type: 'card_use_failed', cardId, reason: 'no_valid_target' });
     return { consumed: false, attacked: false, defeated: false };
   }
+  if (instance.refineLevel >= EQUIPMENT_REFINE_LEVEL_CAP) {
+    events.push({ type: 'card_use_failed', cardId, reason: 'refine_cap_reached' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
   const before = instance.refineLevel;
-  instance.refineLevel = Math.min(EQUIPMENT_REFINE_LEVEL_CAP, instance.refineLevel + 1);
+  instance.refineLevel = before + 1;
   finishSuccessfulCardUse(state, cardId, events);
   events.push({
     type: 'card_refine_applied',

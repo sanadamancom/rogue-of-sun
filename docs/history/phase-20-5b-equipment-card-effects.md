@@ -6,7 +6,9 @@
 
 ## refineLevelの戦闘計算反映状況の監査結果
 
-`refineLevel`の値自体はPhase 20.0cから既に管理されているが、実際の攻撃力・防御力計算（`getPowerDamageBonus`・weapon-def/armor-def由来の基礎値）へは一切反映されていないことを確認した。この反映処理は既存方針（Phase20は仮値配置まで、実計算接続はPhase24/27）に沿ってPhase20の範囲外として扱う。月・太陽は`refineLevel`の数値管理のみを行う。
+**訂正（Phase 20.5b contract correction）**：初回実装時、`refineLevel`は実際の攻撃力・防御力計算へ未接続のまま「Phase24/27延期」として扱っていたが、これは誤りだった。`rogue-of-sun-card-effects-spec.md`（正本）に「武器の強化値は既存の与ダメージ計算、防具の強化値は既存の防御計算へ加算する」と明記されており、Phase20.5bの確定仕様（延期ではない）であることが判明した。修正時に`getPlayerWeaponBonus`（武器与ダメージ）・`getEffectiveArmorValue`（防具防御）へ`refineLevel × EQUIPMENT_REFINE_LEVEL_DAMAGE_BONUS_PER_LEVEL`を加算する形で接続した。加算係数自体はPhase20仮値（Phase27調整対象）。
+
+また、月・太陽が装備の強化上限到達時にも「効果0で成立」として扱っていた点も誤りだった。正本に「強化上限に達した装備は対象にできない。装備中の対象が強化上限に達している場合は使用不成立とする」と明記されており、上限到達時は完全no-op（消費・鑑定・ターン進行・RNGすべて無変化、`card_use_failed(reason:'refine_cap_reached')`）へ修正した。
 
 ## moon/sunの対象決定方法
 
@@ -73,7 +75,7 @@
 - `lootWeight`・`unlockFloor`の確定値決定（Phase20.0eの型自体は現存するが未使用のまま据え置き）
 - 敵ドロップ経路（`enemyDropEnabled`）は全カード`false`のまま未実装
 - 皇帝の軽減率・継続ターン数、正義・悪魔・塔のダメージ係数、月・太陽の`EQUIPMENT_REFINE_LEVEL_CAP`はいずれもPhase20仮値、Phase27で最終調整
-- `refineLevel`の実戦闘計算（攻撃力・防御力）への反映はPhase24/27の責務として未実装
+- `refineLevel`の実戦闘計算（攻撃力・防御力）への反映は接続済み（本訂正で実装）。加算係数の最終値のみPhase27調整対象
 
 ## 開発計画への反映が必要な事項
 

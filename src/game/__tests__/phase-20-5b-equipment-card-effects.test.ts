@@ -20,7 +20,7 @@ describe('Phase 20.5b: moon and sun', () => {
       expect(getEquipmentInstanceById(state, instance.instanceId)!.refineLevel).toBe(1);
     });
 
-    it('clamps at EQUIPMENT_REFINE_LEVEL_CAP', () => {
+    it('never exceeds EQUIPMENT_REFINE_LEVEL_CAP (use fails outright once reached)', () => {
       const state = withCard(createInitialState(1), 'moon', 1);
       state.inventory.sword = 1;
       const instance = createEquipmentInstance(state, 'sword');
@@ -31,7 +31,7 @@ describe('Phase 20.5b: moon and sun', () => {
       expect(getEquipmentInstanceById(state, instance.instanceId)!.refineLevel).toBe(EQUIPMENT_REFINE_LEVEL_CAP);
     });
 
-    it('succeeds (consumes/identifies/advances turn) even at the cap', () => {
+    it('is a complete no-op (no consume/identify/turn/RNG) once the equipped instance is at the cap — rogue-of-sun-card-effects-spec.md\'s "強化上限に達した装備は対象にできない...使用不成立とする"', () => {
       const state = withCard(createInitialState(1), 'moon', 1);
       state.inventory.sword = 1;
       const instance = createEquipmentInstance(state, 'sword');
@@ -39,11 +39,13 @@ describe('Phase 20.5b: moon and sun', () => {
       state.equippedWeaponId = 'sword';
       state.equippedWeaponInstanceId = instance.instanceId;
       const turnBefore = state.turn;
+      const rngBefore = state.combatRngState;
       const result = processTurn(state, { type: 'use_item', itemId: 'moon' });
-      expect(result.consumed).toBe(true);
-      expect(state.inventory.moon).toBe(0);
-      expect(isCardIdentified(state, 'moon')).toBe(true);
-      expect(state.turn).toBe(turnBefore + 1);
+      expect(result.consumed).toBe(false);
+      expect(state.inventory.moon).toBe(1);
+      expect(isCardIdentified(state, 'moon')).toBe(false);
+      expect(state.turn).toBe(turnBefore);
+      expect(state.combatRngState).toBe(rngBefore);
     });
 
     it('fails outright when no weapon is equipped', () => {
@@ -123,7 +125,7 @@ describe('Phase 20.5b: moon and sun', () => {
       expect(getEquipmentInstanceById(state, instance.instanceId)!.refineLevel).toBe(1);
     });
 
-    it('clamps at EQUIPMENT_REFINE_LEVEL_CAP', () => {
+    it('never exceeds EQUIPMENT_REFINE_LEVEL_CAP (use fails outright once reached)', () => {
       const state = withCard(createInitialState(1), 'sun', 1);
       state.inventory.armor = 1;
       const instance = createEquipmentInstance(state, 'armor');
@@ -134,7 +136,7 @@ describe('Phase 20.5b: moon and sun', () => {
       expect(getEquipmentInstanceById(state, instance.instanceId)!.refineLevel).toBe(EQUIPMENT_REFINE_LEVEL_CAP);
     });
 
-    it('succeeds (consumes/identifies/advances turn) even at the cap', () => {
+    it('is a complete no-op (no consume/identify/turn/RNG) once the equipped instance is at the cap', () => {
       const state = withCard(createInitialState(1), 'sun', 1);
       state.inventory.armor = 1;
       const instance = createEquipmentInstance(state, 'armor');
@@ -142,9 +144,13 @@ describe('Phase 20.5b: moon and sun', () => {
       state.equippedArmorId = 'armor';
       state.equippedArmorInstanceId = instance.instanceId;
       const turnBefore = state.turn;
+      const rngBefore = state.combatRngState;
       const result = processTurn(state, { type: 'use_item', itemId: 'sun' });
-      expect(result.consumed).toBe(true);
-      expect(state.turn).toBe(turnBefore + 1);
+      expect(result.consumed).toBe(false);
+      expect(state.inventory.sun).toBe(1);
+      expect(isCardIdentified(state, 'sun')).toBe(false);
+      expect(state.turn).toBe(turnBefore);
+      expect(state.combatRngState).toBe(rngBefore);
     });
 
     it('fails outright when no armor is equipped', () => {
@@ -206,6 +212,53 @@ describe('Phase 20.5b: moon and sun', () => {
       processTurn(state, { type: 'use_item', itemId: 'sun' });
       const next = advanceToNextFloor(state);
       expect(getEquipmentInstanceById(next, instance.instanceId)!.refineLevel).toBe(1);
+    });
+  });
+
+  describe('combat_integration', () => {
+    it('moon\'s weapon refineLevel increases actual attack power via getPlayerWeaponBonus', async () => {
+      const { getEffectiveAttackPower } = await import('../turn');
+      const state = withCard(createInitialState(1), 'moon', 1);
+      state.inventory.sword = 1;
+      const instance = createEquipmentInstance(state, 'sword');
+      state.equippedWeaponId = 'sword';
+      state.equippedWeaponInstanceId = instance.instanceId;
+      const before = getEffectiveAttackPower(state);
+      processTurn(state, { type: 'use_item', itemId: 'moon' });
+      expect(getEffectiveAttackPower(state)).toBeGreaterThan(before);
+    });
+
+    it('sun\'s armor refineLevel increases actual defense via getEffectiveArmorValue', async () => {
+      const { getEffectivePlayerDefense } = await import('../turn');
+      const state = withCard(createInitialState(1), 'sun', 1);
+      state.inventory.armor = 1;
+      const instance = createEquipmentInstance(state, 'armor');
+      state.equippedArmorId = 'armor';
+      state.equippedArmorInstanceId = instance.instanceId;
+      const before = getEffectivePlayerDefense(state);
+      processTurn(state, { type: 'use_item', itemId: 'sun' });
+      expect(getEffectivePlayerDefense(state)).toBeGreaterThan(before);
+    });
+
+    it('an unrefined (refineLevel 0) weapon/armor contributes no extra bonus beyond the base value', async () => {
+      const { getEffectiveAttackPower, getEffectivePlayerDefense } = await import('../turn');
+      const weaponState = createInitialState(1);
+      weaponState.inventory.sword = 1;
+      const weaponInstance = createEquipmentInstance(weaponState, 'sword');
+      weaponState.equippedWeaponId = 'sword';
+      weaponState.equippedWeaponInstanceId = weaponInstance.instanceId;
+      const noInstanceState = createInitialState(1);
+      noInstanceState.equippedWeaponId = 'sword';
+      expect(getEffectiveAttackPower(weaponState)).toBe(getEffectiveAttackPower(noInstanceState));
+
+      const armorState = createInitialState(1);
+      armorState.inventory.armor = 1;
+      const armorInstance = createEquipmentInstance(armorState, 'armor');
+      armorState.equippedArmorId = 'armor';
+      armorState.equippedArmorInstanceId = armorInstance.instanceId;
+      const noArmorInstanceState = createInitialState(1);
+      noArmorInstanceState.equippedArmorId = 'armor';
+      expect(getEffectivePlayerDefense(armorState)).toBe(getEffectivePlayerDefense(noArmorInstanceState));
     });
   });
 

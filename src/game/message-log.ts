@@ -326,6 +326,7 @@ export function formatEvent(event: GameEvent): string {
       if (event.reason === 'no_valid_target') return `${name}を使ったが、対象がいない。`;
       if (event.reason === 'no_effect') return `${name}を使ったが、何も起こらなかった。`;
       if (event.reason === 'insufficient_resource') return `SOLが足りず、${name}を使えない。`;
+      if (event.reason === 'refine_cap_reached') return `${name}を使ったが、これ以上強化できない。`;
       return `${name}はまだ使えない。`;
     }
     case 'card_identified': {

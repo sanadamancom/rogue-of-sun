@@ -306,7 +306,7 @@ export type GameEvent =
   // this event pre-resolving one), so no additional information is
   // disclosed by including the id here.
   | { type: 'card_used'; cardId: CardId }
-  | { type: 'card_use_failed'; cardId: CardId; reason: 'sealed' | 'not_implemented' | 'no_valid_target' | 'no_effect' | 'insufficient_resource' }
+  | { type: 'card_use_failed'; cardId: CardId; reason: 'sealed' | 'not_implemented' | 'no_valid_target' | 'no_effect' | 'insufficient_resource' | 'refine_cap_reached' }
   | { type: 'card_identified'; cardId: CardId }
   // Phase 20.3: judgement's automatic death-interrupt. Fired at most once
   // per death-confirmation point (turn.ts's playerDefeated check), never
