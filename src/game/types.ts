@@ -48,6 +48,16 @@ export interface Room {
   height: number;
 }
 
+/**
+ * Phase 21.2: a floor's monster house state. `null` means this floor has
+ * no monster house. When present, `roomIndex` is a valid index into the
+ * floor's `GameMap.rooms` (never the start or exit room — see
+ * monster-house.ts's `extractMonsterHouseCandidateRooms`), and `status`
+ * tracks whether the player has triggered its discovery yet. See
+ * `GameMap.monsterHouse`'s doc comment for the full lifecycle.
+ */
+export type MonsterHouseState = { roomIndex: number; status: 'hidden' | 'revealed' } | null;
+
 export interface GameMap {
   width: number;
   height: number;
@@ -64,6 +74,24 @@ export interface GameMap {
    * room this floor".
    */
   darkRoomIndex?: number | null;
+  /**
+   * Phase 21.2: this floor's monster house state, or `null` when this
+   * floor has no monster house (ineligible floor, or the occurrence roll
+   * failed). Decided exactly once at floor-build time by
+   * monster-house.ts's `buildMonsterHouseFloorState` (see state.ts's
+   * buildFloorState, right after darkRoomIndex is set) and never
+   * re-rolled afterward — not on render, entry, turn advance, or reload.
+   * `roomIndex` is always a valid index into `rooms` drawn from
+   * monster-house.ts's `extractMonsterHouseCandidateRooms` candidate set
+   * (so never the start or exit room). `status` starts at `'hidden'`;
+   * the `'hidden'` -> `'revealed'` transition on first player entry is
+   * Phase 21.3's responsibility, not implemented here. Optional so every
+   * pre-Phase-21.2 GameMap literal (tests, fixtures) stays valid without
+   * this field; a map without it behaves exactly like "no monster house
+   * this floor" — see MonsterHouseState's own doc comment in
+   * monster-house.ts.
+   */
+  monsterHouse?: MonsterHouseState;
 }
 
 export interface Actor {

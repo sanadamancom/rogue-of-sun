@@ -11,6 +11,7 @@ import {
 } from './mapgen';
 import { createInitialActor, createInitialEnemy } from './turn';
 import { chooseDarkRoomIndex } from './dark-rooms';
+import { buildMonsterHouseFloorState, createMonsterHouseRng } from './monster-house';
 import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
 import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
 import { createEmptyInventory, drawGroundItemCount, drawWeightedGroundItemSelection, getWeightedGroundItemPoolForFloor } from './item-def';
@@ -197,6 +198,16 @@ function buildFloorState(
   // matches this field's doc comment on GameMap (owned by the map/floor
   // state, not derived ad hoc by the renderer).
   map.darkRoomIndex = chooseDarkRoomIndex(map, floorSeed, floor, placement.start, placement.exit);
+
+  // Phase 21.2: monster house state is decided exactly once here, using
+  // its own independent RNG stream (createMonsterHouseRng, XOR constant
+  // 0x6b2f4d97 — distinct from every other floorSeed-derived stream in
+  // this function) so it can never perturb placementRng/speciesRng/trap/
+  // item RNG sequences or their consumption order. Not yet connected to
+  // reveal/entry/enemy/reward/dark-room logic — see monster-house.ts and
+  // docs/history/phase-21-2-monster-house-floor-state.md.
+  const monsterHouseRng = createMonsterHouseRng(floorSeed, createRng);
+  map.monsterHouse = buildMonsterHouseFloorState(map, floor, placement.start, placement.exit, monsterHouseRng);
 
   const player: Actor = carry
     ? createInitialActor(placement.start, carry.maxHp, carry.attack, carry.defense, carry.accuracy, carry.evasion)
