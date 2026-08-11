@@ -106,6 +106,7 @@ function noopResult(): TurnResult {
     playerDefeated: false,
     playerRegenerated: false,
     playerRegenAmount: 0,
+    monsterHouseRevealed: false,
     events: [],
   };
 }

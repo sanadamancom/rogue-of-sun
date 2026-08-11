@@ -1,4 +1,5 @@
 import { directionBetweenAdjacent, isAdjacent, isOrthogonallyAdjacent } from './direction';
+import { applyMonsterHouseReveal } from './monster-house';
 import { canMove, destinationOf, isDiagonalCornerOpen, isInBounds, isWalkable } from './map';
 import { ENEMY_DEFINITIONS } from './enemy-def';
 import { ITEM_DEFINITIONS } from './item-def';
@@ -474,6 +475,16 @@ export interface TurnResult {
    * it from a coarser snapshot diff.
    */
   playerRegenAmount: number;
+  /**
+   * Phase 21.3: whether this turn's player move revealed a hidden monster
+   * house (hidden -> revealed transition — see monster-house.ts's
+   * applyMonsterHouseReveal). False for every non-move action, every
+   * blocked/failed move, every move that doesn't cross into a hidden
+   * monster house's room, and every floor without a monster house. This
+   * is the minimal observable boundary later phases (21.6 logging/UI/
+   * telemetry) can build on; nothing in this phase reacts to it.
+   */
+  monsterHouseRevealed: boolean;
   /**
    * Typed events produced while resolving this turn, in the exact order
    * the underlying actions occurred (player action first, then each
@@ -3398,6 +3409,7 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
       playerDefeated: false,
       playerRegenerated: false,
       playerRegenAmount: 0,
+      monsterHouseRevealed: false,
       events: [],
     };
   }
@@ -3425,6 +3437,7 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
       playerDefeated: false,
       playerRegenerated: false,
       playerRegenAmount: 0,
+      monsterHouseRevealed: false,
       events: [],
     };
   }
@@ -3447,6 +3460,7 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
       playerDefeated: false,
       playerRegenerated: false,
       playerRegenAmount: 0,
+      monsterHouseRevealed: false,
       events: [],
     };
   }
@@ -3475,6 +3489,7 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
       playerDefeated: false,
       playerRegenerated: false,
       playerRegenAmount: 0,
+      monsterHouseRevealed: false,
       // Blocked moves push nothing (events stays []), but an unconsumed
       // item-use failure (e.g. full HP) still pushes an explanatory event
       // (Phase 08.2 apple_use.full_hp requirement: "使用できない理由を表
@@ -3483,6 +3498,21 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
       events,
     };
   }
+
+  // Phase 21.3: monster house reveal, checked right after the player's
+  // move is confirmed to have actually happened (same move-happened test
+  // used by the additional-enemy-phase logic below) and before any enemy
+  // action resolves this turn — see monster-house.ts's
+  // applyMonsterHouseReveal doc comment for the full contract. Never
+  // consumes RNG, never changes roomIndex, and only matters when this
+  // move's source tile was outside the hidden monster house's room and
+  // its destination tile is inside it.
+  const moveHappenedForReveal =
+    action.type === 'move' &&
+    (state.player.pos.x !== posBeforeAction.x || state.player.pos.y !== posBeforeAction.y);
+  const monsterHouseRevealed = moveHappenedForReveal
+    ? applyMonsterHouseReveal(state.map, posBeforeAction, state.player.pos)
+    : false;
 
   const { acted: enemyActed, attacked: enemyAttacked } = resolveEnemiesAction(state, events);
 
@@ -3696,6 +3726,7 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
     playerDefeated,
     playerRegenerated,
     playerRegenAmount,
+    monsterHouseRevealed,
     events,
   };
 }

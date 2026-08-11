@@ -144,3 +144,46 @@ export function buildMonsterHouseFloorState(
   if (roomIndex === null) return null; // unreachable given candidates.length > 0, kept for type-safety
   return { roomIndex, status: 'hidden' };
 }
+
+/**
+ * Phase 21.3: reveals `map.monsterHouse` (hidden -> revealed) exactly when
+ * the player's move just now entered its room from outside it — i.e. all
+ * of: a monster house exists on this floor, its status is still
+ * `'hidden'`, `posBefore` is NOT inside `map.rooms[monsterHouse.roomIndex]`,
+ * and `posAfter` IS inside that room. Uses `roomIndexContaining`'s same
+ * half-open rectangle membership as Phase 21.1/21.2 — doorway/corridor
+ * tiles lie strictly outside every room rectangle (see doorway-rule.
+ * test.ts), so standing on a doorway approaching the room never reveals
+ * it; only actually landing on one of the room's floor tiles does.
+ *
+ * A pure mutation of `map.monsterHouse.status` only — `roomIndex` is left
+ * untouched, no new monster house is generated or re-rolled, and no RNG
+ * is consumed. Returns `true` if a reveal happened this call, `false`
+ * otherwise (including when `map.monsterHouse` is `undefined`/`null`,
+ * already `'revealed'`, or the move didn't cross into the room) — this
+ * boolean is the minimal observable boundary later phases (21.6 logging/
+ * UI/telemetry) can build on; this function itself does nothing beyond
+ * the state.status mutation. Safe to call on every move; re-entering an
+ * already-revealed room, moving within the room, moving outside it, or
+ * moving between two points both outside it are all no-ops.
+ *
+ * Callers are responsible for only invoking this after an actually-
+ * consumed player move and before enemy actions resolve (see
+ * turn.ts's processTurn) — this function does not itself inspect
+ * `action.type` or turn/consumption state.
+ */
+export function applyMonsterHouseReveal(map: GameMap, posBefore: Vec2, posAfter: Vec2): boolean {
+  const monsterHouse = map.monsterHouse;
+  if (!monsterHouse) return false;
+  if (monsterHouse.status !== 'hidden') return false;
+
+  const room = map.rooms[monsterHouse.roomIndex];
+  if (!room) return false; // defensive: roomIndex should always be valid per Phase 21.1/21.2's invariants
+
+  const wasInside = roomIndexContaining([room], posBefore) === 0;
+  const isInside = roomIndexContaining([room], posAfter) === 0;
+  if (wasInside || !isInside) return false;
+
+  monsterHouse.status = 'revealed';
+  return true;
+}
