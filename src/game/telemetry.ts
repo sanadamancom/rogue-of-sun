@@ -1680,7 +1680,7 @@ export interface TelemetryDocument {
 }
 
 /** Single source of truth for TelemetryDocument.gameVersion (maintenance-game-version-policy) — see that field's doc comment for the update rule. */
-export const CURRENT_GAME_VERSION = 'phase-19';
+export const CURRENT_GAME_VERSION = 'phase-20';
 
 /**
  * Builds the full exportable document: JSON.stringify of the return

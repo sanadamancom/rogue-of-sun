@@ -16,15 +16,15 @@
 
 ## refineLevel上限のクランプ規則
 
-`EQUIPMENT_REFINE_LEVEL_CAP`（Phase20.0c既存定数、変更なし）を用い`Math.min(cap, refineLevel+1)`。既に上限に達している場合も「効果0でも成立」の契約に従い消費・鑑定・ターン進行は成立する。
+`EQUIPMENT_REFINE_LEVEL_CAP`（Phase20.0c既存定数、変更なし）。装備中個体の`refineLevel`が上限未満の場合のみ正確に1増加し、消費・鑑定・1ターン進行・`card_refine_applied`イベントを伴い成立する。**上限に達している場合は使用不成立**（正本「強化上限に達した装備は対象にできない。装備中の対象が強化上限に達している場合は使用不成立とする」）であり、`Math.min`によるクランプを「成功契約」として扱わない——`instance.refineLevel >= EQUIPMENT_REFINE_LEVEL_CAP`を専用の事前チェックとして判定し、成立しない場合は`card_use_failed(reason:'refine_cap_reached')`を発行してカード消費・鑑定・ターン進行・RNG消費・`card_refine_applied`成功イベントのいずれも発生させない。
 
 ## production実装箇所
 
-`turn.ts`：`applyMoonCardUse`／`applySunCardUse`、`applyCardUse`ディスパッチへ登録。`events.ts`：`card_refine_applied`イベント（`refineLevelBefore`/`refineLevelAfter`比較で効果0判定可能）。`message-log.ts`：対応ログ。
+`turn.ts`：`applyMoonCardUse`／`applySunCardUse`、`applyCardUse`ディスパッチへ登録。上限未満のみ`refineLevel`を+1、上限到達時は`card_use_failed(reason:'refine_cap_reached')`で不成立（`fix: enforce refine cap rejection and connect refineLevel to combat calculations` commit `20d5e5db84e705c2df340e2860385b5cff1f27a5`で修正）。`getPlayerWeaponBonus`（武器与ダメージ）・`getEffectiveArmorValue`（防具防御）へ`refineLevel`加算を接続（同commit）。`events.ts`：`card_refine_applied`イベント（成功時のみ発行、`refineLevelBefore`/`refineLevelAfter`）、`card_use_failed`へ`insufficient_resource`・`refine_cap_reached`理由を追加。`message-log.ts`：対応ログ。
 
 ## 専用テストの完全な名称と結果
 
-`phase-20-5b-equipment-card-effects.test.ts`：21件、全通過（moon9、sun9、regression3）
+`phase-20-5b-equipment-card-effects.test.ts`：24件、全通過（moon9、sun9、combat_integration3、regression3）
 
 ## focused検証結果
 
@@ -32,11 +32,20 @@
 
 ## 全通常テストの結果
 
-**94ファイル、2380件、全通過**
+**94ファイル、2383件、全通過**
 
 ## typecheck・build・git diff --check結果
 
 いずれも成功・問題なし
+
+## closeoutでの追加訂正（Phase 20 closeout and main integration）
+
+本文書は初回作成時（Phase20.5b実装完了時）と、直後のcontract correction（commit `20d5e5d`）の内容が完全には反映されていなかった。今回のcloseout作業で以下を修正した。
+
+- 「refineLevel上限のクランプ規則」節に残っていた「上限到達時も効果0で成立する」という旧仕様の記述を削除し、正しい契約（上限到達時は使用不成立）へ書き換えた
+- 専用テスト件数を21件→24件、全体テスト件数を2380件→2383件へ実測に基づき修正
+- production実装箇所・変更ファイル一覧をcontract correction commitの内容を含む形へ更新
+- 20.0eが「Phase20の未完了項目」ではなく「development-plan.md上で明示的にPhase21以降へ延期された正本仕様」であることを明記
 
 ## 変更ファイル一覧
 
@@ -71,7 +80,8 @@
 
 ## Phase 21以降へ委ねる項目
 
-- 全17カードの`floorDropEnabled`は依然`false`のまま（床出現設計自体はPhase21以降）
+- **20.0e「出現・希少度基盤」は、`rogue-of-sun-development-plan.md`の単位表に「Phase 21以降へ延期」と明記された正本仕様であり、Phase20の未完了項目ではない**。Phase20では全17種の効果完成を優先し、通常生成方式の統一設計（カテゴリ→出現可能候補→C/B/A/S→本体→適用可能な状態）と、その production 接続は意図的に実施しなかった
+- 全17カードの`floorDropEnabled`は依然`false`のまま（床出現設計自体はPhase21以降の20.0e相当作業で決定）
 - `lootWeight`・`unlockFloor`の確定値決定（Phase20.0eの型自体は現存するが未使用のまま据え置き）
 - 敵ドロップ経路（`enemyDropEnabled`）は全カード`false`のまま未実装
 - 皇帝の軽減率・継続ターン数、正義・悪魔・塔のダメージ係数、月・太陽の`EQUIPMENT_REFINE_LEVEL_CAP`はいずれもPhase20仮値、Phase27で最終調整
