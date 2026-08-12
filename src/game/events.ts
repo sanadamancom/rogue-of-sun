@@ -346,4 +346,12 @@ export type GameEvent =
   // equipped instance. Fires on every success, including the
   // zero-effect case (already at EQUIPMENT_REFINE_LEVEL_CAP) — compare
   // refineLevelBefore/After to tell them apart without a separate flag.
-  | { type: 'card_refine_applied'; cardId: CardId; instanceId: string; refineLevelBefore: number; refineLevelAfter: number };
+  | { type: 'card_refine_applied'; cardId: CardId; instanceId: string; refineLevelBefore: number; refineLevelAfter: number }
+  // Phase 21.7: fired exactly once, the same turn Phase 21.3's
+  // applyMonsterHouseReveal actually flips a monster house from
+  // 'hidden' to 'revealed' (never on re-entry, never on a blocked/
+  // unsuccessful move, never on floor generation). Deliberately carries
+  // no unseen information (no room coordinates, enemy count, or reward
+  // count) — see message-log.ts's formatEvent for the fixed notification
+  // text this maps to.
+  | { type: 'monster_house_revealed' };

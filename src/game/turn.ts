@@ -3522,6 +3522,14 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
   const monsterHouseRevealed = moveHappenedForReveal
     ? applyMonsterHouseReveal(state.map, posBeforeAction, state.player.pos)
     : false;
+  // Phase 21.7: fired exactly once, the same call where the status
+  // transition itself just happened above — never re-derived from
+  // state.map.monsterHouse.status later, so re-entry/reload/re-render
+  // can never re-trigger it (there is no later read of that field this
+  // event depends on).
+  if (monsterHouseRevealed) {
+    events.push({ type: 'monster_house_revealed' });
+  }
 
   const { acted: enemyActed, attacked: enemyAttacked } = resolveEnemiesAction(state, events);
 

@@ -358,6 +358,8 @@ export function formatEvent(event: GameEvent): string {
         ? `${cardName}の効果で装備の輝きが増した。（+${event.refineLevelAfter}）`
         : `${cardName}を使ったが、これ以上輝きは増さなかった。`;
     }
+    case 'monster_house_revealed':
+      return 'モンスターハウスだ！';
     default: {
       const exhaustiveCheck: never = event;
       throw new Error(`Unhandled game event: ${JSON.stringify(exhaustiveCheck)}`);
