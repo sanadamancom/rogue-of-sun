@@ -12,6 +12,14 @@ import {
 import { createInitialActor, createInitialEnemy } from './turn';
 import { chooseDarkRoomIndex } from './dark-rooms';
 import { buildMonsterHouseFloorState, createMonsterHouseRng } from './monster-house';
+import {
+  chooseMonsterHouseEnemyTypes,
+  computeMonsterHouseCandidateCells,
+  computeMonsterHouseEnemyCount,
+  createMonsterHouseEnemyPositionRng,
+  createMonsterHouseEnemySpeciesRng,
+  selectMonsterHouseEnemyPositions,
+} from './monster-house';
 import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
 import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
 import { createEmptyInventory, drawGroundItemCount, drawWeightedGroundItemSelection, getWeightedGroundItemPoolForFloor } from './item-def';
@@ -112,7 +120,7 @@ const INITIAL_MAX_SOLAR_ENERGY = 15;
  * Selection remains a uniform draw over whatever pool is passed in — this
  * function does not itself know about floor numbers.
  */
-function chooseSpecies(count: number, rng: () => number, pool: EnemyType[]): EnemyType[] {
+export function chooseSpecies(count: number, rng: () => number, pool: EnemyType[]): EnemyType[] {
   const types: EnemyType[] = [];
   for (let i = 0; i < count; i++) {
     const index = Math.floor(rng() * pool.length);
@@ -121,11 +129,11 @@ function chooseSpecies(count: number, rng: () => number, pool: EnemyType[]): Ene
   return types;
 }
 
-function buildEnemies(positions: Vec2[], types: EnemyType[], spawnTurn: number): EnemyActor[] {
+export function buildEnemies(positions: Vec2[], types: EnemyType[], spawnTurn: number, idOffset: number = 0): EnemyActor[] {
   return positions.map((pos, i) => {
     const type = types[i];
     const def = ENEMY_DEFINITIONS[type];
-    return createInitialEnemy(type, pos, def.hp, def.attack, spawnTurn, i, def.defense, def.accuracy, def.evasion);
+    return createInitialEnemy(type, pos, def.hp, def.attack, spawnTurn, idOffset + i, def.defense, def.accuracy, def.evasion);
   });
 }
 
@@ -248,7 +256,7 @@ function buildFloorState(
       return type;
     });
   }
-  const enemies = buildEnemies(placement.enemies, types, turn);
+  const enemies: EnemyActor[] = buildEnemies(placement.enemies, types, turn).map((e) => ({ ...e, spawnSource: 'normal' as const }));
 
   // Phase 15.4b random ground item generation (replaces the previous
   // per-item, per-floor-condition guaranteed-placement blocks — see
@@ -267,7 +275,11 @@ function buildFloorState(
   // traps were placed after most, but not all, items) so that ground
   // items can uniformly exclude every trap tile — traps themselves only
   // ever need to exclude start/exit/every enemy position, since no
-  // ground item exists yet at this point in generation.
+  // ground item exists yet at this point in generation. Phase 21.4:
+  // dedicated monster-house enemies are generated AFTER this point (see
+  // below, right before `state` is assembled), specifically so trap and
+  // ground-item generation stay completely untouched by their existence
+  // — dedicated enemies avoid trap/item positions, never the reverse.
   const traps: TrapTile[] = [];
   const slowTrapExclusions = [placement.start, placement.exit, ...placement.enemies];
   const slowTrapRng = createRng(floorSeed ^ 0x1a6f83c5);
@@ -402,6 +414,43 @@ function buildFloorState(
     } else {
       groundItems.push({ id: groundItems.length, itemId, pos });
     }
+  }
+
+  // Phase 21.4: dedicated monster-house enemies, generated last — after
+  // every normal generation step (enemies, traps, ground items,
+  // equipment) has fully finished — so the dedicated roster is the one
+  // that avoids their positions, never the reverse, and normal
+  // generation's own RNG streams/results are completely untouched by
+  // whether a monster house exists at all. Position and species draws
+  // each use their own independent RNG stream (distinct XOR constants
+  // from every other floorSeed-derived stream, including monster-house
+  // occurrence/selection's own 0x6b2f4d97), consumed only when
+  // map.monsterHouse is non-null. Count (N) is derived purely from how
+  // many eligible cells remain (C) — never from the floor number — via
+  // computeMonsterHouseEnemyCount's N=clamp(ceil(sqrt(C)),4,8); a floor
+  // number is only ever used afterward, to pick this floor's legal enemy
+  // species pool (same as normal generation). See monster-house.ts and
+  // docs/history/phase-21-4-monster-house-enemy-placement.md.
+  if (map.monsterHouse) {
+    const monsterHouseRoomIndex = map.monsterHouse.roomIndex;
+    const occupiedExclusions: Vec2[] = [
+      placement.start,
+      placement.exit,
+      ...placement.enemies,
+      ...traps.map((t) => t.pos),
+      ...groundItems.map((item) => item.pos),
+    ];
+    const candidateCells = computeMonsterHouseCandidateCells(map, monsterHouseRoomIndex, occupiedExclusions);
+    const dedicatedCount = computeMonsterHouseEnemyCount(candidateCells.length);
+    const positionRng = createMonsterHouseEnemyPositionRng(floorSeed, createRng);
+    const speciesRng = createMonsterHouseEnemySpeciesRng(floorSeed, createRng);
+    const dedicatedPositions = selectMonsterHouseEnemyPositions(candidateCells, dedicatedCount, positionRng);
+    const dedicatedTypes = chooseMonsterHouseEnemyTypes(dedicatedCount, floor, speciesRng, types.includes('golem'));
+    const dedicatedEnemies = buildEnemies(dedicatedPositions, dedicatedTypes, turn, enemies.length).map((e) => ({
+      ...e,
+      spawnSource: 'monster_house' as const,
+    }));
+    enemies.push(...dedicatedEnemies);
   }
 
   const state: GameState = {

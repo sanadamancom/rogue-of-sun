@@ -13,8 +13,9 @@
  * of which floors get a monster house at all, is Phase 21.2's job.
  */
 
-import { GameMap, MonsterHouseState, Vec2 } from './types';
+import { EnemyType, GameMap, MonsterHouseState, Vec2 } from './types';
 import { roomIndexContaining } from './mapgen';
+import { getEnemyPoolForFloor } from './enemy-def';
 
 /**
  * Returns the indices (into `map.rooms`, ascending) of every room that is
@@ -186,4 +187,201 @@ export function applyMonsterHouseReveal(map: GameMap, posBefore: Vec2, posAfter:
 
   monsterHouse.status = 'revealed';
   return true;
+}
+
+/**
+ * Phase 21.4: dedicated monster-house enemy count as a pure function of
+ * the number of eligible placement cells (`C`), never the floor number —
+ * `N = clamp(ceil(sqrt(C)), 4, 8)`. Deliberately floor-independent: the
+ * dedicated roster size scales with how much room the target room
+ * actually has, not with which floor it's on, so adding future floors
+ * never requires touching this function or adding a floor-number branch
+ * here. Throws explicitly if `C < 4` — this codebase's existing
+ * convention of failing loudly rather than silently placing fewer
+ * enemies than intended (see e.g. mapgen.ts's chooseGroundItemPosition).
+ * Consumes no RNG.
+ */
+export function computeMonsterHouseEnemyCount(candidateCellCount: number): number {
+  if (candidateCellCount < 4) {
+    throw new Error(
+      `computeMonsterHouseEnemyCount: only ${candidateCellCount} eligible placement cells, need at least 4`,
+    );
+  }
+  const raw = Math.ceil(Math.sqrt(candidateCellCount));
+  return Math.min(8, Math.max(4, raw));
+}
+
+function key(pos: Vec2): string {
+  return `${pos.x},${pos.y}`;
+}
+
+/**
+ * Phase 21.4: every floor tile inside `map.rooms[roomIndex]` that is
+ * walkable ('floor') and has at least one orthogonal neighbor that is (a)
+ * walkable and (b) NOT inside that same room rectangle — i.e. a doorway/
+ * corridor tile or a different room's tile lying just outside it. This is
+ * exactly "the room-interior tile a player first steps onto when entering
+ * from outside" for every doorway feeding this room (doorway tiles
+ * themselves always lie strictly outside every room rectangle — see
+ * doorway-rule.test.ts — so they are never entry cells themselves, only
+ * adjacent to one). Pure; does not mutate `map`.
+ */
+export function computeMonsterHouseEntryCells(map: GameMap, roomIndex: number): Vec2[] {
+  const room = map.rooms[roomIndex];
+  if (!room) return [];
+
+  const isWalkableFloorTile = (pos: Vec2): boolean =>
+    pos.x >= 0 && pos.x < map.width && pos.y >= 0 && pos.y < map.height && map.terrain[pos.y][pos.x] === 'floor';
+
+  const entryCells: Vec2[] = [];
+  const deltas: Vec2[] = [
+    { x: 0, y: -1 },
+    { x: 0, y: 1 },
+    { x: -1, y: 0 },
+    { x: 1, y: 0 },
+  ];
+
+  for (let y = room.y; y < room.y + room.height; y++) {
+    for (let x = room.x; x < room.x + room.width; x++) {
+      const pos = { x, y };
+      if (!isWalkableFloorTile(pos)) continue;
+
+      const hasOutsideNeighbor = deltas.some((d) => {
+        const neighbor = { x: x + d.x, y: y + d.y };
+        if (!isWalkableFloorTile(neighbor)) return false;
+        return roomIndexContaining([room], neighbor) !== 0;
+      });
+      if (hasOutsideNeighbor) entryCells.push(pos);
+    }
+  }
+
+  return entryCells;
+}
+
+/**
+ * Phase 21.4: every eligible dedicated-monster-house-enemy placement cell
+ * inside `map.rooms[roomIndex]` — every 'floor' tile in the room
+ * rectangle, minus every entry cell (`computeMonsterHouseEntryCells`) and
+ * minus every position in `exclusions` (player/start, exit, every already
+ * -finalized normal enemy/trap/ground-item/equipment position — see
+ * state.ts's call site, which computes this only after every normal
+ * generation step has fully finished). Deduplicates by coordinate. Pure;
+ * does not mutate `map` or `exclusions`. The length of this array is `C`
+ * — feed it directly to `computeMonsterHouseEnemyCount`.
+ */
+export function computeMonsterHouseCandidateCells(map: GameMap, roomIndex: number, exclusions: Vec2[]): Vec2[] {
+  const room = map.rooms[roomIndex];
+  if (!room) return [];
+
+  const entryCellKeys = new Set(computeMonsterHouseEntryCells(map, roomIndex).map(key));
+  const excludedKeys = new Set(exclusions.map(key));
+
+  const candidates: Vec2[] = [];
+  for (let y = room.y; y < room.y + room.height; y++) {
+    for (let x = room.x; x < room.x + room.width; x++) {
+      if (map.terrain[y][x] !== 'floor') continue;
+      const pos = { x, y };
+      const k = key(pos);
+      if (entryCellKeys.has(k)) continue;
+      if (excludedKeys.has(k)) continue;
+      candidates.push(pos);
+    }
+  }
+  return candidates;
+}
+
+/**
+ * Phase 21.4: selects `count` distinct positions from `candidates`
+ * (typically `computeMonsterHouseCandidateCells`'s output), uniformly at
+ * random, via a partial Fisher-Yates shuffle — exactly one `rng()` call
+ * per candidate considered during the shuffle (standard shuffle cost),
+ * never re-rolling a duplicate. Never mutates the input `candidates`
+ * array (copies internally). Throws explicitly if
+ * `candidates.length < count` — same explicit-failure convention as
+ * `computeMonsterHouseEnemyCount`.
+ */
+export function selectMonsterHouseEnemyPositions(candidates: Vec2[], count: number, rng: () => number): Vec2[] {
+  if (candidates.length < count) {
+    throw new Error(
+      `selectMonsterHouseEnemyPositions: only ${candidates.length} candidate cells, need ${count}`,
+    );
+  }
+  const pool = candidates.slice();
+  for (let i = 0; i < count; i++) {
+    const j = i + Math.floor(rng() * (pool.length - i));
+    const tmp = pool[i];
+    pool[i] = pool[j];
+    pool[j] = tmp;
+  }
+  return pool.slice(0, count);
+}
+
+/**
+ * Phase 21.4: chooses `count` enemy species for the dedicated monster-
+ * house roster, reusing the exact same legal per-floor pool
+ * (enemy-def.ts's `getEnemyPoolForFloor`) and the same uniform-draw
+ * selection shape as normal enemy generation (state.ts's `chooseSpecies`,
+ * which this mirrors rather than imports to avoid a circular dependency
+ * between monster-house.ts and state.ts — both are one-line uniform
+ * `Math.floor(rng() * pool.length)` draws over the identical pool).
+ * Applies the same floor-2 golem-cap rule state.ts's normal generation
+ * applies (never more than one golem spawning on floor 2 across the
+ * *entire floor*, not just within one roster) — `golemAlreadyPresent`
+ * lets the caller report whether normal generation already placed the
+ * floor's one allowed golem, so this dedicated roster never adds a
+ * second one; every extra golem draw (including a second one drawn here
+ * even when normal generation had none) is demoted to 'bok', always
+ * present in every floor's pool. Consumes exactly one rng() call per
+ * position (no extra calls from the dedup step, which is pure post-
+ * processing).
+ */
+export function chooseMonsterHouseEnemyTypes(
+  count: number,
+  floor: number,
+  rng: () => number,
+  golemAlreadyPresent: boolean = false,
+): EnemyType[] {
+  const pool = getEnemyPoolForFloor(floor);
+  const types: EnemyType[] = [];
+  for (let i = 0; i < count; i++) {
+    const index = Math.floor(rng() * pool.length);
+    types.push(pool[index]);
+  }
+
+  if (floor === 2) {
+    let sawGolem = golemAlreadyPresent;
+    return types.map((type) => {
+      if (type !== 'golem') return type;
+      if (sawGolem) return 'bok';
+      sawGolem = true;
+      return type;
+    });
+  }
+
+  return types;
+}
+
+/**
+ * Phase 21.4: derives this floor's dedicated monster-house enemy RNG
+ * streams (position, species) from `floorSeed`, using two dedicated XOR
+ * constants distinct from every other existing floorSeed-derived stream
+ * (placement: 0x51ed270b, species: 0x8f3c9d21, slow trap: 0x1a6f83c5,
+ * poison trap: 0x3f9c5e82, item count: 0xa3c17f05, item selection:
+ * 0x5c2e91d3, item placement: 0x91b6d8e4, equipment curse: 0xc7d4a19e,
+ * monster house occurrence/selection: 0x6b2f4d97). Two separate streams
+ * (not one shared) matches this codebase's existing convention of never
+ * mixing a "which species" draw and a "which position" draw on the same
+ * stream (see placementRng vs speciesRng). Only ever called when a
+ * monster house actually exists on this floor — a floor with none never
+ * creates or consumes these streams at all.
+ */
+const MONSTER_HOUSE_ENEMY_POSITION_RNG_XOR = 0x2d84b6f1;
+const MONSTER_HOUSE_ENEMY_SPECIES_RNG_XOR = 0x7a19e3c8;
+
+export function createMonsterHouseEnemyPositionRng(floorSeed: number, createRngFn: (seed: number) => () => number): () => number {
+  return createRngFn(floorSeed ^ MONSTER_HOUSE_ENEMY_POSITION_RNG_XOR);
+}
+
+export function createMonsterHouseEnemySpeciesRng(floorSeed: number, createRngFn: (seed: number) => () => number): () => number {
+  return createRngFn(floorSeed ^ MONSTER_HOUSE_ENEMY_SPECIES_RNG_XOR);
 }

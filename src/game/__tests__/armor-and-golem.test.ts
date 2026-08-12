@@ -356,13 +356,20 @@ describe('floor 2 golem availability (Phase 08.4)', () => {
     }
   });
 
-  it("2F total enemy count matches ENEMY_COUNT_BY_FLOOR[2] (Phase 15.5: 7, previously a flat 2)", () => {
+  it("2F normal enemy count matches ENEMY_COUNT_BY_FLOOR[2] (Phase 15.5: 7, previously a flat 2)", () => {
     let state: GameState = createInitialState(7);
     state.enemies.forEach((e) => (e.alive = false));
     state.player.pos = { ...state.exit };
     processTurn(state, { type: 'wait' });
     state = advanceToNextFloor(state);
-    expect(state.enemies).toHaveLength(ENEMY_COUNT_BY_FLOOR[2]);
+    // Phase 21.4 correction: ENEMY_COUNT_BY_FLOOR counts NORMAL enemies
+    // only. Filter out dedicated monster-house enemies (spawnSource:
+    // 'monster_house') before comparing — an enemy with spawnSource
+    // absent is still treated as normal, matching every enemy's default
+    // treatment elsewhere in production (see monster-house.ts/turn.ts's
+    // hidden-check). Expected value 7 is unchanged.
+    const normalEnemies = state.enemies.filter((e) => e.spawnSource !== 'monster_house');
+    expect(normalEnemies).toHaveLength(ENEMY_COUNT_BY_FLOOR[2]);
   });
 
   it('golem stats are unchanged when it appears on 2F (HP10, attack 12, slow_melee) (Phase 15.1 rebalance)', () => {

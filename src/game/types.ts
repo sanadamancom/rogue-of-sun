@@ -288,6 +288,19 @@ export interface EnemyActor extends Actor {
    * resolveEnemiesAction.
    */
   actionGauge: number;
+  /**
+   * Phase 21.4: this enemy's spawn origin. `'monster_house'` marks a
+   * dedicated monster-house enemy (see monster-house.ts's
+   * buildMonsterHouseEnemies); every other enemy — including every
+   * pre-Phase-21.4 EnemyActor literal across the test suite, where this
+   * field is simply absent — is treated as `'normal'`. Absent/undefined
+   * behaves identically to `'normal'` (see turn.ts's resolveEnemiesAction
+   * hidden-suppression check): only an enemy explicitly tagged
+   * `'monster_house'` can ever be suppressed while its monster house is
+   * hidden. Never itself read by combat, AI, or drop logic — purely an
+   * origin tag.
+   */
+  spawnSource?: 'normal' | 'monster_house';
 }
 
 // 'floor_cleared' is a transient signal set for a single processTurn call

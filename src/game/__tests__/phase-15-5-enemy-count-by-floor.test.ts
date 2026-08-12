@@ -11,10 +11,21 @@ describe('Phase 15.5: ENEMY_COUNT_BY_FLOOR canonical values', () => {
 });
 
 describe('Phase 15.5: normal generation uses the per-floor count', () => {
+  // Phase 21.4 correction: ENEMY_COUNT_BY_FLOOR (6/7/8) counts NORMAL
+  // enemies only — it was never a fixed total for state.enemies, but the
+  // distinction was invisible before Phase 21.4 introduced dedicated
+  // monster-house enemies (spawnSource: 'monster_house') that also live
+  // in state.enemies. These assertions now filter to
+  // spawnSource !== 'monster_house' (which also correctly includes any
+  // enemy with spawnSource absent, matching every enemy's default
+  // treatment as normal — see monster-house.ts/turn.ts's hidden-check).
+  // The expected values themselves (6/7/8) are unchanged.
+  const isNormalEnemy = (e: { spawnSource?: 'normal' | 'monster_house' }) => e.spawnSource !== 'monster_house';
+
   it('floor 1 always generates exactly 6 enemies', () => {
     for (let seed = 0; seed < 60; seed++) {
       const state = createInitialState(seed);
-      expect(state.enemies).toHaveLength(6);
+      expect(state.enemies.filter(isNormalEnemy)).toHaveLength(6);
     }
   });
 
@@ -24,7 +35,7 @@ describe('Phase 15.5: normal generation uses the per-floor count', () => {
       state.enemies.forEach((e) => (e.alive = false));
       state.player.pos = { ...state.exit };
       state = advanceToNextFloor(state);
-      expect(state.enemies).toHaveLength(7);
+      expect(state.enemies.filter(isNormalEnemy)).toHaveLength(7);
     }
   });
 
@@ -37,7 +48,7 @@ describe('Phase 15.5: normal generation uses the per-floor count', () => {
         state = advanceToNextFloor(state);
       }
       expect(state.floor).toBe(3);
-      expect(state.enemies).toHaveLength(8);
+      expect(state.enemies.filter(isNormalEnemy)).toHaveLength(8);
     }
   });
 });
@@ -155,17 +166,19 @@ describe('Phase 15.5: robustness (1000 seeds per floor, 300 multi-floor runs)', 
     }).not.toThrow();
   });
 
+  const isNormalEnemy = (e: { spawnSource?: 'normal' | 'monster_house' }) => e.spawnSource !== 'monster_house';
+
   it('a full 3-floor run never throws across 300 seeds, and every floor has the correct enemy count', () => {
     for (let seed = 0; seed < 300; seed++) {
       let state = createInitialState(seed);
-      expect(state.enemies).toHaveLength(6);
+      expect(state.enemies.filter(isNormalEnemy)).toHaveLength(6);
       for (let floor = 1; floor < 3; floor++) {
         state.enemies.forEach((e) => (e.alive = false));
         state.player.pos = { ...state.exit };
         state = advanceToNextFloor(state);
       }
       expect(state.floor).toBe(3);
-      expect(state.enemies).toHaveLength(8);
+      expect(state.enemies.filter(isNormalEnemy)).toHaveLength(8);
     }
   });
 

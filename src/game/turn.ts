@@ -3201,6 +3201,15 @@ function resolveEnemiesAction(
 
   for (const enemy of state.enemies) {
     if (!enemy.alive) continue;
+    // Phase 21.4: a dedicated monster-house enemy takes no action while
+    // its monster house is still hidden — skipped before any RNG or
+    // action-gauge consumption, so this never perturbs any other enemy's
+    // action count/order, and never consumes RNG itself. Once revealed
+    // (Phase 21.3's applyMonsterHouseReveal, which always runs before
+    // this loop starts for the turn it happens on), this same loop
+    // includes it exactly like any other living enemy from that point
+    // on — no separate re-activation step exists or is needed.
+    if (enemy.spawnSource === 'monster_house' && state.map.monsterHouse?.status === 'hidden') continue;
     const playerSpeed = getPlayerSpeed(state);
     enemy.actionGauge += ENEMY_BASE_SPEED;
     while (enemy.actionGauge >= playerSpeed) {
