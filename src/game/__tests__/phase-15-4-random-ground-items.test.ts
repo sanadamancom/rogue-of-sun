@@ -255,11 +255,20 @@ describe('Phase 15.4b: already-unlocked enchantments are excluded from re-select
 
 describe('Phase 15.4b: generation-level invariants across many seeds', () => {
   it('every floor of every seed produces between 2 and 6 groundItems', () => {
+    // Phase 21.5 correction: this invariant covers NORMAL ground items
+    // only — it was never a fixed total for state.groundItems, but the
+    // distinction was invisible before Phase 21.5 introduced dedicated
+    // monster-house rewards (spawnSource: 'monster_house') that also
+    // live in state.groundItems. Filter to spawnSource !== 'monster_house'
+    // (which also correctly includes any item with spawnSource absent,
+    // matching every ground item's default treatment). The bounds (2-6)
+    // themselves are unchanged.
     for (let seed = 0; seed < 150; seed++) {
       let state = createInitialState(seed);
       for (let floor = 1; floor <= 3; floor++) {
-        expect(state.groundItems.length).toBeGreaterThanOrEqual(2);
-        expect(state.groundItems.length).toBeLessThanOrEqual(6);
+        const normalGroundItems = state.groundItems.filter((item) => item.spawnSource !== 'monster_house');
+        expect(normalGroundItems.length).toBeGreaterThanOrEqual(2);
+        expect(normalGroundItems.length).toBeLessThanOrEqual(6);
         if (floor < 3) {
           state.enemies.forEach((e) => (e.alive = false));
           state.player.pos = { ...state.exit };

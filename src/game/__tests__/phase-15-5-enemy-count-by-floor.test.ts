@@ -119,11 +119,15 @@ describe('Phase 15.5: enemy species pool is unaffected by the count change', () 
 
 describe('Phase 15.5: interaction with Phase 15.4b ground item / trap generation', () => {
   it('groundItems still land between 2 and 6 per floor after the enemy count increase', () => {
+    // Phase 21.5 correction: same normal-vs-total distinction as
+    // phase-15-4-random-ground-items.test.ts — filter out dedicated
+    // monster-house rewards before checking the 2-6 bound.
     for (let seed = 0; seed < 100; seed++) {
       let state = createInitialState(seed);
       for (let floor = 1; floor <= 3; floor++) {
-        expect(state.groundItems.length).toBeGreaterThanOrEqual(2);
-        expect(state.groundItems.length).toBeLessThanOrEqual(6);
+        const normalGroundItems = state.groundItems.filter((item) => item.spawnSource !== 'monster_house');
+        expect(normalGroundItems.length).toBeGreaterThanOrEqual(2);
+        expect(normalGroundItems.length).toBeLessThanOrEqual(6);
         if (floor < 3) {
           state.enemies.forEach((e) => (e.alive = false));
           state.player.pos = { ...state.exit };

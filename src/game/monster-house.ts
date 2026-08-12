@@ -385,3 +385,62 @@ export function createMonsterHouseEnemyPositionRng(floorSeed: number, createRngF
 export function createMonsterHouseEnemySpeciesRng(floorSeed: number, createRngFn: (seed: number) => () => number): () => number {
   return createRngFn(floorSeed ^ MONSTER_HOUSE_ENEMY_SPECIES_RNG_XOR);
 }
+
+/**
+ * Phase 21.5: provisional fixed dedicated-reward count per monster house
+ * occurrence. Not balance-final — a placeholder to make the reward
+ * element exist at all, reconsidered in a later balance pass (see
+ * phase-21-5 history doc). Deliberately not derived from room size (C)
+ * the way Phase 21.4's enemy count is; that's a design choice for a
+ * later Phase, not an oversight.
+ */
+export const MONSTER_HOUSE_REWARD_COUNT = 3;
+
+/**
+ * Phase 21.5: derives this floor's dedicated monster-house reward
+ * position RNG stream from `floorSeed`, using a dedicated XOR constant
+ * distinct from every other existing floorSeed-derived stream (placement:
+ * 0x51ed270b, species: 0x8f3c9d21, slow trap: 0x1a6f83c5, poison trap:
+ * 0x3f9c5e82, item count: 0xa3c17f05, item selection: 0x5c2e91d3, item
+ * placement: 0x91b6d8e4, equipment curse: 0xc7d4a19e, monster house
+ * occurrence/selection: 0x6b2f4d97, monster house enemy position:
+ * 0x2d84b6f1, monster house enemy species: 0x7a19e3c8). Only ever called
+ * when a monster house actually exists on this floor.
+ */
+const MONSTER_HOUSE_REWARD_POSITION_RNG_XOR = 0x4e7bc218;
+const MONSTER_HOUSE_REWARD_SELECTION_RNG_XOR = 0x9f1a5d63;
+
+export function createMonsterHouseRewardPositionRng(floorSeed: number, createRngFn: (seed: number) => () => number): () => number {
+  return createRngFn(floorSeed ^ MONSTER_HOUSE_REWARD_POSITION_RNG_XOR);
+}
+
+export function createMonsterHouseRewardSelectionRng(floorSeed: number, createRngFn: (seed: number) => () => number): () => number {
+  return createRngFn(floorSeed ^ MONSTER_HOUSE_REWARD_SELECTION_RNG_XOR);
+}
+
+/**
+ * Phase 21.5: selects up to `count` distinct positions from `candidates`,
+ * uniformly at random, via the same partial Fisher-Yates shuffle as
+ * `selectMonsterHouseEnemyPositions` — but degrades gracefully instead of
+ * throwing when `candidates.length < count`: it simply returns every
+ * available candidate (i.e. `min(count, candidates.length)` positions)
+ * rather than failing generation or padding with duplicates. This
+ * matches Phase 21.5's insufficient_capacity contract (place as many as
+ * fit, never throw, never delete existing generation to make room) —
+ * deliberately different from Phase 21.4's enemy placement, which does
+ * throw on shortfall. Consumes one rng() call per candidate considered
+ * during the shuffle (0 calls if candidates is empty). Never mutates the
+ * input `candidates` array.
+ */
+export function selectMonsterHouseRewardPositions(candidates: Vec2[], count: number, rng: () => number): Vec2[] {
+  const actualCount = Math.min(count, candidates.length);
+  if (actualCount === 0) return [];
+  const pool = candidates.slice();
+  for (let i = 0; i < actualCount; i++) {
+    const j = i + Math.floor(rng() * (pool.length - i));
+    const tmp = pool[i];
+    pool[i] = pool[j];
+    pool[j] = tmp;
+  }
+  return pool.slice(0, actualCount);
+}

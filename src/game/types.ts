@@ -984,6 +984,17 @@ export interface GroundItem {
    * equipmentInstanceId through rather than creating a fresh one).
    */
   equipmentInstanceId?: string;
+  /**
+   * Phase 21.5: this ground item's spawn origin. `'monster_house'` marks
+   * a dedicated monster-house reward (see state.ts's buildFloorState,
+   * generated after every normal ground item); every other ground item —
+   * including every pre-Phase-21.5 GroundItem literal across the test
+   * suite, where this field is simply absent — is treated as `'normal'`.
+   * Absent/undefined behaves identically to `'normal'`. Never itself read
+   * by pickup/inventory/equipment logic — purely an origin tag, mirroring
+   * EnemyActor.spawnSource's Phase 21.4 pattern.
+   */
+  spawnSource?: 'normal' | 'monster_house';
 }
 
 export type PlayerAction =

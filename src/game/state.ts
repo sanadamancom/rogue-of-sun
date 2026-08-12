@@ -18,11 +18,21 @@ import {
   computeMonsterHouseEnemyCount,
   createMonsterHouseEnemyPositionRng,
   createMonsterHouseEnemySpeciesRng,
+  createMonsterHouseRewardPositionRng,
+  createMonsterHouseRewardSelectionRng,
+  MONSTER_HOUSE_REWARD_COUNT,
   selectMonsterHouseEnemyPositions,
+  selectMonsterHouseRewardPositions,
 } from './monster-house';
 import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
 import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
-import { createEmptyInventory, drawGroundItemCount, drawWeightedGroundItemSelection, getWeightedGroundItemPoolForFloor } from './item-def';
+import {
+  createEmptyInventory,
+  drawGroundItemCount,
+  drawWeightedGroundItemSelection,
+  ENCHANTMENT_ITEM_IDS,
+  getWeightedGroundItemPoolForFloor,
+} from './item-def';
 import { CARD_IDS_IN_ORDER } from './card-def';
 import {
   FLOOR_EQUIPMENT_CURSE_CHANCE,
@@ -451,6 +461,66 @@ function buildFloorState(
       spawnSource: 'monster_house' as const,
     }));
     enemies.push(...dedicatedEnemies);
+
+    // Phase 21.5: dedicated monster-house rewards, generated right after
+    // dedicated enemies so their positions are excluded too — reward
+    // placement never causes normal generation (or Phase 21.4's enemy
+    // placement) to be redone, moved, or deleted; it only ever avoids
+    // everything already finalized. Uses its own two independent RNG
+    // streams (position, selection — same pattern as normal item
+    // generation's itemCountRng/itemSelectionRng split), consumed only
+    // when a monster house exists. Item candidates reuse the exact same
+    // legal weighted pool as normal ground item generation
+    // (getWeightedGroundItemPoolForFloor), which already excludes cards
+    // (floorDropEnabled: false) and any valuables/keys/debug items not
+    // in that pool — no new reward table is introduced. Degrades to
+    // fewer than MONSTER_HOUSE_REWARD_COUNT rewards (never throws, never
+    // deletes existing generation) if fewer eligible cells remain — see
+    // selectMonsterHouseRewardPositions's doc comment. See
+    // docs/history/phase-21-5-monster-house-reward-placement.md.
+    const rewardExclusions: Vec2[] = [
+      placement.start,
+      placement.exit,
+      ...placement.enemies,
+      ...dedicatedPositions,
+      ...traps.map((t) => t.pos),
+      ...groundItems.map((item) => item.pos),
+    ];
+    const rewardCandidateCells = computeMonsterHouseCandidateCells(map, monsterHouseRoomIndex, rewardExclusions);
+    const rewardPositionRng = createMonsterHouseRewardPositionRng(floorSeed, createRng);
+    const rewardSelectionRng = createMonsterHouseRewardSelectionRng(floorSeed, createRng);
+    const rewardPositions = selectMonsterHouseRewardPositions(rewardCandidateCells, MONSTER_HOUSE_REWARD_COUNT, rewardPositionRng);
+    if (rewardPositions.length > 0) {
+      // Same one-enchantment-per-floor rule normal generation enforces
+      // within its own draw (item-def.ts's drawWeightedGroundItemSelection)
+      // must also hold across normal generation + this separate reward
+      // draw combined — so any enchantment already selected by normal
+      // generation this floor is excluded from the reward pool too.
+      const alreadySelectedEnchantments = selectedItemIds.filter((id) => ENCHANTMENT_ITEM_IDS.includes(id));
+      const rewardExcludedIds = new Set([...alreadyUnlocked, ...alreadySelectedEnchantments]);
+      const rewardPool = getWeightedGroundItemPoolForFloor(floor, rewardExcludedIds);
+      const rewardItemIds = drawWeightedGroundItemSelection(rewardPositions.length, rewardPool, rewardSelectionRng);
+      for (let i = 0; i < rewardPositions.length; i++) {
+        const rewardItemId = rewardItemIds[i];
+        const rewardPos = rewardPositions[i];
+        if (isWeaponOrArmorId(rewardItemId)) {
+          const roll = equipmentCurseRng();
+          const cursed = roll < FLOOR_EQUIPMENT_CURSE_CHANCE;
+          const instance = mintEquipmentInstance(nextFloorEquipmentInstanceId, rewardItemId, cursed);
+          nextFloorEquipmentInstanceId += 1;
+          floorEquipmentInstances.push(instance);
+          groundItems.push({
+            id: groundItems.length,
+            itemId: rewardItemId,
+            pos: rewardPos,
+            equipmentInstanceId: instance.instanceId,
+            spawnSource: 'monster_house',
+          });
+        } else {
+          groundItems.push({ id: groundItems.length, itemId: rewardItemId, pos: rewardPos, spawnSource: 'monster_house' });
+        }
+      }
+    }
   }
 
   const state: GameState = {
