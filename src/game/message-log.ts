@@ -111,6 +111,15 @@ export function formatEvent(event: GameEvent): string {
       const name = ENEMY_DEFINITIONS[event.enemyType].displayName;
       return `${name}が突進した！`;
     }
+    // Phase 23.4: only steps ever produces these two events, so — like
+    // the skeleton-only events above — the display name is a fixed
+    // literal rather than an ENEMY_DEFINITIONS lookup (these events
+    // carry no enemyType field; enemyId alone is enough for tests/
+    // telemetry to identify which steps).
+    case 'steps_spike_telegraphed':
+      return 'ステップスが地面から棘を出す気配を見せた！';
+    case 'steps_spike_executed':
+      return 'ステップスが地面から棘を突き出した！';
     case 'player_webbed':
       return 'クモの巣に足をとられた。';
     case 'slowed_move_cancelled':

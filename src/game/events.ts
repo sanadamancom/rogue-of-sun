@@ -103,6 +103,19 @@ export type GameEvent =
   // pushes its own enemy_attack/enemy_attack_missed event for the
   // outcome; this event never duplicates that damage/hit information).
   | { type: 'golem_charge_executed'; enemyId: number; enemyType: EnemyType; direction: import('./types').Direction4; distanceMoved: number; attackedPlayer: boolean }
+  // Phase 23.4: pushed once when a hidden steps detects the player at
+  // exactly Chebyshev distance 1 and fixes its 3x3 spike attack center
+  // (never re-derived from the player's later position — see turn.ts's
+  // resolveStepsEnemy).
+  | { type: 'steps_spike_telegraphed'; enemyId: number; center: Vec2 }
+  // Pushed once, the turn a telegraphed steps actually executes its
+  // spike attack — whether or not the player was in the affected area.
+  // `playerWasInArea` distinguishes a real hit attempt (in which case
+  // resolveEnemyAttackHit separately pushes its own enemy_attack/
+  // enemy_attack_missed event for the outcome; this event never
+  // duplicates that damage/hit information) from a clean miss because
+  // the player had simply moved away.
+  | { type: 'steps_spike_executed'; enemyId: number; center: Vec2; playerWasInArea: boolean }
   | { type: 'player_webbed' }
   | { type: 'slowed_move_cancelled' }
   | { type: 'floor_advanced' }

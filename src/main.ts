@@ -41,7 +41,7 @@ import {
   snapshotForTurn,
   RunTelemetry,
 } from './game/telemetry';
-import { getCockatriceTelegraph, getKrakenTelegraph, getGolemChargeTelegraph } from './game/telegraph';
+import { getCockatriceTelegraph, getKrakenTelegraph, getGolemChargeTelegraph, getStepsTelegraph } from './game/telegraph';
 import { getHunger, HUNGER_MAX } from './game/hunger';
 import { getExperience, getExperienceRequirement, getLevel, getUnspentAbilityPoints, LEVEL_CAP } from './game/progression';
 import {
@@ -59,7 +59,8 @@ import {
 } from './game/ability';
 import { EFFECT_DEFINITIONS, getActiveEffects } from './game/effects';
 import { processTurn, TurnResult, ELEMENT_ENCHANTMENT_SOL_COST, isCardIdentified, getSolarGunEffectiveElement, isGhostInsideWall } from './game/turn';
-import { DIRECTION_VECTORS, EnemyType, EnemyActor, GameState, GameMap, Direction8 } from './game/types';
+import { shouldDisplayStepsBody } from './game/steps';
+import { DIRECTION_VECTORS, EnemyType, EnemyActor, GameState, GameMap, Direction8, Vec2 } from './game/types';
 import { CAMERA_VIEW_WIDTH, CAMERA_VIEW_HEIGHT } from './game/camera';
 import { canTakeDashStep, shouldStopDashAfterStep } from './game/dash';
 import {
@@ -74,7 +75,7 @@ import {
   RepeatTimer,
 } from './game/input-router';
 import { roomIndexContaining } from './game/mapgen';
-import { getMinimapTrapMarkers } from './game/minimap';
+import { getMinimapTrapMarkers, getMinimapStepsMarkers } from './game/minimap';
 import { computeCurrentVisibility, isInRoomBounds, pointKey as visibilityPointKey } from './game/visibility';
 import { DARK_ROOM_FLOOR_COLOR, DARK_ROOM_WALL_COLOR, darkRoomBand } from './game/dark-room-visuals';
 
@@ -201,7 +202,7 @@ function textureKeyForEnemyType(type: EnemyType): string {
  * exactly "one entry per playable species" with no non-species entries
  * mixed in.
  */
-const EXTRA_SPRITE_KEYS = ['skeleton_head', 'claygolem_rolling'];
+const EXTRA_SPRITE_KEYS = ['skeleton_head', 'claygolem_rolling', 'steps_see'];
 
 /** All distinct sprite sheet keys used by the current 10-species roster, in fixed roster order, plus any extra non-species sprite keys (EXTRA_SPRITE_KEYS). */
 function allEnemySpriteKeys(): string[] {
@@ -217,13 +218,19 @@ function allEnemySpriteKeys(): string[] {
  * other than a head-form skeleton is identical to
  * textureKeyForEnemyType(enemy.type).
  */
-function spriteKeyForEnemy(enemy: EnemyActor): string {
+function spriteKeyForEnemy(enemy: EnemyActor, clairvoyanceActive: boolean = false): string {
   if (enemy.type === 'skeleton' && enemy.skeletonForm === 'head') return 'skeleton_head';
   // Phase 23.2: rolling sprite only while a golem's charge is actually
   // telegraphed — idle and recovering both use the normal claygolem
   // sprite (weapon-def/sprite regression: this never changes which
   // terrain/traps a golem can cross, purely cosmetic).
   if (enemy.type === 'golem' && enemy.golemChargeState === 'telegraphed') return 'claygolem_rolling';
+  // Phase 23.4: revealed-visibility body sprite (steps_see) whenever
+  // this individual's own combat state is 'revealed', or unconditionally
+  // whenever clairvoyance is active on the current floor — the single
+  // shared display-eligibility check (shouldDisplayStepsBody), never
+  // duplicated here or anywhere else.
+  if (enemy.type === 'steps' && shouldDisplayStepsBody(enemy, clairvoyanceActive)) return 'steps_see';
   return textureKeyForEnemyType(enemy.type);
 }
 
@@ -856,7 +863,7 @@ class MainScene extends Phaser.Scene {
       if (i >= this.enemySprites.length) return; // handled by the growth loop below
       try {
         this.tweens.killTweensOf(this.enemySprites[i]); // clear any in-flight move animation left over from the previous floor
-        this.enemySprites[i].setTexture(spriteKeyForEnemy(enemy), idleFrame('S'));
+        this.enemySprites[i].setTexture(spriteKeyForEnemy(enemy, this.state.stepsClairvoyanceActive), idleFrame('S'));
         this.enemySprites[i].setScale(SPRITE_SCALE_X, SPRITE_SCALE_Y);
         this.enemySprites[i].setVisible(true);
       } catch (error) {
@@ -867,7 +874,7 @@ class MainScene extends Phaser.Scene {
     while (this.enemySprites.length < enemies.length) {
       const enemy = enemies[this.enemySprites.length];
       try {
-        const sprite = this.add.sprite(0, 0, spriteKeyForEnemy(enemy), idleFrame('S'));
+        const sprite = this.add.sprite(0, 0, spriteKeyForEnemy(enemy, this.state.stepsClairvoyanceActive), idleFrame('S'));
         sprite.setScale(SPRITE_SCALE_X, SPRITE_SCALE_Y);
         this.enemySprites.push(sprite);
       } catch (error) {
@@ -914,7 +921,7 @@ class MainScene extends Phaser.Scene {
         console.error(`snapAllEnemies: no sprite at index ${i} for ${this.state.enemies.length} enemies (enemySprites has ${this.enemySprites.length}); skipping instead of crashing`);
         return;
       }
-      this.snapActor(sprite, enemy, spriteKeyForEnemy(enemy), this.isCurrentlyVisible(enemy.pos), ghostDisplayAlpha(this.state.map, enemy));
+      this.snapActor(sprite, enemy, spriteKeyForEnemy(enemy, this.state.stepsClairvoyanceActive), this.isCurrentlyVisible(enemy.pos), ghostDisplayAlpha(this.state.map, enemy));
     });
   }
 
@@ -1066,7 +1073,45 @@ class MainScene extends Phaser.Scene {
       if (golemChargeTelegraph) {
         this.drawReticle(golemChargeTelegraph.targetTile);
         this.drawAttackerMarker(enemy.pos);
+        continue;
       }
+
+      const stepsTelegraph = getStepsTelegraph(this.state.map, enemy);
+      if (stepsTelegraph) {
+        this.drawStepsSpikeWarning(stepsTelegraph.cells);
+        this.drawAttackerMarker(enemy.pos);
+      }
+    }
+  }
+
+  /**
+   * Phase 23.4: steps' 3x3 spike-attack warning — unlike drawReticle
+   * (a single fixed point), this highlights every affected floor cell
+   * (fixed_spec's "対象floorセルをすべて描く", since the player needs to
+   * see the whole avoidable area, not just a center point). Wall cells
+   * are never passed in here at all (getStepsSpikeCells already
+   * excludes them), so nothing is ever drawn on a wall tile. Uses a
+   * red-family color distinct from TELEGRAPH_COLOR's orange so the two
+   * telegraph kinds stay visually distinguishable; a thin outline plus
+   * a low-alpha fill keeps the floor pattern and any actor sprite on
+   * the cell still readable underneath. No animation (matches every
+   * other telegraph layer's "点滅、脈動、回転などのアニメーションは追
+   * 加しない" — redrawn once per turn/reset only).
+   */
+  private readonly STEPS_WARNING_COLOR = 0xff4040;
+  private readonly STEPS_WARNING_INSET = TILE_SIZE * 0.08;
+
+  private drawStepsSpikeWarning(cells: Vec2[]): void {
+    const g = this.telegraphReticleGraphics;
+    const inset = this.STEPS_WARNING_INSET;
+    const size = TILE_SIZE - inset * 2;
+    for (const cell of cells) {
+      const x = cell.x * TILE_SIZE + inset;
+      const y = cell.y * TILE_SIZE + inset;
+      g.lineStyle(2, this.STEPS_WARNING_COLOR, 0.85);
+      g.strokeRect(x, y, size, size);
+      g.fillStyle(this.STEPS_WARNING_COLOR, 0.18);
+      g.fillRect(x, y, size, size);
     }
   }
 
@@ -1331,6 +1376,18 @@ class MainScene extends Phaser.Scene {
     for (const marker of getMinimapTrapMarkers(this.state.traps)) {
       this.minimapGraphics.fillStyle(0xd4c93a, marker.alpha);
       this.minimapGraphics.fillRect(marker.pos.x * tileW, marker.pos.y * tileH, Math.ceil(tileW), Math.ceil(tileH));
+    }
+
+    // Phase 23.4: clairvoyance-revealed steps location markers — drawn
+    // before the ordinary currently-visible enemy loop below (same
+    // ordering rationale as the trap markers above: enemy/item/player
+    // symbols always paint over this), and completely independent of
+    // exploredTiles/current visibility (getMinimapStepsMarkers reads
+    // only positions, never terrain, so it cannot disclose surrounding
+    // floor/wall/room shape).
+    for (const pos of getMinimapStepsMarkers(this.state.enemies, this.state.stepsClairvoyanceActive ?? false)) {
+      this.minimapGraphics.fillStyle(0xff4040, 0.85);
+      this.minimapGraphics.fillRect(pos.x * tileW, pos.y * tileH, Math.ceil(tileW), Math.ceil(tileH));
     }
 
     for (const enemy of this.state.enemies) {
@@ -2329,7 +2386,7 @@ class MainScene extends Phaser.Scene {
         console.error(`applyTurnResult: no sprite at index ${i} for ${this.state.enemies.length} enemies (enemySprites has ${this.enemySprites.length}); skipping instead of crashing`);
         return;
       }
-      const spriteKey = spriteKeyForEnemy(enemy);
+      const spriteKey = spriteKeyForEnemy(enemy, this.state.stepsClairvoyanceActive);
       const moved = enemy.pos.x !== before.x || enemy.pos.y !== before.y;
       // refreshStaticView() (called earlier this same turn, above) already
       // recomputed this.currentVisible from the player's post-move

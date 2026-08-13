@@ -12,6 +12,7 @@
 // only looks at the one per-species field it cares about (gazeDirection +
 // gazeTargetTile / tentacleTarget).
 import { EnemyActor, GameMap, Vec2 } from './types';
+import { getStepsSpikeCells } from './steps';
 
 export interface CockatriceTelegraph {
   enemy: EnemyActor;
@@ -35,6 +36,18 @@ export interface GolemChargeTelegraph {
   enemy: EnemyActor;
   /** The tile the player occupied when telegraphing started — fixed, never re-derived from the player's current position. */
   targetTile: Vec2;
+}
+
+/**
+ * Phase 23.4: steps' fixed 3x3 spike-attack telegraph — `center` is the
+ * fixed attack-origin tile (never re-derived from anyone's current
+ * position), `cells` is the up-to-9 floor tiles actually affected
+ * (already wall/map-edge-filtered by getStepsSpikeCells).
+ */
+export interface StepsTelegraph {
+  enemy: EnemyActor;
+  center: Vec2;
+  cells: Vec2[];
 }
 
 /**
@@ -70,4 +83,22 @@ export function getKrakenTelegraph(_map: GameMap, enemy: EnemyActor): KrakenTele
 export function getGolemChargeTelegraph(_map: GameMap, enemy: EnemyActor): GolemChargeTelegraph | null {
   if (enemy.golemChargeState !== 'telegraphed' || !enemy.golemChargeTargetTile) return null;
   return { enemy, targetTile: enemy.golemChargeTargetTile };
+}
+
+/**
+ * Phase 23.4: steps' 3x3 spike-attack telegraph — unlike every other
+ * telegraph getter above (which return a single fixed target tile),
+ * this one also returns the full up-to-9 affected floor cells
+ * (getStepsSpikeCells, shared with the real hit-resolution logic in
+ * turn.ts), since fixed_spec explicitly requires warning the player
+ * about the whole avoidable area rather than a single reticle point.
+ * Returns null when `enemy` isn't a currently-telegraphed, living steps
+ * with a fixed center (dead, wrong species, wrong state, or missing
+ * center — defensive, shouldn't normally happen given turn.ts always
+ * sets/clears both together).
+ */
+export function getStepsTelegraph(map: GameMap, enemy: EnemyActor): StepsTelegraph | null {
+  if (enemy.type !== 'steps' || !enemy.alive) return null;
+  if (enemy.stepsState !== 'telegraphed' || !enemy.stepsTelegraphCenter) return null;
+  return { enemy, center: enemy.stepsTelegraphCenter, cells: getStepsSpikeCells(map, enemy.stepsTelegraphCenter) };
 }

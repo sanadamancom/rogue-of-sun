@@ -1,7 +1,8 @@
 import { directionBetweenAdjacent, isAdjacent, isOrthogonallyAdjacent } from './direction';
 import { applyMonsterHouseReveal } from './monster-house';
 import { canMove, destinationOf, isDiagonalCornerOpen, isInBounds, isWalkable } from './map';
-import { pointKey } from './visibility';
+import { pointKey, chebyshevDistance } from './visibility';
+import { isStepsDetectionRange, getStepsSpikeCells } from './steps';
 import { ENEMY_DEFINITIONS } from './enemy-def';
 import { ITEM_DEFINITIONS } from './item-def';
 import { hasInventoryCapacity, inventoryEntries } from './inventory';
@@ -2260,22 +2261,27 @@ function applyPanaceaUse(
 }
 
 /**
- * Clairvoyance fruit use (Phase 18.2): reveals every currently-hidden
- * trap on this floor at once (`revealed` false -> true for each; never
- * touches `triggered` — a trap this reveals stays in the
- * revealed_untriggered state per Phase 18.1's three-state model until a
- * later move actually steps onto it). Deliberately always succeeds (owned
- * <= 0 aside) regardless of how many traps exist or how many were newly
- * revealed — clairvoyance_fruit.consumption's "hidden罠が0件でも使用は
- *成立する" / "hidden罠が0件でもアイテムを消費する" / "hidden罠が0件でも
- * 1ターン消費する" — unlike antidote/panacea (which reject when nothing
- * would change), there is no failure branch here at all once ownership is
- * confirmed. Consumes exactly one clairvoyance_fruit and one turn either
- * way. `revealTrap` (below) is the single shared entry point for
- * revealing a trap, so this and the player-move discovery path in
- * applyPlayerAction's move branch share the exact same invariant-
- * preserving logic and the exact same 'trap_revealed' event shape,
- * differing only in `source`.
+ * Clairvoyance fruit use (Phase 18.2; extended in Phase 23.4): reveals
+ * every currently-hidden trap on this floor at once (`revealed` false ->
+ * true for each; never touches `triggered` — a trap this reveals stays
+ * in the revealed_untriggered state per Phase 18.1's three-state model
+ * until a later move actually steps onto it) — completely unchanged from
+ * before this phase. Phase 23.4 additionally sets
+ * state.stepsClairvoyanceActive = true unconditionally on every
+ * successful use (fixed_spec's "ステップスが0体でも従来どおり使用成
+ * 功・1個消費・1ターン消費となる" — this flag flip never affects
+ * success/consumption/turn-cost, and never itself reads or writes any
+ * steps' own hidden/telegraphed/revealed combat state — see
+ * src/game/steps.ts's shouldDisplayStepsBody, the only place that reads
+ * this flag). Deliberately always succeeds (owned <= 0 aside) regardless
+ * of how many traps or steps exist on this floor — unlike antidote/
+ * panacea (which reject when nothing would change), there is no failure
+ * branch here at all once ownership is confirmed. Consumes exactly one
+ * clairvoyance_fruit and one turn either way. `revealTrap` (below) is
+ * the single shared entry point for revealing a trap, so this and the
+ * player-move discovery path in applyPlayerAction's move branch share
+ * the exact same invariant-preserving logic and the exact same
+ * 'trap_revealed' event shape, differing only in `source`.
  */
 function applyClairvoyanceUse(
   state: GameState,
@@ -2293,6 +2299,9 @@ function applyClairvoyanceUse(
   }
 
   state.inventory[itemId] = owned - 1;
+  // Phase 23.4: floor-wide display-only flag — see this function's doc
+  // comment above and steps.ts's shouldDisplayStepsBody.
+  state.stepsClairvoyanceActive = true;
   events.push({ type: 'clairvoyance_used', itemId, revealedCount });
   state.inventoryOpen = false;
   return { consumed: true, attacked: false, defeated: false };
@@ -3052,9 +3061,7 @@ function resolveSpiderEnemy(
   return { acted: true, attacked: false };
 }
 
-/** Chebyshev (8-direction) distance, matching the 8-direction move grid used by chase/retreat. */
-const chebyshevDistance = (a: Vec2, b: Vec2): number =>
-  Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+/** Chebyshev (8-direction) distance, matching the 8-direction move grid used by chase/retreat — imported from visibility.ts (same formula, single source of truth as of Phase 23.4, when steps.ts also needed it). */
 
 /**
  * Phase 16.1 early-resource-and-combat-pressure rebalance: the distance
@@ -3567,6 +3574,91 @@ function resolveGhostEnemy(
 }
 
 /**
+ * Resolves one steps' action ('steps_spike', Phase 23.4). Dispatches
+ * purely on stepsState (absent == 'hidden'):
+ * - 'revealed': ordinary ground chase/attack (reusing tryMeleeAttack/
+ *   tryChaseStep exactly as bok does), then decrements
+ *   stepsRevealTurnsRemaining by 1, reverting to 'hidden' (clearing the
+ *   counter) the instant it would reach 0 — never chaining into hidden
+ *   behavior within the same call (fixed_spec's "hiddenへ戻った同じ行
+ *   動中に再予告は開始しない").
+ * - 'telegraphed': always executes the spike attack fixed at telegraph
+ *   time (stepsTelegraphCenter), regardless of the player's current
+ *   position or distance (even outside AGGRO_RANGE — resolveOneEnemy's
+ *   aggro gate is bypassed for this state, see its own comment).
+ *   getStepsSpikeCells recomputes the up-to-9 affected floor cells from
+ *   that fixed center; if the player currently occupies one of them,
+ *   resolveEnemyAttackHit resolves exactly one ordinary enemy-attack-hit
+ *   (accuracy/evasion/defense/death/judgement all identical to a normal
+ *   steps attack) — otherwise no damage at all. steps_spike_executed
+ *   fires exactly once regardless of hit/miss/no-target. Always
+ *   transitions to 'revealed' with remaining=3 afterward.
+ * - 'hidden' (or absent): telegraphs (no movement/attack this turn) the
+ *   instant the player is at exactly Chebyshev distance 1
+ *   (isStepsDetectionRange) — steps_spike_telegraphed fires once, the
+ *   center is fixed to this steps' own current position. Otherwise
+ *   takes one ordinary chase step (fixed_spec's "距離が2以上かつ既存
+ *   AGGRO_RANGE内なら、既存ground追跡で最大1マス移動する" — the
+ *   AGGRO_RANGE gate itself is resolveOneEnemy's own early-return, not
+ *   re-checked here) — detection is only ever tested once, before any
+ *   movement, so becoming newly adjacent as a result of this turn's own
+ *   chase step never telegraphs until the *following* steps turn.
+ */
+function resolveStepsEnemy(
+  state: GameState,
+  enemy: EnemyActor,
+  events: GameEvent[],
+): { acted: boolean; attacked: boolean } {
+  const stepsState = enemy.stepsState ?? 'hidden';
+
+  if (stepsState === 'revealed') {
+    let attacked = false;
+    if (tryMeleeAttack(state, enemy, events)) {
+      attacked = true;
+    } else {
+      tryChaseStep(state, enemy);
+    }
+    const remaining = (enemy.stepsRevealTurnsRemaining ?? 0) - 1;
+    if (remaining <= 0) {
+      enemy.stepsState = 'hidden';
+      enemy.stepsRevealTurnsRemaining = undefined;
+    } else {
+      enemy.stepsRevealTurnsRemaining = remaining;
+    }
+    return { acted: true, attacked };
+  }
+
+  if (stepsState === 'telegraphed') {
+    const center = enemy.stepsTelegraphCenter ?? { ...enemy.pos };
+    enemy.stepsTelegraphCenter = undefined;
+    const cells = getStepsSpikeCells(state.map, center);
+    const playerWasInArea = cells.some((cell) => cell.x === state.player.pos.x && cell.y === state.player.pos.y);
+    const attacked = playerWasInArea ? resolveEnemyAttackHit(state, enemy, events) : false;
+    events.push({
+      type: 'steps_spike_executed',
+      enemyId: enemy.id ?? 0,
+      center,
+      playerWasInArea,
+    });
+    enemy.stepsState = 'revealed';
+    enemy.stepsRevealTurnsRemaining = 3;
+    return { acted: true, attacked };
+  }
+
+  // hidden
+  if (isStepsDetectionRange(enemy.pos, state.player.pos)) {
+    const center = { ...enemy.pos };
+    enemy.stepsState = 'telegraphed';
+    enemy.stepsTelegraphCenter = center;
+    events.push({ type: 'steps_spike_telegraphed', enemyId: enemy.id ?? 0, center });
+    return { acted: true, attacked: false };
+  }
+
+  tryChaseStep(state, enemy);
+  return { acted: true, attacked: false };
+}
+
+/**
  * Dispatches an enemy's action by its species' behaviorType (see
  * enemy-def.ts) rather than switching on species id directly, so adding a
  * finished signature AI later only requires adding a new BehaviorType case
@@ -3590,6 +3682,8 @@ function resolveGhostEnemy(
  *   (phase-06-kraken-telegraphed-tentacle-strike).
  * - 'ghost_phase': ghost's wall-phasing BFS approach and attack (Phase
  *   23.3).
+ * - 'steps_spike': steps' hidden/telegraphed/revealed 3x3 spike attack
+ *   (Phase 23.4).
  * - 'generic_melee' and 'placeholder': bok's 8-direction chase/attack
  *   ('placeholder' is a reserved fallback with no current species).
  * - 'stationary': a stricter no-op fallback that never acts at all (no
@@ -3618,7 +3712,16 @@ function resolveOneEnemy(
   // にする" / "AGGRO_RANGE外でも回復状態を消化する"). Checked before the
   // generic gate, exactly like the skeleton-head short-circuit above.
   const golemChargeInProgress = behaviorType === 'golem_charge' && enemy.golemChargeState && enemy.golemChargeState !== 'idle';
-  if (!golemChargeInProgress && behaviorType !== 'stationary' && !isAdjacent(enemy.pos, state.player.pos) && !isWithinAggroRange(enemy, state.player)) {
+  // Phase 23.4: a steps in 'telegraphed' or 'revealed' must never be
+  // silently stalled by the generic aggro-range gate below either — a
+  // telegraphed spike always fires on schedule regardless of the
+  // player's distance, and a revealed steps' 3-action countdown must
+  // keep decrementing even while the player is far away (fixed_spec's
+  // "AGGRO_RANGE外へ離れても予約攻撃を中断しない" / "revealed中は
+  // AGGRO_RANGE外でもカウントを確実に消化する"). 'hidden' steps still
+  // uses the ordinary gate (no bypass), matching golem's own 'idle'.
+  const stepsMidCycle = behaviorType === 'steps_spike' && enemy.stepsState && enemy.stepsState !== 'hidden';
+  if (!golemChargeInProgress && !stepsMidCycle && behaviorType !== 'stationary' && !isAdjacent(enemy.pos, state.player.pos) && !isWithinAggroRange(enemy, state.player)) {
     // Phase 16.1: an enemy that hasn't noticed the player yet (further
     // than AGGRO_RANGE away, Chebyshev, and not already adjacent) does
     // nothing this turn — no movement, no attack, no per-species
@@ -3653,6 +3756,8 @@ function resolveOneEnemy(
       return resolveKrakenEnemy(state, enemy, events);
     case 'ghost_phase':
       return resolveGhostEnemy(state, enemy, events);
+    case 'steps_spike':
+      return resolveStepsEnemy(state, enemy, events);
     case 'stationary':
       return { acted: false, attacked: false };
     case 'generic_melee':

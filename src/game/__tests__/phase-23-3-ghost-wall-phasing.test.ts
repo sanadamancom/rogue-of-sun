@@ -69,7 +69,9 @@ describe('Phase 23.3: ghost — roster and generation', () => {
   });
 
   it('is appended at the end without changing the existing 10 species\' indices', () => {
-    expect(ENEMY_TYPES_IN_ORDER).toHaveLength(11);
+    // Phase 23.4 appends 'steps' after this phase's own 'ghost', growing
+    // the roster from 11 to 12 — 'ghost' itself stays at index 10.
+    expect(ENEMY_TYPES_IN_ORDER.length).toBeGreaterThanOrEqual(11);
     expect(ENEMY_TYPES_IN_ORDER[10]).toBe('ghost');
     expect(ENEMY_TYPES_IN_ORDER.slice(0, 10)).toEqual([
       'bok', 'cockatrice', 'spider', 'bat', 'mummy', 'golem', 'sword', 'axe', 'kraken', 'skeleton',

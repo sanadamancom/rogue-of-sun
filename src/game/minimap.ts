@@ -1,4 +1,4 @@
-import { TrapTile, Vec2 } from './types';
+import { TrapTile, Vec2, EnemyActor } from './types';
 
 /**
  * One trap's minimap marker (Phase 18.2), extracted from main.ts's
@@ -50,4 +50,26 @@ export function getMinimapTrapMarkers(traps: TrapTile[] | undefined): MinimapTra
       pos: trap.pos,
       alpha: trap.triggered ? MINIMAP_TRAP_TRIGGERED_ALPHA : MINIMAP_TRAP_UNTRIGGERED_ALPHA,
     }));
+}
+
+/**
+ * Phase 23.4: the current floor's living steps positions to draw on the
+ * minimap — but only while clairvoyance is active (`clairvoyanceActive`
+ * is the sole gate; this function never reads terrain, exploredTiles,
+ * or current visibility, matching getMinimapTrapMarkers' own "never
+ * discloses surrounding floor/wall/room shape" contract for the same
+ * reason — a location-only marker, nothing about the tiles around it).
+ * Every hidden/telegraphed/revealed steps individual is included
+ * identically — clairvoyance's floor-wide location reveal is
+ * deliberately independent of each individual's own combat state (Phase
+ * 23.4's "千里眼による可視化は表示状態だけに作用し、hidden / telegraphed
+ * / revealed の戦闘状態機械を変更しない" — this function only ever reads
+ * positions, never mutates or branches on stepsState). Dead steps are
+ * excluded (`alive` false). Since `enemies` is rebuilt fresh per floor
+ * (buildFloorState), calling this with a newly-generated floor's own
+ * `state.enemies` can never surface a previous floor's markers.
+ */
+export function getMinimapStepsMarkers(enemies: EnemyActor[], clairvoyanceActive: boolean): Vec2[] {
+  if (!clairvoyanceActive) return [];
+  return enemies.filter((enemy) => enemy.type === 'steps' && enemy.alive).map((enemy) => ({ ...enemy.pos }));
 }

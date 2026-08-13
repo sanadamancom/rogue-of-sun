@@ -172,7 +172,8 @@ export type EnemyType =
   | 'axe'
   | 'kraken'
   | 'skeleton'
-  | 'ghost';
+  | 'ghost'
+  | 'steps';
 
 /** An enemy Actor tagged with its species; used for AI branching and sprite/texture selection. */
 export interface EnemyActor extends Actor {
@@ -370,6 +371,41 @@ export interface EnemyActor extends Actor {
    * same turn the charge resolves.
    */
   golemChargeTargetTile?: Vec2;
+  /**
+   * Steps-only (Phase 23.4): this individual's hidden/telegraphed/
+   * revealed combat state. Absent/undefined is equivalent to `'hidden'`
+   * (every freshly spawned steps has no explicit value here) — see
+   * turn.ts's resolveStepsEnemy for the full state machine (hidden ->
+   * telegraphed on Chebyshev-distance-1 detection -> revealed after the
+   * spike attack executes -> back to hidden once
+   * stepsRevealTurnsRemaining reaches 0). Purely a combat-state field —
+   * display eligibility for steps_see.png is decided separately by
+   * shouldDisplayStepsBody (src/game/steps.ts), which also considers
+   * clairvoyance independent of this field. No schemaVersion bump:
+   * purely an optional addition, defaulting exactly as before this
+   * phase for every existing fixture. Irrelevant for every other
+   * species.
+   */
+  stepsState?: 'hidden' | 'telegraphed' | 'revealed';
+  /**
+   * Steps-only (Phase 23.4): the fixed 3x3 attack center — this steps'
+   * own coordinate at the exact moment detection occurred — set once
+   * when it enters 'telegraphed' and cleared the same turn the spike
+   * attack actually executes. Never re-derived from this steps' own
+   * possibly-new position (it never moves while telegraphed) or the
+   * player's position. Irrelevant/absent outside 'telegraphed'.
+   */
+  stepsTelegraphCenter?: Vec2;
+  /**
+   * Steps-only (Phase 23.4): world-turn-independent countdown of this
+   * steps' own remaining *actions* (not world turns) still owed at
+   * 'revealed' visibility after a spike attack executes — set to 3 the
+   * instant the attack resolves, decremented by 1 after each of this
+   * steps' own subsequent ordinary ground actions, and reverting
+   * stepsState to 'hidden' (and this field to undefined) the instant it
+   * would reach 0. Irrelevant/absent outside 'revealed'.
+   */
+  stepsRevealTurnsRemaining?: number;
 }
 
 // 'floor_cleared' is a transient signal set for a single processTurn call
@@ -494,6 +530,18 @@ export interface GameState {
    * this reason.
    */
   traps?: TrapTile[];
+  /**
+   * Steps-only (Phase 23.4): whether clairvoyance_fruit has been used on
+   * *this floor* — display-only, independent of every steps individual's
+   * own hidden/telegraphed/revealed combat state (stepsState). Always
+   * freshly built per floor/restart (like traps/webs/groundItems) —
+   * buildFloorState never carries this over from the previous floor, so
+   * using clairvoyance on one floor never leaks into the next. Optional
+   * for the same reason `traps` is: existing GameState object literals
+   * across the test suite remain valid without every one of them being
+   * updated. No schemaVersion bump: purely an optional addition.
+   */
+  stepsClairvoyanceActive?: boolean;
   /**
    * The player's stacked item counts. Persists across floor transitions
    * (carried over by advanceToNextFloor) and resets to empty on a brand

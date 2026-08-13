@@ -33,6 +33,15 @@ import { EnemyType, ElementId, ElementalAffinity } from './types';
  *   tile that is now a legal attack position, it attacks once in that
  *   same turn (never for a floor-to-floor or wall-to-wall step). See
  *   turn.ts's resolveGhostEnemy for the full state machine.
+ * - 'steps_spike' (steps, Phase 23.4): normally hidden (footprint
+ *   sprite only), acting as an ordinary ground occupant/attack target.
+ *   Detecting the player at exactly Chebyshev distance 1 telegraphs a
+ *   fixed 3x3 spike attack centered on its own position that turn (no
+ *   movement/attack); the very next steps turn always executes that
+ *   attack regardless of where the player has since moved, then enters
+ *   a 3-action 'revealed' (body-visible) window of ordinary ground
+ *   chase/attack behavior before reverting to hidden. See turn.ts's
+ *   resolveStepsEnemy for the full state machine.
  * - 'fast_melee' (sword, Phase enemy-behavior-01): attacks immediately if
  *   already adjacent; otherwise attempts up to 2 steps toward the player in
  *   one enemy turn, re-evaluating the board after each step, attacking (and
@@ -102,6 +111,7 @@ export type BehaviorType =
   | 'cockatrice_gaze'
   | 'kraken_tentacle'
   | 'ghost_phase'
+  | 'steps_spike'
   | 'stationary';
 export type MovementType = 'ground' | 'flying' | 'none' | 'phasing';
 
@@ -393,6 +403,27 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     // see confirmed_spec.roster.rules — reconfirm in Phase 23.6/27.
     elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   },
+  steps: {
+    id: 'steps',
+    displayName: 'ステップス',
+    spriteKey: 'steps',
+    hp: 6,
+    attack: 6,
+    defense: 0,
+    accuracy: 90,
+    evasion: 0,
+    behaviorType: 'steps_spike',
+    movementType: 'ground',
+    stationary: false,
+    experienceReward: 2,
+    // Phase 23.4: steps carries no elemental weakness or resistance —
+    // its species-defining trait is the hidden/telegraphed/revealed
+    // state machine itself, not affinity strength (mirroring skeleton/
+    // ghost's own all-neutral rationale in this same file). Provisional
+    // stats throughout this entry are for 3-floor prototype validation
+    // only; see confirmed_spec.roster.note — reconfirm in Phase 23.6.
+    elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
+  },
 };
 
 // Fixed order used to assign one of each species per floor (Phase 06
@@ -407,6 +438,9 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
 // 'skeleton', never inserted in the middle), for the same
 // index-preservation reason skeleton was appended in Phase 23.1 — only
 // the array's length and final entry change.
+// Phase 23.4: 'steps' appended after Phase 23.3's 'ghost', for the same
+// index-preservation reason skeleton/ghost were appended before it —
+// only the array's length and final entry change.
 export const ENEMY_TYPES_IN_ORDER: EnemyType[] = [
   'bok',
   'cockatrice',
@@ -419,6 +453,7 @@ export const ENEMY_TYPES_IN_ORDER: EnemyType[] = [
   'kraken',
   'skeleton',
   'ghost',
+  'steps',
 ];
 
 /**
@@ -443,6 +478,8 @@ export const ENEMY_FIRST_APPEARANCE_FLOOR: Record<EnemyType, number> = {
   skeleton: 3,
   // Phase 23.3 Stage: ghost's provisional normal first-appearance floor.
   ghost: 3,
+  // Phase 23.4: steps' provisional normal first-appearance floor.
+  steps: 3,
 };
 
 /**

@@ -93,6 +93,9 @@ const CONFIRMED_TABLE: Record<EnemyType, Record<ElementId, ElementalAffinity>> =
   // Phase 23.3: ghost deliberately carries no elemental weakness or
   // resistance either — see enemy-def.ts's ghost entry doc comment.
   ghost: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
+  // Phase 23.4: steps deliberately carries no elemental weakness or
+  // resistance either — see enemy-def.ts's steps entry doc comment.
+  steps: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
 };
 
 describe('Phase 14.4: definition table', () => {
@@ -102,8 +105,8 @@ describe('Phase 14.4: definition table', () => {
     }
   });
 
-  it('has exactly 11 enemy types (Phase 23.1 adds skeleton, Phase 23.3 adds ghost)', () => {
-    expect(ENEMY_TYPES_IN_ORDER).toHaveLength(11);
+  it('has exactly 12 enemy types (Phase 23.1 adds skeleton, Phase 23.3 adds ghost, Phase 23.4 adds steps)', () => {
+    expect(ENEMY_TYPES_IN_ORDER).toHaveLength(12);
   });
 
   it('has exactly 5 weak assignments total', () => {
