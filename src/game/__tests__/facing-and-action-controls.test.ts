@@ -123,11 +123,15 @@ describe('facing (Phase 08.6)', () => {
   });
 
   it('facing is preserved across a floor transition', () => {
-    let state = freshState();
+    let state = freshState({ player: createInitialActor({ x: 4, y: 1 }, 3, 1) });
     processTurn(state, { type: 'face', direction: 'W' });
     state.enemies.forEach((e) => (e.alive = false));
-    state.player.pos = { ...state.exit };
-    processTurn(state, { type: 'wait' });
+    // Phase 22 trigger fix: progression requires the player's own
+    // successful move onto the exit tile, and that move also sets facing
+    // to its direction — so approach the exit from the east and move W,
+    // which both reaches the exit and leaves facing at 'W'.
+    state.exit = { x: 3, y: 1 };
+    processTurn(state, { type: 'move', direction: 'W' });
     expect(state.phase).toBe('floor_cleared');
     state = advanceToNextFloor(state);
     expect(state.player.facing).toBe('W');
@@ -198,11 +202,11 @@ describe('movement no longer auto-attacks (Phase 08.6)', () => {
     expect(state.groundItems).toHaveLength(0);
   });
 
-  it('reaching the exit with all enemies defeated still advances the floor', () => {
+  it('reaching the exit via an actual move still advances the floor', () => {
     const state = freshState();
     state.enemies.forEach((e) => (e.alive = false));
-    state.player.pos = { ...state.exit };
-    const result = processTurn(state, { type: 'wait' });
+    state.exit = { x: 3, y: 1 };
+    const result = processTurn(state, { type: 'move', direction: 'E' });
     expect(result.consumed).toBe(true);
     expect(state.phase).toBe('floor_cleared');
   });

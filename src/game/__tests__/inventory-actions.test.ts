@@ -439,9 +439,8 @@ describe('lifecycle: place/discard interplay with capacity and floor transitions
     expect(state.inventory.apple).toBe(4);
 
     state.enemies.forEach((e) => (e.alive = false));
-    state.player.pos = { x: 99, y: 99 };
-    state.exit = { x: 99, y: 99 };
-    processTurn(state, { type: 'wait' });
+    state.exit = { x: 3, y: 1 };
+    processTurn(state, { type: 'move', direction: 'E' });
     expect(state.phase).toBe('floor_cleared');
     state = advanceToNextFloor(state);
     expect(state.inventory.apple).toBe(4);

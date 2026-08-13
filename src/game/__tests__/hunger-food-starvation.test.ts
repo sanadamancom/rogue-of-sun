@@ -517,9 +517,8 @@ describe('lifecycle: floor transitions, new run, retry (Phase 11.3)', () => {
   it('hunger and both progress counters are maintained across a floor transition', () => {
     let state = freshState({ hunger: 42, hungerDecreaseProgress: 2, starvationProgress: 0 });
     state.enemies.forEach((e) => (e.alive = false));
-    state.player.pos = { x: 99, y: 99 };
-    state.exit = { x: 99, y: 99 };
-    processTurn(state, { type: 'wait' });
+    state.exit = { x: 3, y: 1 };
+    processTurn(state, { type: 'move', direction: 'E' });
     expect(state.phase).toBe('floor_cleared');
     state = advanceToNextFloor(state);
     // The wait above also progressed hungerDecreaseProgress by 1 (2->3).
@@ -530,9 +529,8 @@ describe('lifecycle: floor transitions, new run, retry (Phase 11.3)', () => {
   it('floor transition does not recover hunger', () => {
     let state = freshState({ hunger: 10 });
     state.enemies.forEach((e) => (e.alive = false));
-    state.player.pos = { x: 99, y: 99 };
-    state.exit = { x: 99, y: 99 };
-    processTurn(state, { type: 'wait' });
+    state.exit = { x: 3, y: 1 };
+    processTurn(state, { type: 'move', direction: 'E' });
     state = advanceToNextFloor(state);
     expect(getHunger(state)).toBeLessThanOrEqual(10);
   });
@@ -653,9 +651,8 @@ describe('regression: existing systems unaffected by Phase 11.3', () => {
   it('floor transitions still work normally', () => {
     let state = freshState();
     state.enemies.forEach((e) => (e.alive = false));
-    state.player.pos = { x: 99, y: 99 };
-    state.exit = { x: 99, y: 99 };
-    processTurn(state, { type: 'wait' });
+    state.exit = { x: 3, y: 1 };
+    processTurn(state, { type: 'move', direction: 'E' });
     expect(state.phase).toBe('floor_cleared');
     state = advanceToNextFloor(state);
     expect(state.floor).toBe(2);

@@ -377,8 +377,13 @@ describe('persistence and reset (Phase 08.3)', () => {
   it('sword possession and equip state carry over across a floor transition', () => {
     let state = freshState({ inventory: { apple: 0, sword: 1, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, flame_enchantment: 0, frost_enchantment: 0, cloud_enchantment: 0, earth_enchantment: 0, chocolate: 0, banana: 0, antidote: 0, panacea: 0, clairvoyance_fruit: 0, high_priestess: 0, empress: 0, emperor: 0, lovers: 0, chariot: 0, strength: 0, wheel_of_fortune: 0, justice: 0, hanged_man: 0, death: 0, temperance: 0, devil: 0, tower: 0, star: 0, moon: 0, sun: 0, judgement: 0 }, equippedWeaponId: 'sword' });
     state.enemies.forEach((e) => (e.alive = false));
-    state.player.pos = { ...state.exit };
-    processTurn(state, { type: 'wait' });
+    // Phase 22 trigger fix: progression requires the player's own
+    // successful move onto the exit tile. This synthetic test map has
+    // the player start at a known floor tile (2,1) with another floor
+    // tile immediately to its east (3,1), so set the exit there and
+    // move onto it rather than teleporting.
+    state.exit = { x: 3, y: 1 };
+    processTurn(state, { type: 'move', direction: 'E' });
     expect(state.phase).toBe('floor_cleared');
     state = advanceToNextFloor(state);
     expect(state.inventory.sword).toBe(1);

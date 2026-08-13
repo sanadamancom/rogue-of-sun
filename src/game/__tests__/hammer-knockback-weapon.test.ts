@@ -187,8 +187,13 @@ describe('hammer pickup, equip, and persistence', () => {
       equippedWeaponId: 'hammer',
     });
     state.enemies.forEach((e) => (e.alive = false));
-    state.player.pos = { ...state.exit };
-    processTurn(state, { type: 'wait' });
+    // Phase 22 trigger fix: progression requires the player's own
+    // successful move onto the exit tile. This synthetic test map has
+    // the player start at a known floor tile (2,1) with another floor
+    // tile immediately to its east (3,1), so set the exit there and
+    // move onto it rather than teleporting.
+    state.exit = { x: 3, y: 1 };
+    processTurn(state, { type: 'move', direction: 'E' });
     expect(state.phase).toBe('floor_cleared');
     state = advanceToNextFloor(state);
     expect(state.inventory.hammer).toBe(1);
@@ -599,8 +604,13 @@ describe('hammer recoil', () => {
   it('recovery is cleared on a floor transition', () => {
     let state = freshState({ equippedWeaponId: 'hammer', hammerRecovery: true });
     state.enemies.forEach((e) => (e.alive = false));
-    state.player.pos = { ...state.exit };
-    processTurn(state, { type: 'wait' });
+    // Phase 22 trigger fix: progression requires the player's own
+    // successful move onto the exit tile. This synthetic test map has
+    // the player start at a known floor tile (2,1) with another floor
+    // tile immediately to its east (3,1), so set the exit there and
+    // move onto it rather than teleporting.
+    state.exit = { x: 3, y: 1 };
+    processTurn(state, { type: 'move', direction: 'E' });
     expect(state.phase).toBe('floor_cleared');
     state = advanceToNextFloor(state);
     expect(state.hammerRecovery).toBe(false);

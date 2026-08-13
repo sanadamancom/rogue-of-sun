@@ -93,8 +93,13 @@ describe('spear placement (floor 2 only)', () => {
     for (const runSeed of RUN_SEEDS) {
       let state = createInitialState(runSeed);
       state.enemies.forEach((e) => (e.alive = false));
-      state.player.pos = { ...state.exit };
-      processTurn(state, { type: 'wait' });
+      // Phase 22 trigger fix: progression requires the player's own
+      // successful move onto the exit tile. This synthetic test map has
+      // the player start at a known floor tile (2,1) with another floor
+      // tile immediately to its east (3,1), so set the exit there and
+      // move onto it rather than teleporting.
+      state.exit = { x: 3, y: 1 };
+      processTurn(state, { type: 'move', direction: 'E' });
       state = advanceToNextFloor(state);
       expect(state.floor).toBe(2);
       const spears = state.groundItems.filter((i) => i.itemId === 'spear');
@@ -118,8 +123,13 @@ describe('spear placement (floor 2 only)', () => {
       let state = createInitialState(runSeed);
       for (let target = 2; target <= 3; target++) {
         state.enemies.forEach((e) => (e.alive = false));
-        state.player.pos = { ...state.exit };
-        processTurn(state, { type: 'wait' });
+        // Phase 22 trigger fix: progression requires the player's own
+        // successful move onto the exit tile. This synthetic test map has
+        // the player start at a known floor tile (2,1) with another floor
+        // tile immediately to its east (3,1), so set the exit there and
+        // move onto it rather than teleporting.
+        state.exit = { x: 3, y: 1 };
+        processTurn(state, { type: 'move', direction: 'E' });
         state = advanceToNextFloor(state);
       }
       expect(state.floor).toBe(3);
@@ -522,8 +532,13 @@ describe('persistence and reset (Phase 08.5)', () => {
       equippedWeaponId: 'spear',
     });
     state.enemies.forEach((e) => (e.alive = false));
-    state.player.pos = { ...state.exit };
-    processTurn(state, { type: 'wait' });
+    // Phase 22 trigger fix: progression requires the player's own
+    // successful move onto the exit tile. This synthetic test map has
+    // the player start at a known floor tile (2,1) with another floor
+    // tile immediately to its east (3,1), so set the exit there and
+    // move onto it rather than teleporting.
+    state.exit = { x: 3, y: 1 };
+    processTurn(state, { type: 'move', direction: 'E' });
     expect(state.phase).toBe('floor_cleared');
     state = advanceToNextFloor(state);
     expect(state.inventory.spear).toBe(1);
@@ -537,8 +552,13 @@ describe('persistence and reset (Phase 08.5)', () => {
       equippedArmorId: 'armor',
     });
     state.enemies.forEach((e) => (e.alive = false));
-    state.player.pos = { ...state.exit };
-    processTurn(state, { type: 'wait' });
+    // Phase 22 trigger fix: progression requires the player's own
+    // successful move onto the exit tile. This synthetic test map has
+    // the player start at a known floor tile (2,1) with another floor
+    // tile immediately to its east (3,1), so set the exit there and
+    // move onto it rather than teleporting.
+    state.exit = { x: 3, y: 1 };
+    processTurn(state, { type: 'move', direction: 'E' });
     state = advanceToNextFloor(state);
     expect(state.inventory.sword).toBe(1);
     expect(state.equippedWeaponId).toBe('sword');

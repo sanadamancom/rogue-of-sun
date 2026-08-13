@@ -106,7 +106,58 @@ groundItemは既存の`advanceToNextFloor`/フロア再生成ロジックによ�
 将来の特別な扉・イベント用の鍵を明示的に禁止する記述は追加していない（現状の記述は単に
 現行仕様の反映であり、将来拡張を妨げるものではない）。
 
-## 変更ファイル一覧
+## 修正：階段発動条件のトリガー精緻化（追加修正）
+
+初回実装では、フロア進行の判定に`actualMoveHappened || wasOnExitBeforeAction`を用いていた。
+しかしこれには以下の問題があった。
+
+- 既に階段タイル上にいる状態でwait・攻撃・アイテム使用等の非移動行動をとっても
+  `wasOnExitBeforeAction`が真となり進行してしまう。
+- クラーケンの触手引き寄せ等で受動的に階段タイルへ移動した場合、その直後の
+  無関係な次行動（wait・攻撃など）でも、次行動開始時点で既に階段上にいるため
+  `wasOnExitBeforeAction`が真となり進行してしまう。
+
+これはPhase 22の要求仕様「プレイヤー自身の成立した移動によって、階段以外のマスから
+階段へ移動した場合だけ進行する」と矛盾する。`wasOnExitBeforeAction`は削除し、
+`actualMoveHappened`のみを条件とした。
+
+```ts
+const reachedExit =
+  actualMoveHappened && state.player.pos.x === state.exit.x && state.player.pos.y === state.exit.y;
+```
+
+`actualMoveHappened`は、このターンのプレイヤー自身の`move`アクションによって実際に
+位置が変化したことを表す既存の変数で、敵フェーズより前（プレイヤー行動の直後）に
+計算される。敵フェーズ中の受動的な移動（クラーケンの引き寄せ等）はこの計算より後に
+発生するため、`actualMoveHappened`には決して含まれない。これにより：
+
+- 階段上でのwait・攻撃・アイテム使用・武器使用では進行しない。
+- 受動移動で階段へ到達しても、それ単体では進行しない。
+- 受動到達後の次行動（wait・攻撃等）でも進行しない（`actualMoveHappened`はその
+  ターンのプレイヤー自身の`move`アクションでのみ真になるため、次ターンがwaitや
+  attackであれば当然偽のまま）。
+- 一度階段外へ出てから、自身の`move`で再度階段へ入れば進行する（そのターンの
+  プレイヤー行動が`move`で、実際に階段外→階段へ位置変化するため）。
+- 階段上の敵を攻撃して倒しただけ（`action`アクション、位置変化なし）では進行しない。
+  倒した後、次の自身の`move`で階段へ入れば進行する。
+
+新しい永続フラグをGameStateへは追加していない。全敵撃破条件・鍵システムも復活させて
+いない。
+
+## 変更ファイル一覧（トリガー精緻化・追加修正分）
+
+- `src/game/turn.ts`（`wasOnExitBeforeAction`を削除し`actualMoveHappened`のみに一本化）
+- `src/game/__tests__/phase-22-immediate-stairs-progression.test.ts`
+  （階段上での非移動行動・受動到達後の非移動行動・再進入に関するテストを追加）
+- 以下のテストは、初回実装で使われていた「階段タイルへテレポート→wait」という
+  近道が今回の修正で通らなくなったため、実際の`move`アクションで到達する形に修正した
+  （いずれもテスト対象の本来の検証内容・期待値は変更していない）：
+  `armor-and-golem.test.ts`、`enemy-type.test.ts`、`facing-and-action-controls.test.ts`、
+  `hammer-knockback-weapon.test.ts`、`hunger-food-starvation.test.ts`、
+  `inventory-actions.test.ts`、`inventory-and-apple.test.ts`、`inventory-capacity.test.ts`、
+  `spear-reach-weapon.test.ts`、`weapon-and-sword.test.ts`
+
+## 変更ファイル一覧（Phase 22初回実装分）
 
 - `src/game/turn.ts`（production変更）
 - `docs/rogue-of-sun-game-concept.md`（ゲームコンセプト文書）
@@ -140,7 +191,8 @@ groundItemは既存の`advanceToNextFloor`/フロア再生成ロジックによ�
 
 ## 新規テスト
 
-`src/game/__tests__/phase-22-immediate-stairs-progression.test.ts`（14テスト）：
+`src/game/__tests__/phase-22-immediate-stairs-progression.test.ts`（22テスト。トリガー
+精緻化の追加修正で8テストを追加し、Phase 22初回実装時の14テストと合わせて22テスト）：
 
 - floor 1/2/3それぞれで敵全生存中でも`floor_cleared`/`victory`になること
 - `spawnSource: 'monster_house'`の敵が生存していても進行できること
@@ -153,15 +205,26 @@ groundItemは既存の`advanceToNextFloor`/フロア再生成ロジックによ�
 - フロア遷移後に前階の敵とモンスターハウス状態が残らないこと
 - HP等のcarry-overが維持されること
 - 同一runSeedで次階生成結果が再現すること
+- （追加）階段上でwaitしても進行しないこと
+- （追加）階段上で攻撃しても進行しないこと
+- （追加）階段上でアイテムを使用しても進行しないこと
+- （追加）クラーケンの触手引き寄せによる受動移動で階段へ到達しても、それ単体では
+  進行しないこと
+- （追加）受動到達後の次のwaitでも進行しないこと
+- （追加）受動到達後の次の攻撃でも進行しないこと
+- （追加）受動到達後に一度階段外へ出て、自身のmoveで再進入すれば進行すること
+- （追加）階段上の敵を攻撃して倒しただけでは進行せず、その後の自身のmoveで
+  階段へ入れば進行すること
 
 ## 200seed×3階の結果
 
 `processTurn`/`advanceToNextFloor`など本番経路を用いたheadlessスクリプトで、seed 1〜200
-×floor 1〜3（合計600通り）を検証した。
+×floor 1〜3（合計600通り）を検証した。トリガー精緻化の追加修正後、実際の`move`アクション
+のみで階段へ到達する形にスクリプトを更新し、再実行して確認した。
 
 - 生成例外：0件
 - 階段が到達可能なfloorタイル上にあることを確認：全600件OK
-- 敵が生存した状態での階段進行判定成立：全600件OK
+- 敵が生存した状態での（能動的な）階段進行判定成立：全600件OK
 - floor 1・2は`floor_cleared`、floor 3は`victory`になることを確認：全600件OK
 - モンスターハウス発生階（73件）・非発生階（527件）のいずれでも進行できることを確認
 - 同一seedでのfloor 1生成結果（seed、exit座標）の再現性を確認：200件OK
@@ -171,8 +234,9 @@ groundItemは既存の`advanceToNextFloor`/フロア再生成ロジックによ�
 
 ## 全テスト・型検査・build結果
 
-- `npx vitest run`：103ファイル / 2550テスト、全て成功
-  （開始時点は102ファイル / 2536テスト。新規ファイル1件・新規テスト14件を追加）
+- `npx vitest run`：103ファイル / 2558テスト、全て成功
+  （Phase 22初回実装完了時点は103ファイル / 2550テスト。トリガー精緻化の追加修正で
+  新規テスト8件を追加し2558テストとなった）
 - `npx tsc --noEmit`：エラーなし
 - `npx vite build`：成功（`dist/assets/index-*.js`が1.6MB超という既存のチャンクサイズ
   警告のみ。本Phaseの変更に起因するものではない）
@@ -182,7 +246,9 @@ groundItemは既存の`advanceToNextFloor`/フロア再生成ロジックによ�
 
 実ブラウザでのPlaywright確認は本監査では実施していない（上記の200seed×3階のheadless
 シミュレーションで、新runの開始・敵を倒さず階段到達・floor 1→2→3の進行・floor 3での
-Victory・HPが階段移動で回復しないこと・モンスターハウス未攻略での進行、を代替検証した）。
+Victory・HPが階段移動で回復しないこと・モンスターハウス未攻略での進行を代替検証し、
+また本追加修正ではクラーケンによる受動到達とその後の非移動行動で進行しないこと、
+一度階段外へ出て自身のmoveで再進入すれば進行することを、専用のheadlessテストで検証した）。
 
 実ブラウザで未確認の事項：
 

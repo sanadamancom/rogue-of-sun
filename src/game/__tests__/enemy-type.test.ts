@@ -37,8 +37,13 @@ describe('enemy species assignment', () => {
     const advanceOnce = (runSeed: number) => {
       let state = createInitialState(runSeed);
       state.enemies.forEach((e) => (e.alive = false));
-      state.player.pos = { ...state.exit };
-      processTurn(state, { type: 'wait' });
+      state.player.pos = { x: state.exit.x, y: state.exit.y - 1 >= 0 ? state.exit.y - 1 : state.exit.y };
+      if (state.player.pos.y === state.exit.y) {
+        state.player.pos = { x: state.exit.x - 1 >= 0 ? state.exit.x - 1 : state.exit.x + 1, y: state.exit.y };
+        processTurn(state, { type: 'move', direction: state.exit.x - 1 >= 0 ? 'E' : 'W' });
+      } else {
+        processTurn(state, { type: 'move', direction: 'S' });
+      }
       expect(state.phase).toBe('floor_cleared');
       state = advanceToNextFloor(state);
       return state.enemies.map((e) => e.type);
@@ -311,8 +316,13 @@ describe('combat and progression with mixed enemy types', () => {
     const state = createInitialState(11);
     expect(state.enemies.length).toBe(ENEMY_COUNT_BY_FLOOR[1]);
     expect(state.enemies.every((e) => e.alive)).toBe(true);
-    state.player.pos = { ...state.exit };
-    processTurn(state, { type: 'wait' });
+    state.player.pos = { x: state.exit.x, y: state.exit.y - 1 >= 0 ? state.exit.y - 1 : state.exit.y };
+    if (state.player.pos.y === state.exit.y) {
+      state.player.pos = { x: state.exit.x - 1 >= 0 ? state.exit.x - 1 : state.exit.x + 1, y: state.exit.y };
+      processTurn(state, { type: 'move', direction: state.exit.x - 1 >= 0 ? 'E' : 'W' });
+    } else {
+      processTurn(state, { type: 'move', direction: 'S' });
+    }
     expect(state.phase).toBe('floor_cleared');
   });
 });

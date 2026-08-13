@@ -188,8 +188,13 @@ describe('apple placement in real floor generation (createInitialState) (Phase 1
     for (let target = 2; target <= 3; target++) {
       const beforeGroundItemIds = state.groundItems.map((i) => i.id);
       state.enemies.forEach((e) => (e.alive = false));
-      state.player.pos = { ...state.exit };
-      processTurn(state, { type: 'wait' });
+      state.player.pos = { x: state.exit.x, y: state.exit.y - 1 >= 0 ? state.exit.y - 1 : state.exit.y };
+      if (state.player.pos.y === state.exit.y) {
+        state.player.pos = { ...state.exit };
+        processTurn(state, { type: 'wait' });
+      } else {
+        processTurn(state, { type: 'move', direction: 'S' });
+      }
       expect(state.phase).toBe('floor_cleared');
       state = advanceToNextFloor(state);
       expect(state.floor).toBe(target);
@@ -241,9 +246,8 @@ describe('pickup (auto-pickup on move)', () => {
     expect(state.inventory.apple).toBe(1);
 
     state.enemies.forEach((e) => (e.alive = false));
-    state.player.pos = { x: 99, y: 99 };
-    state.exit = { x: 99, y: 99 };
-    processTurn(state, { type: 'wait' });
+    state.exit = { x: 4, y: 1 };
+    processTurn(state, { type: 'move', direction: 'E' });
     expect(state.phase).toBe('floor_cleared');
     state = advanceToNextFloor(state);
     expect(state.inventory.apple).toBe(1);

@@ -3711,21 +3711,24 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
   // reaching it advances the floor (or ends the run in victory on the
   // final floor) regardless of whether any enemies on this floor are
   // still alive. See docs/history/phase-22-immediate-stairs-progression.md.
-  // Progression still respects fixed_specification.trigger's "プレイヤー
-  // の成立した移動が階段タイル上で終了した場合に進行判定する": a passive
-  // relocation onto the exit tile that happens without the player ever
-  // having moved there themselves (e.g. a kraken tentacle pull resolved
-  // during the enemy phase under a non-'move' player action, while the
-  // player did not start the turn already on the exit) must not by itself
-  // trigger floor advancement. `wasOnExitBeforeAction` covers the case
-  // where the player was already standing on the exit tile before this
-  // turn's actions ran (e.g. immediately after a floor transition).
-  const wasOnExitBeforeAction =
-    posBeforeAction.x === state.exit.x && posBeforeAction.y === state.exit.y;
+  // Progression requires that the player's own successful `move` action
+  // is what carried them from a non-exit tile onto the exit tile this
+  // turn (fixed_specification.trigger's "プレイヤーの成立した移動が階段
+  // タイル上で終了した場合に進行判定する"). `actualMoveHappened` is
+  // computed above, before the enemy phase runs, from the player's own
+  // action alone — so it does not include enemy-phase relocations (e.g. a
+  // kraken tentacle pull). Standing on the exit and waiting, attacking,
+  // or using an item/weapon does not trigger progression, even if the
+  // player arrived there passively earlier this same turn or a prior
+  // one — only an actual move onto the tile does. (An earlier revision of
+  // this check also allowed `wasOnExitBeforeAction` — already standing on
+  // the exit at the start of the action — but that let a stray wait/
+  // attack/item-use taken while already on the exit trigger progression,
+  // and also let a passive relocation onto the exit "arm" progression for
+  // whatever non-move action followed it. Both violate the trigger rule
+  // above, so that allowance was removed.)
   const reachedExit =
-    (actualMoveHappened || wasOnExitBeforeAction) &&
-    state.player.pos.x === state.exit.x &&
-    state.player.pos.y === state.exit.y;
+    actualMoveHappened && state.player.pos.x === state.exit.x && state.player.pos.y === state.exit.y;
 
   state.turn += 1;
   // Web lifetime update comes last in the per-turn sequence (player
