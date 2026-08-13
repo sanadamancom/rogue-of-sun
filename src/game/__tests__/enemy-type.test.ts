@@ -303,18 +303,14 @@ describe('combat and progression with mixed enemy types', () => {
     expect(bok.hp).toBe(bok.maxHp);
   });
 
-  it('keeps the stairs locked until all enemies are defeated (Phase 15.5: floor 1 has 6, not 2)', () => {
+  // Phase 22: stairs no longer require every enemy defeated — the exit is
+  // usable from floor generation onward. This replaces the old "keeps the
+  // stairs locked until all enemies are defeated" expectation. See
+  // docs/history/phase-22-immediate-stairs-progression.md.
+  it('reaching the exit yields floor_cleared even with every enemy still alive (Phase 15.5: floor 1 has 6, not 2)', () => {
     const state = createInitialState(11);
     expect(state.enemies.length).toBe(ENEMY_COUNT_BY_FLOOR[1]);
-    // Defeat all but the last one; stairs must remain locked throughout.
-    for (let i = 0; i < state.enemies.length - 1; i++) {
-      state.enemies[i].alive = false;
-      state.player.pos = { ...state.exit };
-      processTurn(state, { type: 'wait' });
-      expect(state.phase).toBe('playing');
-    }
-    // Defeat the last enemy: stairs unlock.
-    state.enemies[state.enemies.length - 1].alive = false;
+    expect(state.enemies.every((e) => e.alive)).toBe(true);
     state.player.pos = { ...state.exit };
     processTurn(state, { type: 'wait' });
     expect(state.phase).toBe('floor_cleared');

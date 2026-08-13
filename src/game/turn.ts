@@ -3707,11 +3707,25 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
     events.push({ type: 'effect_expired', effectId });
   }
 
-  const reachedExit = state.player.pos.x === state.exit.x && state.player.pos.y === state.exit.y;
-  // The staircase only unlocks once every enemy on this floor has been
-  // defeated (this turn or earlier); reaching it while any enemy is alive
-  // does not advance the floor.
-  const stairsUnlocked = state.enemies.every((enemy) => !enemy.alive);
+  // Phase 22: the staircase is available from floor generation onward —
+  // reaching it advances the floor (or ends the run in victory on the
+  // final floor) regardless of whether any enemies on this floor are
+  // still alive. See docs/history/phase-22-immediate-stairs-progression.md.
+  // Progression still respects fixed_specification.trigger's "プレイヤー
+  // の成立した移動が階段タイル上で終了した場合に進行判定する": a passive
+  // relocation onto the exit tile that happens without the player ever
+  // having moved there themselves (e.g. a kraken tentacle pull resolved
+  // during the enemy phase under a non-'move' player action, while the
+  // player did not start the turn already on the exit) must not by itself
+  // trigger floor advancement. `wasOnExitBeforeAction` covers the case
+  // where the player was already standing on the exit tile before this
+  // turn's actions ran (e.g. immediately after a floor transition).
+  const wasOnExitBeforeAction =
+    posBeforeAction.x === state.exit.x && posBeforeAction.y === state.exit.y;
+  const reachedExit =
+    (actualMoveHappened || wasOnExitBeforeAction) &&
+    state.player.pos.x === state.exit.x &&
+    state.player.pos.y === state.exit.y;
 
   state.turn += 1;
   // Web lifetime update comes last in the per-turn sequence (player
@@ -3723,7 +3737,7 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
 
   if (playerDefeated) {
     state.phase = 'gameover';
-  } else if (reachedExit && stairsUnlocked) {
+  } else if (reachedExit) {
     state.phase = state.floor >= state.totalFloors ? 'victory' : 'floor_cleared';
   }
 

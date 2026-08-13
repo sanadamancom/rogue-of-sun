@@ -420,8 +420,11 @@ describe('kraken pull', () => {
   it('does not trigger floor advancement even if pulled onto the exit tile', () => {
     const state = krakenState({ x: 5, y: 5 }, { playerPos: { x: 8, y: 5 }, tentacleTarget: { x: 8, y: 5 } });
     state.exit = { x: 7, y: 5 }; // exactly the pull destination
-    // Not all enemies are defeated, so even if this were treated as
-    // reaching the exit, the floor must not unlock/advance.
+    // Phase 22: stairs no longer require all enemies defeated, but
+    // progression is still gated on the player's own successful move
+    // ending on the exit tile — a kraken tentacle pull (resolved during
+    // the enemy phase, under a 'wait' player action here) must not by
+    // itself trigger floor advancement.
     const result = processTurn(state, { type: 'wait' });
     expect(state.phase).toBe('playing');
     expect(result.events.some((e) => e.type === 'floor_advanced')).toBe(false);

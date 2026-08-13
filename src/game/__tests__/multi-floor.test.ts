@@ -34,19 +34,25 @@ describe('multi-floor progression', () => {
     expect(state.totalFloors).toBe(3);
   });
 
-  it('does not advance the floor when any enemy is still alive at the exit', () => {
+  // Phase 22: the staircase is available from floor generation onward, so
+  // reaching the exit advances the floor even with every enemy still
+  // alive — see docs/history/phase-22-immediate-stairs-progression.md.
+  // This replaces the old "does not advance the floor when any enemy is
+  // still alive at the exit" expectation.
+  it('advances the floor when every enemy is still alive at the exit', () => {
     const state = createInitialState(11);
     stepOntoExit(state);
-    expect(state.floor).toBe(1);
-    expect(state.phase).not.toBe('victory');
+    expect(state.phase).toBe('floor_cleared');
   });
 
-  it('does not advance the floor when only one of two enemies has been defeated', () => {
+  // Phase 22: replaces the old "does not advance the floor when only one
+  // of two enemies has been defeated" expectation — partial (or zero)
+  // enemy defeat no longer blocks stair use.
+  it('advances the floor when only one of two enemies has been defeated', () => {
     const state = createInitialState(11);
     state.enemies[0].alive = false;
     stepOntoExit(state);
-    expect(state.floor).toBe(1);
-    expect(state.phase).toBe('playing');
+    expect(state.phase).toBe('floor_cleared');
   });
 
   it('signals floor_cleared (not victory) when floor 1 or 2 is cleared', () => {
