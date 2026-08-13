@@ -6,10 +6,10 @@ import { processTurn } from '../turn';
 import { GameState } from '../types';
 
 describe('enemy roster foundation (Phase 06 + density correction)', () => {
-  it('registers all 10 species with a unique id matching its record key', () => {
-    // Phase 23.1: 'skeleton' appended, growing the roster from 9 to 10.
-    expect(ENEMY_TYPES_IN_ORDER).toHaveLength(10);
-    expect(new Set(ENEMY_TYPES_IN_ORDER).size).toBe(10);
+  it('registers all 11 species with a unique id matching its record key', () => {
+    // Phase 23.1 appended 'skeleton' (9->10); Phase 23.3 appended 'ghost' (10->11).
+    expect(ENEMY_TYPES_IN_ORDER).toHaveLength(11);
+    expect(new Set(ENEMY_TYPES_IN_ORDER).size).toBe(11);
     for (const type of ENEMY_TYPES_IN_ORDER) {
       expect(ENEMY_DEFINITIONS[type].id).toBe(type);
     }
@@ -47,10 +47,10 @@ describe('enemy roster foundation (Phase 06 + density correction)', () => {
     }
   });
 
-  describe('roster preview (test/dev-only: all 10 species at once)', () => {
+  describe('roster preview (test/dev-only: all 11 species at once)', () => {
     it('places exactly one of each species, in fixed roster order, with common-table hp/attack', () => {
       const state = buildRosterPreviewFloorState(42);
-      expect(state.enemies).toHaveLength(10);
+      expect(state.enemies).toHaveLength(11);
       state.enemies.forEach((enemy, i) => {
         const def = ENEMY_DEFINITIONS[ENEMY_TYPES_IN_ORDER[i]];
         expect(enemy.type).toBe(def.id);

@@ -21,6 +21,18 @@ import { EnemyType, ElementId, ElementalAffinity } from './types';
  *   blocking-Actor tile, attacking the player at most once if it stops
  *   adjacent to them, then resting one turn. See turn.ts's
  *   resolveGolemChargeEnemy for the full state machine.
+ * - 'ghost_phase' (ghost, Phase 23.3): can move through both floor and
+ *   interior wall tiles (never the outer perimeter ring), 1 tile per
+ *   own turn, via a dedicated deterministic BFS toward the nearest
+ *   floor tile from which it could legally melee-attack the player —
+ *   never through the player's own tile or another movement-blocking
+ *   Actor's tile. Attacks immediately (without moving) if already on
+ *   floor and legally adjacent at the start of its turn; never attacks
+ *   while positioned on a wall tile, even if adjacent to the player;
+ *   if a single step this turn moves it from a wall tile onto a floor
+ *   tile that is now a legal attack position, it attacks once in that
+ *   same turn (never for a floor-to-floor or wall-to-wall step). See
+ *   turn.ts's resolveGhostEnemy for the full state machine.
  * - 'fast_melee' (sword, Phase enemy-behavior-01): attacks immediately if
  *   already adjacent; otherwise attempts up to 2 steps toward the player in
  *   one enemy turn, re-evaluating the board after each step, attacking (and
@@ -89,8 +101,9 @@ export type BehaviorType =
   | 'mummy_shamble'
   | 'cockatrice_gaze'
   | 'kraken_tentacle'
+  | 'ghost_phase'
   | 'stationary';
-export type MovementType = 'ground' | 'flying' | 'none';
+export type MovementType = 'ground' | 'flying' | 'none' | 'phasing';
 
 export interface EnemyDefinition {
   id: EnemyType;
@@ -359,6 +372,27 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     // particular element choice.
     elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   },
+  ghost: {
+    id: 'ghost',
+    displayName: 'ゴースト',
+    spriteKey: 'ghost',
+    hp: 6,
+    attack: 6,
+    defense: 0,
+    accuracy: 90,
+    evasion: 0,
+    behaviorType: 'ghost_phase',
+    movementType: 'phasing',
+    stationary: false,
+    experienceReward: 2,
+    // Phase 23.3: ghost carries no elemental weakness or resistance —
+    // its species-defining trait is the wall-phasing state machine
+    // itself, not affinity strength (mirroring skeleton's own
+    // all-neutral rationale in this same file). Provisional stats
+    // throughout this entry are for 3-floor prototype validation only;
+    // see confirmed_spec.roster.rules — reconfirm in Phase 23.6/27.
+    elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
+  },
 };
 
 // Fixed order used to assign one of each species per floor (Phase 06
@@ -369,6 +403,10 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
 // (e.g. enemy-roster-foundation.test.ts's roster-preview ordering
 // check) keeps matching the original 9 species at their original
 // indices; only the array's length and its final entry change.
+// Phase 23.3: 'ghost' appended at the end (after Phase 23.1's
+// 'skeleton', never inserted in the middle), for the same
+// index-preservation reason skeleton was appended in Phase 23.1 — only
+// the array's length and final entry change.
 export const ENEMY_TYPES_IN_ORDER: EnemyType[] = [
   'bok',
   'cockatrice',
@@ -380,6 +418,7 @@ export const ENEMY_TYPES_IN_ORDER: EnemyType[] = [
   'axe',
   'kraken',
   'skeleton',
+  'ghost',
 ];
 
 /**
@@ -402,6 +441,8 @@ export const ENEMY_FIRST_APPEARANCE_FLOOR: Record<EnemyType, number> = {
   // output for floor 3 and beyond (one more candidate species than
   // before this phase) — not an accidental side effect.
   skeleton: 3,
+  // Phase 23.3 Stage: ghost's provisional normal first-appearance floor.
+  ghost: 3,
 };
 
 /**

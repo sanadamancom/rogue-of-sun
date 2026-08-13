@@ -342,7 +342,8 @@ describe('floor 2 golem availability (Phase 08.4)', () => {
     expect(new Set(getEnemyPoolForFloor(3))).toEqual(
       // Phase 23.1 Stage 4: skeleton's provisional normal first-
       // appearance floor is 3, an intended pool-composition change.
-      new Set(['bok', 'bat', 'spider', 'cockatrice', 'mummy', 'skeleton']),
+      // Phase 23.3 adds ghost at the same provisional floor 3.
+      new Set(['bok', 'bat', 'spider', 'cockatrice', 'mummy', 'skeleton', 'ghost']),
     );
   });
 

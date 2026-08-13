@@ -171,7 +171,8 @@ export type EnemyType =
   | 'sword'
   | 'axe'
   | 'kraken'
-  | 'skeleton';
+  | 'skeleton'
+  | 'ghost';
 
 /** An enemy Actor tagged with its species; used for AI branching and sprite/texture selection. */
 export interface EnemyActor extends Actor {

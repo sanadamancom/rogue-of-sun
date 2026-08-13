@@ -1,6 +1,7 @@
 import { directionBetweenAdjacent, isAdjacent, isOrthogonallyAdjacent } from './direction';
 import { applyMonsterHouseReveal } from './monster-house';
 import { canMove, destinationOf, isDiagonalCornerOpen, isInBounds, isWalkable } from './map';
+import { pointKey } from './visibility';
 import { ENEMY_DEFINITIONS } from './enemy-def';
 import { ITEM_DEFINITIONS } from './item-def';
 import { hasInventoryCapacity, inventoryEntries } from './inventory';
@@ -58,6 +59,7 @@ import {
   EnchantmentId,
   EnemyActor,
   EnemyType,
+  GameMap,
   GameState,
   ItemId,
   PlayerAction,
@@ -85,26 +87,58 @@ const ELEMENT_ENCHANT_ELIGIBLE_WEAPONS: WeaponId[] = ['sword', 'spear', 'hammer'
  * skeleton (EnemyActor.skeletonForm === 'head') never blocks movement —
  * fixed_spec's "頭部は移動を阻害しない" — while remaining a fully valid
  * attack target elsewhere (every attack-target lookup in this file
- * still uses a plain `enemy.alive` check, deliberately not this
- * helper — see Stage 2's "通行・占有" split: 攻撃対象は頭部を含む,
- * 移動阻害は頭部を含まない). Every other species/form is unaffected
- * (identical to the old bare `enemy.alive` check).
+ * routes through isEnemyAttackable/findAttackTarget below, deliberately
+ * not this helper — see Stage 2's "通行・占有" split: 攻撃対象は頭部を
+ * 含む, 移動阻害は頭部を含まない). Every other species/form is
+ * unaffected (identical to the old bare `enemy.alive` check).
  */
 function isMovementBlockingEnemy(enemy: EnemyActor): boolean {
   return enemy.alive && !(enemy.type === 'skeleton' && enemy.skeletonForm === 'head');
 }
 
 /**
- * Phase 23.1: finds the living enemy at `pos` to actually attack,
- * preferring a body-form actor over a head-form skeleton when both
- * occupy the same tile (fixed_spec's "同じマスに通常状態の敵がいる場合、
- * 攻撃対象は通常敵を優先する") — a head never blocks movement, so this
- * is the only place two living enemies can legitimately share a tile.
- * Every ordinary case (at most one living enemy per tile) behaves
- * identically to a plain `enemies.find(enemy => enemy.alive && ...)`.
+ * Phase 23.3: whether `enemy` is a ghost currently positioned on a wall
+ * tile — the single source of truth for ghost's wall/floor state
+ * (fixed_spec's "ghost専用のinsideWallフラグを重複保持しない"). No
+ * separate boolean field exists anywhere on EnemyActor; every caller
+ * (movement, attack legality, attack-target extraction, rendering)
+ * derives this fresh from `map.terrain[enemy.pos.y][enemy.pos.x]` every
+ * time, so it can never drift out of sync with the enemy's actual
+ * position. Always false for every non-ghost species.
  */
-function findAttackTarget(enemies: EnemyActor[], pos: Vec2): EnemyActor | undefined {
-  const atPos = enemies.filter((enemy) => enemy.alive && enemy.pos.x === pos.x && enemy.pos.y === pos.y);
+export function isGhostInsideWall(map: GameMap, enemy: EnemyActor): boolean {
+  return enemy.type === 'ghost' && map.terrain[enemy.pos.y]?.[enemy.pos.x] === 'wall';
+}
+
+/**
+ * Phase 23.3: whether `enemy` can be the target of any player-driven
+ * attack — melee, spear reach-2, the solar gun, or a room-wide card
+ * (justice/devil/tower) — the single shared choke point every
+ * attack-target extraction in this file routes through. Alive is
+ * required as before; a wall-phased ghost (isGhostInsideWall) is
+ * additionally excluded, since "壁内から攻撃しない/壁内では攻撃対象に
+ * ならない" must hold regardless of which attack path is used, not just
+ * the ones whose ray/reach would naturally miss it. A future
+ * unattackable state for a different species would be added here, not
+ * duplicated per call site.
+ */
+function isEnemyAttackable(map: GameMap, enemy: EnemyActor): boolean {
+  return enemy.alive && !isGhostInsideWall(map, enemy);
+}
+
+/**
+ * Phase 23.1: finds the enemy at `pos` to actually attack, preferring a
+ * body-form actor over a head-form skeleton when both occupy the same
+ * tile (fixed_spec's "同じマスに通常状態の敵がいる場合、攻撃対象は通常
+ * 敵を優先する") — a head never blocks movement, so this is the only
+ * place two living enemies can legitimately share a tile. Phase 23.3
+ * additionally routes the base candidacy check through
+ * isEnemyAttackable (map-aware, so this now takes `map` as its first
+ * argument) instead of a bare `enemy.alive`, so a wall-phased ghost is
+ * never returned as a target by any of this function's 3 call sites.
+ */
+function findAttackTarget(map: GameMap, enemies: EnemyActor[], pos: Vec2): EnemyActor | undefined {
+  const atPos = enemies.filter((enemy) => isEnemyAttackable(map, enemy) && enemy.pos.x === pos.x && enemy.pos.y === pos.y);
   if (atPos.length === 0) return undefined;
   return atPos.find((enemy) => !(enemy.type === 'skeleton' && enemy.skeletonForm === 'head')) ?? atPos[0];
 }
@@ -1063,7 +1097,7 @@ function resolveFacingAttack(
   // Cardinal directions are always open by definition, so this only ever
   // changes the diagonal case.
   const target = isDiagonalCornerOpen(map, player.pos, destination)
-    ? findAttackTarget(enemies, destination)
+    ? findAttackTarget(map, enemies, destination)
     : undefined;
   if (target) {
     const result = applyPlayerAttackToEnemy(state, target, events);
@@ -1087,7 +1121,7 @@ function resolveFacingAttack(
       // legality check independently.
       if (canMove(map, destination, direction)) {
         const farTile = destinationOf(destination, direction);
-        const farTarget = findAttackTarget(enemies, farTile);
+        const farTarget = findAttackTarget(map, enemies, farTile);
         if (farTarget) {
           const result = applyPlayerAttackToEnemy(state, farTarget, events);
           if (result.hit && !result.defeated) {
@@ -1185,7 +1219,7 @@ function resolveSolarGunAttack(
   // would not guarantee this.
   let target: EnemyActor | undefined;
   for (const tile of reached) {
-    target = findAttackTarget(state.enemies, tile);
+    target = findAttackTarget(state.map, state.enemies, tile);
     if (target) break;
   }
 
@@ -1726,7 +1760,10 @@ function applyDeathCardUse(
 function getSameRoomEnemies(state: GameState): EnemyActor[] {
   const roomIndex = roomIndexContaining(state.map.rooms, state.player.pos);
   if (roomIndex < 0) return [];
-  return state.enemies.filter((e) => e.alive && roomIndexContaining(state.map.rooms, e.pos) === roomIndex);
+  // Phase 23.3: routes through isEnemyAttackable so a wall-phased ghost
+  // is never a target of the room-wide cards (justice/devil/tower),
+  // matching every other attack path's exclusion.
+  return state.enemies.filter((e) => isEnemyAttackable(state.map, e) && roomIndexContaining(state.map.rooms, e.pos) === roomIndex);
 }
 
 /**
@@ -3383,6 +3420,153 @@ function resolveKrakenEnemy(
 }
 
 /**
+ * Phase 23.3: whether `pos` is a tile a ghost may occupy or pass
+ * through while pathfinding — in bounds, never the outer perimeter
+ * ring (fixed_spec's forbidden "マップ外/x=0/y=0/x=width-1/y=height-1"),
+ * either floor or an interior wall tile, never the player's own tile,
+ * and never another living movement-blocking Actor's tile (excluding
+ * `ghost` itself). Used identically as both the BFS graph's node-
+ * passability predicate and the final single-step legality check, so
+ * the two can never disagree.
+ */
+function isGhostPassableTile(state: GameState, ghost: EnemyActor, pos: Vec2): boolean {
+  const { map } = state;
+  if (!isInBounds(map, pos)) return false;
+  if (pos.x === 0 || pos.y === 0 || pos.x === map.width - 1 || pos.y === map.height - 1) return false;
+  const tile = map.terrain[pos.y][pos.x];
+  if (tile !== 'floor' && tile !== 'wall') return false;
+  if (pos.x === state.player.pos.x && pos.y === state.player.pos.y) return false;
+  if (state.enemies.some((other) => other !== ghost && isMovementBlockingEnemy(other) && other.pos.x === pos.x && other.pos.y === pos.y)) return false;
+  return true;
+}
+
+/**
+ * Phase 23.3: the set of floor tiles (as pointKeys) from which a ghost
+ * standing there could legally melee-attack the player this turn — a
+ * floor tile 8-direction-adjacent to the player, passing the same
+ * diagonal-corner-cut legality check tryMeleeAttack itself applies
+ * (isDiagonalCornerOpen), and not itself occupied by another
+ * movement-blocking Actor (the player's own tile is trivially excluded,
+ * since it can never be adjacent to itself). Recomputed fresh every
+ * time a ghost needs to plan a step — never cached, since other actors'
+ * positions can change turn to turn.
+ */
+function computeGhostAttackTargetCells(state: GameState, ghost: EnemyActor): Set<string> {
+  const { map, player } = state;
+  const targets = new Set<string>();
+  for (const dir of ALL_DIRECTIONS) {
+    const delta = DIRECTION_VECTORS[dir];
+    const candidate: Vec2 = { x: player.pos.x + delta.x, y: player.pos.y + delta.y };
+    if (!isInBounds(map, candidate)) continue;
+    if (map.terrain[candidate.y][candidate.x] !== 'floor') continue;
+    if (!isDiagonalCornerOpen(map, candidate, player.pos)) continue;
+    if (state.enemies.some((other) => other !== ghost && isMovementBlockingEnemy(other) && other.pos.x === candidate.x && other.pos.y === candidate.y)) continue;
+    targets.add(pointKey(candidate));
+  }
+  return targets;
+}
+
+/**
+ * Phase 23.3: plans a ghost's single next step toward the nearest legal
+ * attack position (computeGhostAttackTargetCells), via a deterministic
+ * breadth-first search over isGhostPassableTile's graph — floor and
+ * interior wall tiles alike cost 1 to enter, matching fixed_spec's
+ * "floorと内部wallを同一コスト1として探索する". Neighbor expansion at
+ * every node always tries ALL_DIRECTIONS in its fixed order, and the
+ * queue is a plain FIFO, so the same (state, ghost.pos) always produces
+ * the exact same shortest path with no RNG anywhere (fixed_spec's
+ * "同距離候補をRNGで選ばない" / "同一stateとRNGから同じ経路と結果を得
+ * る" — no RNG is drawn here at all). Returns the Direction8 of the
+ * first step along that path, or null if the ghost is already standing
+ * on a target cell (defensive; resolveGhostEnemy always tries attacking
+ * before ever calling this) or if no path exists at all (occupied exits
+ * on every side, e.g. — the ghost simply stays where it is that turn).
+ */
+function planGhostStep(state: GameState, ghost: EnemyActor): Direction8 | null {
+  const targets = computeGhostAttackTargetCells(state, ghost);
+  if (targets.size === 0) return null;
+
+  const startKey = pointKey(ghost.pos);
+  if (targets.has(startKey)) return null;
+
+  const visited = new Set<string>([startKey]);
+  const cameFrom = new Map<string, { from: Vec2; dir: Direction8 }>();
+  const queue: Vec2[] = [ghost.pos];
+  let goalKey: string | null = null;
+
+  while (queue.length > 0 && goalKey === null) {
+    const current = queue.shift() as Vec2;
+    for (const dir of ALL_DIRECTIONS) {
+      const delta = DIRECTION_VECTORS[dir];
+      const next: Vec2 = { x: current.x + delta.x, y: current.y + delta.y };
+      const nextKey = pointKey(next);
+      if (visited.has(nextKey)) continue;
+      if (!isGhostPassableTile(state, ghost, next)) continue;
+      visited.add(nextKey);
+      cameFrom.set(nextKey, { from: current, dir });
+      queue.push(next);
+      if (targets.has(nextKey)) {
+        goalKey = nextKey;
+        break;
+      }
+    }
+  }
+
+  if (goalKey === null) return null;
+
+  // Walk the parent chain back from the goal to the tile adjacent to
+  // ghost.pos, whose recorded direction is the first step to take.
+  let stepKey = goalKey;
+  let step = cameFrom.get(stepKey) as { from: Vec2; dir: Direction8 };
+  while (pointKey(step.from) !== startKey) {
+    stepKey = pointKey(step.from);
+    step = cameFrom.get(stepKey) as { from: Vec2; dir: Direction8 };
+  }
+  return step.dir;
+}
+
+/**
+ * Resolves one ghost's action ('ghost_phase', Phase 23.3). If already
+ * standing on floor with a legal melee attack available, attacks
+ * immediately without moving (reusing tryMeleeAttack exactly as every
+ * other melee behaviorType does) — a wall-phased ghost never takes this
+ * branch, even if adjacent to the player (fixed_spec's "壁内からは攻撃
+ * しない...壁内なら直接攻撃しない"). Otherwise attempts one step via
+ * planGhostStep; if that single step happens to carry it from a wall
+ * tile onto a floor tile that is now a legal attack position, it
+ * attacks once in that same turn (fixed_spec's "床へ出たターンから攻撃
+ * 可能、追加の猶予ターンなし") — never for a floor-to-floor or
+ * wall-to-wall step, which is why `wasInsideWall` is captured before
+ * moving and checked against the post-move wall state, not just "is it
+ * currently on floor and adjacent". If no path exists, waits in place.
+ */
+function resolveGhostEnemy(
+  state: GameState,
+  enemy: EnemyActor,
+  events: GameEvent[],
+): { acted: boolean; attacked: boolean } {
+  const wasInsideWall = isGhostInsideWall(state.map, enemy);
+  if (!wasInsideWall && tryMeleeAttack(state, enemy, events)) {
+    return { acted: true, attacked: true };
+  }
+
+  const stepDir = planGhostStep(state, enemy);
+  if (!stepDir) {
+    return { acted: true, attacked: false };
+  }
+
+  const dest = destinationOf(enemy.pos, stepDir);
+  enemy.facing = stepDir;
+  enemy.pos = dest;
+
+  const nowInsideWall = isGhostInsideWall(state.map, enemy);
+  if (wasInsideWall && !nowInsideWall && tryMeleeAttack(state, enemy, events)) {
+    return { acted: true, attacked: true };
+  }
+  return { acted: true, attacked: false };
+}
+
+/**
  * Dispatches an enemy's action by its species' behaviorType (see
  * enemy-def.ts) rather than switching on species id directly, so adding a
  * finished signature AI later only requires adding a new BehaviorType case
@@ -3404,6 +3588,8 @@ function resolveKrakenEnemy(
  *   (phase-06-cockatrice-petrifying-gaze).
  * - 'kraken_tentacle': kraken's telegraphed-cross tentacle strike with pull
  *   (phase-06-kraken-telegraphed-tentacle-strike).
+ * - 'ghost_phase': ghost's wall-phasing BFS approach and attack (Phase
+ *   23.3).
  * - 'generic_melee' and 'placeholder': bok's 8-direction chase/attack
  *   ('placeholder' is a reserved fallback with no current species).
  * - 'stationary': a stricter no-op fallback that never acts at all (no
@@ -3465,6 +3651,8 @@ function resolveOneEnemy(
       return resolveCockatriceEnemy(state, enemy, events);
     case 'kraken_tentacle':
       return resolveKrakenEnemy(state, enemy, events);
+    case 'ghost_phase':
+      return resolveGhostEnemy(state, enemy, events);
     case 'stationary':
       return { acted: false, attacked: false };
     case 'generic_melee':

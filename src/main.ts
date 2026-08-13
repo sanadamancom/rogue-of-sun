@@ -58,8 +58,8 @@ import {
   toggleAbilityOverlay,
 } from './game/ability';
 import { EFFECT_DEFINITIONS, getActiveEffects } from './game/effects';
-import { processTurn, TurnResult, ELEMENT_ENCHANTMENT_SOL_COST, isCardIdentified, getSolarGunEffectiveElement } from './game/turn';
-import { DIRECTION_VECTORS, EnemyType, EnemyActor, GameState, Direction8 } from './game/types';
+import { processTurn, TurnResult, ELEMENT_ENCHANTMENT_SOL_COST, isCardIdentified, getSolarGunEffectiveElement, isGhostInsideWall } from './game/turn';
+import { DIRECTION_VECTORS, EnemyType, EnemyActor, GameState, GameMap, Direction8 } from './game/types';
 import { CAMERA_VIEW_WIDTH, CAMERA_VIEW_HEIGHT } from './game/camera';
 import { canTakeDashStep, shouldStopDashAfterStep } from './game/dash';
 import {
@@ -225,6 +225,24 @@ function spriteKeyForEnemy(enemy: EnemyActor): string {
   // terrain/traps a golem can cross, purely cosmetic).
   if (enemy.type === 'golem' && enemy.golemChargeState === 'telegraphed') return 'claygolem_rolling';
   return textureKeyForEnemyType(enemy.type);
+}
+
+/**
+ * Phase 23.3: the display alpha for `enemy` — the single pure boundary
+ * deciding ghost's wall/floor half-transparency (fixed_spec's "ghost専
+ * 用の表示可否とalphaを決めるpure helperを用意する"), so no per-call-site
+ * ghost-specific branching is needed anywhere else. Every non-ghost
+ * species, and a floor-standing ghost, always resolves to 1 — only a
+ * wall-phased ghost (isGhostInsideWall) resolves to the minimal 0.5
+ * semi-transparent placeholder (fixed_spec's "wall内表示はalpha 0.5の
+ * 最小半透明表現とする" — completed translucency/floating visuals are
+ * deferred to Phase 25). Overall sprite visibility (whether it's drawn
+ * at all) is governed separately by the existing currentVisible gate
+ * (snapActor/animateMove's `extraVisible`) — this only ever affects
+ * opacity once something has already been decided visible.
+ */
+function ghostDisplayAlpha(map: GameMap, enemy: EnemyActor): number {
+  return isGhostInsideWall(map, enemy) ? 0.5 : 1;
 }
 
 class MainScene extends Phaser.Scene {
@@ -896,7 +914,7 @@ class MainScene extends Phaser.Scene {
         console.error(`snapAllEnemies: no sprite at index ${i} for ${this.state.enemies.length} enemies (enemySprites has ${this.enemySprites.length}); skipping instead of crashing`);
         return;
       }
-      this.snapActor(sprite, enemy, spriteKeyForEnemy(enemy), this.isCurrentlyVisible(enemy.pos));
+      this.snapActor(sprite, enemy, spriteKeyForEnemy(enemy), this.isCurrentlyVisible(enemy.pos), ghostDisplayAlpha(this.state.map, enemy));
     });
   }
 
@@ -2229,6 +2247,14 @@ class MainScene extends Phaser.Scene {
     playerBefore: { x: number; y: number },
     enemiesBefore: { x: number; y: number }[],
   ): void {
+    // Phase 23.3: snapshot of which tiles were visible before this
+    // turn's refreshStaticView() call below recomputes this.currentVisible
+    // for the post-move state — needed so a ghost's move animation never
+    // tweens in from an unseen (wall) origin into a newly-visible
+    // destination (fixed_spec's "視界外の壁内移動経路を画面へ漏らさな
+    // い"). Captured here, before anything below can mutate
+    // this.currentVisible.
+    const visibleBeforeTurn = new Set(this.currentVisible);
     this.pushMessages(formatEvents(result.events));
     const phaseAfterTurn = this.state.phase as import('./game/types').GamePhase;
 
@@ -2309,10 +2335,19 @@ class MainScene extends Phaser.Scene {
       // recomputed this.currentVisible from the player's post-move
       // position, so this reflects the destination tile's visibility.
       const visible = this.isCurrentlyVisible(enemy.pos);
-      if (moved) {
-        this.animateMove(sprite, spriteKey, enemy, before, visible);
+      const alpha = ghostDisplayAlpha(this.state.map, enemy);
+      // Phase 23.3: a move animation is only shown when the origin tile
+      // was itself visible before this turn — otherwise (origin unseen,
+      // destination newly visible) the sprite snaps directly to its new
+      // tile instead of visibly sliding in from nowhere. When the
+      // destination isn't visible either, animateMove/snapActor already
+      // keep the sprite hidden throughout regardless of which is used,
+      // so this only ever changes the "unseen -> now-visible" case.
+      const originWasVisible = visibleBeforeTurn.has(visibilityPointKey(before));
+      if (moved && (originWasVisible || !visible)) {
+        this.animateMove(sprite, spriteKey, enemy, before, visible, alpha);
       } else {
-        this.snapActor(sprite, enemy, spriteKey, visible);
+        this.snapActor(sprite, enemy, spriteKey, visible, alpha);
       }
     });
   }
@@ -2421,10 +2456,12 @@ class MainScene extends Phaser.Scene {
     actor: GameState['player'],
     spriteKey: string = 'player',
     extraVisible: boolean = true,
+    alpha: number = 1,
   ): void {
     const x = actor.pos.x * TILE_SIZE + TILE_SIZE / 2;
     const y = actor.pos.y * TILE_SIZE + TILE_SIZE / 2;
     sprite.setPosition(x, y);
+    sprite.setAlpha(alpha);
     sprite.setVisible(actor.alive && extraVisible);
     if (actor.alive) {
       this.ensureWalking(sprite, spriteKey, toDirection4(actor.facing));
@@ -2489,6 +2526,7 @@ class MainScene extends Phaser.Scene {
     actor: GameState['player'],
     fromTile: { x: number; y: number },
     extraVisible: boolean = true,
+    alpha: number = 1,
   ): void {
     const dir4 = toDirection4(actor.facing);
     const fromX = fromTile.x * TILE_SIZE + TILE_SIZE / 2;
@@ -2497,6 +2535,7 @@ class MainScene extends Phaser.Scene {
     const toY = actor.pos.y * TILE_SIZE + TILE_SIZE / 2;
 
     sprite.setPosition(fromX, fromY);
+    sprite.setAlpha(alpha);
     sprite.setVisible(extraVisible);
     this.ensureWalking(sprite, spriteKey, dir4);
 
