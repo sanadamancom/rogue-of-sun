@@ -88,6 +88,21 @@ export type GameEvent =
       damage: number;
     }
   | { type: 'player_pulled'; sourceEnemyId: number; enemyType: EnemyType; from: Vec2; to: Vec2 }
+  // Phase 23.2 golem charge redesign: pushed once when an idle golem
+  // fixes its charge direction (never re-derived from the player's
+  // later position — see turn.ts's resolveGolemChargeEnemy). `target`
+  // is the player's tile at the moment of telegraphing, display-only
+  // (mirroring kraken_tentacle_aim's `target` field).
+  | { type: 'golem_charge_telegraphed'; enemyId: number; enemyType: EnemyType; direction: import('./types').Direction4; target: Vec2 }
+  // Pushed once, the turn a telegraphed golem actually charges —
+  // whether or not it moved any tiles or attacked the player.
+  // `distanceMoved` is how many tiles it actually advanced (0 if the
+  // very first step was already blocked); `attackedPlayer` is whether
+  // it stopped adjacent to the player and attempted exactly one
+  // ordinary attack (win or miss — see resolveEnemyAttackHit, which
+  // pushes its own enemy_attack/enemy_attack_missed event for the
+  // outcome; this event never duplicates that damage/hit information).
+  | { type: 'golem_charge_executed'; enemyId: number; enemyType: EnemyType; direction: import('./types').Direction4; distanceMoved: number; attackedPlayer: boolean }
   | { type: 'player_webbed' }
   | { type: 'slowed_move_cancelled' }
   | { type: 'floor_advanced' }

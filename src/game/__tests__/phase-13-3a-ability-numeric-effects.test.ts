@@ -236,8 +236,13 @@ describe('Phase 13.3a ability numeric effects', () => {
         if (weaponId === 'solar_gun') {
           state.player.facing = 'W'; // ray toward the adjacent enemy
           const result = processTurn(state, { type: 'action' });
+          // Phase 23.1: the solar gun always fires through its own sol
+          // lens (default), adding a fixed elemental bonus on top of the
+          // physical formula below — this fixture's target (bok) has a
+          // 'weak' sol affinity, contributing +3 (mind bonus 0, no mind
+          // ranks allocated here).
           expect(playerAttackDamage(result.events)).toBe(
-            weaponBaseDamage(weaponId) + POWER_DAMAGE_PER_RANK * 2,
+            weaponBaseDamage(weaponId) + POWER_DAMAGE_PER_RANK * 2 + 3,
           );
         } else {
           const events = attackAdjacentEnemy(state);

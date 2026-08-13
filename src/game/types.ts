@@ -8,6 +8,9 @@ export type Direction8 =
   | 'SE'
   | 'SW';
 
+/** Phase 23.2: the 4 cardinal-only subset of Direction8, used by golem's charge (no diagonal charge — fixed_spec's directions list). */
+export type Direction4 = 'N' | 'S' | 'E' | 'W';
+
 export interface Vec2 {
   x: number;
   y: number;
@@ -337,6 +340,35 @@ export interface EnemyActor extends Actor {
    * every other species and for a body-form skeleton.
    */
   skeletonReviveAtTurn?: number;
+  /**
+   * Golem-only (Phase 23.2 charge redesign, replacing 'slow_melee'):
+   * this golem's current charge-cycle phase. Absent/undefined is
+   * equivalent to `'idle'` (every pre-Phase-23.2 EnemyActor literal, and
+   * every freshly spawned golem, has no explicit value here) — see
+   * turn.ts's resolveGolemChargeEnemy for the full idle -> telegraphed
+   * -> recovering -> idle cycle. No schemaVersion bump: purely an
+   * optional addition, defaulting exactly as before this phase for
+   * every existing fixture. Irrelevant for every other species.
+   */
+  golemChargeState?: 'idle' | 'telegraphed' | 'recovering';
+  /**
+   * Golem-only (Phase 23.2): the fixed cardinal direction this golem
+   * will charge along, set once when it enters 'telegraphed' and
+   * cleared the same turn it actually charges. Never re-derived from
+   * the player's possibly-new position (fixed_spec's "プレイヤーの現在
+   * 位置へ方向補正しない"). Irrelevant/absent outside 'telegraphed'.
+   */
+  golemChargeDirection?: Direction4;
+  /**
+   * Golem-only (Phase 23.2), display-only bookkeeping mirroring
+   * cockatrice's gazeTargetTile / kraken's tentacleTarget: the tile the
+   * player occupied at the moment this golem started telegraphing,
+   * fixed for the reticle's sake — never read by the charge's own
+   * collision/movement resolution, which relies solely on
+   * golemChargeDirection. Cleared alongside golemChargeDirection the
+   * same turn the charge resolves.
+   */
+  golemChargeTargetTile?: Vec2;
 }
 
 // 'floor_cleared' is a transient signal set for a single processTurn call

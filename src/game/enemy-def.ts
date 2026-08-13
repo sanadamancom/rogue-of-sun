@@ -6,9 +6,21 @@ import { EnemyType, ElementId, ElementalAffinity } from './types';
  * - 'generic_melee': bok's 8-direction chase-and-attack (baseline; also the
  *   temporary fallback for 'placeholder' species below).
  * - 'spider_cardinal': spider's 4-direction-only chase-and-attack.
- * - 'slow_melee' (golem, Phase enemy-behavior-01): acts every other enemy
- *   turn (its very first enemy turn on a floor is always an acting turn),
- *   waiting in place — even if adjacent to the player — on its off turns.
+ * - 'golem_charge' (golem, Phase 23.2, replacing 'slow_melee'): idle
+ *   priority order each of its own turns — (1) attack immediately if
+ *   already 8-direction adjacent, then rest one turn; (2) if aligned on
+ *   the player's row/column at Chebyshev distance 2-5 with a clear
+ *   straight line (no wall/map-edge/movement-blocking Actor in
+ *   between), telegraph a charge along that fixed cardinal direction
+ *   (no movement/attack that turn); (3) otherwise take one ordinary
+ *   chase step (or wait if none is legal), then rest one turn. A
+ *   telegraphed golem always charges on its very next turn along the
+ *   direction fixed at telegraph time (never re-aimed at the player's
+ *   new position, and never cancelled by the player leaving aggro
+ *   range), moving up to 5 tiles, stopping at the first wall/map-edge/
+ *   blocking-Actor tile, attacking the player at most once if it stops
+ *   adjacent to them, then resting one turn. See turn.ts's
+ *   resolveGolemChargeEnemy for the full state machine.
  * - 'fast_melee' (sword, Phase enemy-behavior-01): attacks immediately if
  *   already adjacent; otherwise attempts up to 2 steps toward the player in
  *   one enemy turn, re-evaluating the board after each step, attacking (and
@@ -69,7 +81,7 @@ import { EnemyType, ElementId, ElementalAffinity } from './types';
 export type BehaviorType =
   | 'generic_melee'
   | 'spider_cardinal'
-  | 'slow_melee'
+  | 'golem_charge'
   | 'fast_melee'
   | 'recovery_melee'
   | 'placeholder'
@@ -258,7 +270,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     defense: 1,
     accuracy: 90,
     evasion: 0,
-    behaviorType: 'slow_melee',
+    behaviorType: 'golem_charge',
     movementType: 'ground',
     stationary: false,
     experienceReward: 3,

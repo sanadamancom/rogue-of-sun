@@ -172,7 +172,7 @@ describe('weapon damage uses the shared calculation (Phase 10.2)', () => {
     expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(13);
   });
 
-  it('solar gun: still consumes its own SOL cost and deals player.attack + 0 bonus, unaffected by an active sol selection', () => {
+  it('solar gun: consumes its own SOL cost and deals physical + its own sol-lens elemental bonus (Phase 23.1 solar gun element foundation), unaffected by melee\'s selectedEnchantment=sol beyond selecting the same lens', () => {
     const state = freshState({
       equippedWeaponId: 'solar_gun',
       inventory: { ...createEmptyInventory(), solar_gun: 1 },
@@ -182,10 +182,14 @@ describe('weapon damage uses the shared calculation (Phase 10.2)', () => {
     });
     faceEast(state);
     const result = processTurn(state, { type: 'action' });
-    expect(state.solarEnergy).toBe(2); // solar gun's own solarCost 3 (Phase 16.1), unrelated to sol enchantment
+    expect(state.solarEnergy).toBe(2); // solar gun's own solarCost 3 (Phase 16.1); no additional melee-enchant SOL cost (Phase 23.1)
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
-    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(11); // player.attack 10 + solar_gun bonus 1 (Phase 15.1), no melee sol bonus applied
+    // player.attack 10 + solar_gun bonus 1 (Phase 15.1) = 11 physical, plus
+    // the solar gun's own sol-lens elemental bonus against this fixture's
+    // target (weak affinity: +3, mind bonus 0) = 14 total (Phase 23.1).
+    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(14);
     expect(result.events.some((e) => e.type === 'sol_enchantment_used')).toBe(false);
+    expect(result.events.some((e) => e.type === 'solar_gun_element_fired' && e.element === 'sol')).toBe(true);
   });
 
   it('enemy defense actually reduces the player\'s final damage', () => {

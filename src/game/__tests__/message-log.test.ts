@@ -163,9 +163,10 @@ describe('processTurn events', () => {
     expect(result.events[result.events.length - 1]).toEqual({ type: 'player_defeated' });
   });
 
-  it('produces enemy_recovering for golem on its resting turn', () => {
-    const state = singleEnemyState('golem', { x: 9, y: 4 }, { turn: 1, spawnTurn: 0 });
-    const result = processTurn(state, { type: 'wait' });
+  it('produces enemy_recovering for golem on its resting turn after attacking (Phase 23.2 golem_charge)', () => {
+    const state = singleEnemyState('golem', { x: 9, y: 4 }, { turn: 0 });
+    processTurn(state, { type: 'wait' }); // attacks, enters 'recovering'
+    const result = processTurn(state, { type: 'wait' }); // rests
     expect(result.events).toEqual([{ type: 'enemy_recovering', enemyType: 'golem' }]);
   });
 

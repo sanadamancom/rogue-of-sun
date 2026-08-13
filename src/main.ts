@@ -41,7 +41,7 @@ import {
   snapshotForTurn,
   RunTelemetry,
 } from './game/telemetry';
-import { getCockatriceTelegraph, getKrakenTelegraph } from './game/telegraph';
+import { getCockatriceTelegraph, getKrakenTelegraph, getGolemChargeTelegraph } from './game/telegraph';
 import { getHunger, HUNGER_MAX } from './game/hunger';
 import { getExperience, getExperienceRequirement, getLevel, getUnspentAbilityPoints, LEVEL_CAP } from './game/progression';
 import {
@@ -201,7 +201,7 @@ function textureKeyForEnemyType(type: EnemyType): string {
  * exactly "one entry per playable species" with no non-species entries
  * mixed in.
  */
-const EXTRA_SPRITE_KEYS = ['skeleton_head'];
+const EXTRA_SPRITE_KEYS = ['skeleton_head', 'claygolem_rolling'];
 
 /** All distinct sprite sheet keys used by the current 10-species roster, in fixed roster order, plus any extra non-species sprite keys (EXTRA_SPRITE_KEYS). */
 function allEnemySpriteKeys(): string[] {
@@ -219,6 +219,11 @@ function allEnemySpriteKeys(): string[] {
  */
 function spriteKeyForEnemy(enemy: EnemyActor): string {
   if (enemy.type === 'skeleton' && enemy.skeletonForm === 'head') return 'skeleton_head';
+  // Phase 23.2: rolling sprite only while a golem's charge is actually
+  // telegraphed — idle and recovering both use the normal claygolem
+  // sprite (weapon-def/sprite regression: this never changes which
+  // terrain/traps a golem can cross, purely cosmetic).
+  if (enemy.type === 'golem' && enemy.golemChargeState === 'telegraphed') return 'claygolem_rolling';
   return textureKeyForEnemyType(enemy.type);
 }
 
@@ -1035,6 +1040,13 @@ class MainScene extends Phaser.Scene {
       const krakenTelegraph = getKrakenTelegraph(this.state.map, enemy);
       if (krakenTelegraph) {
         this.drawReticle(krakenTelegraph.center);
+        this.drawAttackerMarker(enemy.pos);
+        continue;
+      }
+
+      const golemChargeTelegraph = getGolemChargeTelegraph(this.state.map, enemy);
+      if (golemChargeTelegraph) {
+        this.drawReticle(golemChargeTelegraph.targetTile);
         this.drawAttackerMarker(enemy.pos);
       }
     }

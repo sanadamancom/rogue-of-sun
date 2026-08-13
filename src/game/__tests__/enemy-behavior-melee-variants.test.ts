@@ -115,8 +115,8 @@ describe('bok (generic_melee) behavior', () => {
   });
 });
 
-describe('golem (slow_melee) behavior', () => {
-  it('acts on the first enemy turn after being created (phase 0)', () => {
+describe('golem (golem_charge) behavior (Phase 23.2, replacing slow_melee)', () => {
+  it('acts on the first enemy turn after being created, attacking immediately if already adjacent', () => {
     const state = singleEnemyState('golem', { x: 9, y: 4 }, { playerPos: { x: 10, y: 4 }, attack: 3, turn: 0 });
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' });
@@ -124,40 +124,38 @@ describe('golem (slow_melee) behavior', () => {
     expect(state.player.hp).toBe(hpBefore - 2); // acted: attacked
   });
 
-  it('waits (no movement) on the next enemy turn', () => {
-    const state = singleEnemyState('golem', { x: 2, y: 4 }, { playerPos: { x: 10, y: 4 }, turn: 1 });
+  it('rests (no movement, no attack) on the turn immediately after attacking, even if still adjacent', () => {
+    const state = singleEnemyState('golem', { x: 9, y: 4 }, { playerPos: { x: 10, y: 4 }, attack: 3, turn: 0 });
+    processTurn(state, { type: 'wait' }); // attacks, enters 'recovering'
+    const hpBefore = state.player.hp;
+    const before = { ...state.enemies[0].pos };
+    processTurn(state, { type: 'wait' }); // rests
+    // Phase 16.2: natural regen still fires this turn since the golem
+    // doesn't attack, offsetting the lack of golem damage with +1 HP.
+    expect(state.player.hp).toBe(hpBefore + 1);
+    expect(state.enemies[0].pos).toEqual(before); // did not move
+    expect(state.enemies[0].golemChargeState).toBe('idle'); // reverted for the *next* turn
+  });
+
+  it('resumes normal idle behavior (attacking again) two turns after its first attack', () => {
+    const state = singleEnemyState('golem', { x: 9, y: 4 }, { playerPos: { x: 10, y: 4 }, attack: 3, turn: 0 });
+    processTurn(state, { type: 'wait' }); // attacks
+    processTurn(state, { type: 'wait' }); // rests
+    const hpBefore = state.player.hp;
+    processTurn(state, { type: 'wait' }); // attacks again
+    expect(state.player.hp).toBe(hpBefore - 2);
+  });
+
+  it('takes one ordinary chase step when not adjacent and not cardinally aligned within range, then rests', () => {
+    const state = singleEnemyState('golem', { x: 2, y: 3 }, { playerPos: { x: 10, y: 4 }, turn: 0 }); // not aligned (dx=8, dy=1)
     const enemy = state.enemies[0];
     const before = { ...enemy.pos };
     processTurn(state, { type: 'wait' });
-    expect(enemy.pos).toEqual(before);
-  });
-
-  it('does not attack on a resting turn even when adjacent to the player', () => {
-    const state = singleEnemyState('golem', { x: 9, y: 4 }, { playerPos: { x: 10, y: 4 }, attack: 3, turn: 1 });
-    const hpBefore = state.player.hp;
-    processTurn(state, { type: 'wait' });
-    expect(state.player.hp).toBe(hpBefore); // not attacked
-  });
-
-  it('alternates act/wait/act/wait over consecutive world turns', () => {
-    const state = singleEnemyState('golem', { x: 2, y: 4 }, { playerPos: { x: 10, y: 4 }, turn: 0 });
-    const enemy = state.enemies[0];
-    const positions: { x: number; y: number }[] = [];
-    for (let i = 0; i < 4; i++) {
-      const before = { ...enemy.pos };
-      processTurn(state, { type: 'wait' });
-      positions.push({ ...enemy.pos });
-      const moved = enemy.pos.x !== before.x || enemy.pos.y !== before.y;
-      // Even iterations (0, 2, ...) are acting turns (moved); odd are rest (did not move).
-      expect(moved).toBe(i % 2 === 0);
-    }
+    expect(enemy.pos).not.toEqual(before); // took a chase step
+    expect(enemy.golemChargeState).toBe('recovering');
   });
 
   it('resets to an acting first turn again after being freshly (re)created, e.g. on a floor restart', () => {
-    // A fresh createInitialEnemy call always gets spawnTurn = the turn
-    // passed in, so its very next resolution (at that same turn value) is
-    // always phase 0, regardless of how the previous instance's phase had
-    // drifted.
     const state = singleEnemyState('golem', { x: 9, y: 4 }, {
       playerPos: { x: 10, y: 4 },
       attack: 3,
@@ -166,8 +164,10 @@ describe('golem (slow_melee) behavior', () => {
     });
     const hpBefore = state.player.hp;
     processTurn(state, { type: 'wait' });
-    // Phase 16.2: regen now fires the same turn, offsetting 1 of the 3 damage.
-    expect(state.player.hp).toBe(hpBefore - 2); // acted, because spawnTurn (5) matches turn (5)
+    // A freshly created golem (no golemChargeState set) always starts
+    // idle, regardless of spawnTurn/turn — Phase 23.2 no longer keys
+    // its cycle off spawnTurn at all (only golemChargeState matters).
+    expect(state.player.hp).toBe(hpBefore - 2); // acted, attacked
   });
 });
 

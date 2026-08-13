@@ -26,6 +26,18 @@ export interface KrakenTelegraph {
 }
 
 /**
+ * Phase 23.2 golem charge redesign: mirrors CockatriceTelegraph/
+ * KrakenTelegraph's shape exactly — the single fixed target tile a
+ * telegraphed golem's charge is aimed at (the player's position at the
+ * moment telegraphing started), never the full multi-tile charge path.
+ */
+export interface GolemChargeTelegraph {
+  enemy: EnemyActor;
+  /** The tile the player occupied when telegraphing started — fixed, never re-derived from the player's current position. */
+  targetTile: Vec2;
+}
+
+/**
  * Returns the current petrifying-gaze telegraph target tile for `enemy`,
  * or null if it is not currently aiming — including after it has fired
  * (turn.ts clears both gazeDirection and gazeTargetTile the same turn it
@@ -45,4 +57,17 @@ export function getCockatriceTelegraph(_map: GameMap, enemy: EnemyActor): Cockat
 export function getKrakenTelegraph(_map: GameMap, enemy: EnemyActor): KrakenTelegraph | null {
   if (!enemy.tentacleTarget) return null;
   return { enemy, center: enemy.tentacleTarget };
+}
+
+/**
+ * Returns the current golem-charge telegraph target tile for `enemy`,
+ * or null if it is not currently telegraphed — including after it has
+ * charged (turn.ts clears both golemChargeDirection and
+ * golemChargeTargetTile the same turn it executes the charge, and
+ * transitions golemChargeState away from 'telegraphed') and before it
+ * has ever telegraphed.
+ */
+export function getGolemChargeTelegraph(_map: GameMap, enemy: EnemyActor): GolemChargeTelegraph | null {
+  if (enemy.golemChargeState !== 'telegraphed' || !enemy.golemChargeTargetTile) return null;
+  return { enemy, targetTile: enemy.golemChargeTargetTile };
 }

@@ -99,6 +99,18 @@ export function formatEvent(event: GameEvent): string {
     }
     case 'player_pulled':
       return '触手に引き寄せられた！';
+    // Phase 23.2 golem charge redesign: minimal "丸まった"/"突進した"
+    // lines per fixed_spec's events.rules — no large dedicated log
+    // detail beyond these two, matching cockatrice/kraken's aim/strike
+    // lines in style.
+    case 'golem_charge_telegraphed': {
+      const name = ENEMY_DEFINITIONS[event.enemyType].displayName;
+      return `${name}が丸まった！`;
+    }
+    case 'golem_charge_executed': {
+      const name = ENEMY_DEFINITIONS[event.enemyType].displayName;
+      return `${name}が突進した！`;
+    }
     case 'player_webbed':
       return 'クモの巣に足をとられた。';
     case 'slowed_move_cancelled':

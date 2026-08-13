@@ -51,6 +51,7 @@ import {
   ALL_DIRECTIONS,
   CardId,
   Direction8,
+  Direction4,
   DIRECTION_VECTORS,
   ElementalAffinity,
   ElementId,
@@ -2515,7 +2516,7 @@ function applyDiscardItem(
  * whenever adjacent, hit or miss) — this only ever signals "this
  * enemy's turn is spent attacking", not hit success; see
  * resolveEnemyAttackHit for the Phase 10.3 hit roll itself. Shared by
- * every 8-direction melee behaviorType (generic_melee, slow_melee,
+ * every 8-direction melee behaviorType (generic_melee, golem_charge's
  * fast_melee, recovery_melee) so the attack resolution itself lives in
  * one place.
  */
@@ -2618,29 +2619,169 @@ function resolveBokEnemy(
 }
 
 /**
- * Resolves one golem's action ('slow_melee'). Golem acts every other enemy
- * turn: its phase is `(state.turn - enemy.spawnTurn) % 2`, so the very
- * first enemy turn after it's created (phase 0) is always an acting turn,
- * and every other turn thereafter alternates. On an off turn it does
- * nothing at all — no movement, and critically no attack even if already
- * adjacent to the player. On an acting turn it behaves exactly like bok
- * (attack if adjacent, otherwise one chase step).
+ * Phase 23.2 golem charge redesign: minimum/maximum Chebyshev distance
+ * (inclusive) at which a cardinally-aligned golem may telegraph a
+ * charge. Single source of truth: no other literal duplicates these.
  */
-function resolveGolemEnemy(
+const GOLEM_CHARGE_MIN_DISTANCE = 2;
+const GOLEM_CHARGE_MAX_DISTANCE = 5;
+
+/**
+ * Cardinal-only alignment check (unlike alignedGazeDirection above,
+ * which also accepts the 4 diagonals) — golem charges strictly along
+ * N/S/E/W, never diagonally (fixed_spec's directions list). Returns
+ * null when `from`/`to` share neither row nor column.
+ */
+function cardinalAlignedDirection(from: Vec2, to: Vec2): { direction: Direction4; distance: number } | null {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  if (dx === 0 && dy === 0) return null;
+  if (dx === 0) return { direction: dy > 0 ? 'S' : 'N', distance: Math.abs(dy) };
+  if (dy === 0) return { direction: dx > 0 ? 'E' : 'W', distance: Math.abs(dx) };
+  return null;
+}
+
+/**
+ * Whether the straight cardinal line from `enemy` to a point `distance`
+ * tiles away along `direction` is entirely clear — no wall/map-edge
+ * (castGazeRay stops short if so) and no movement-blocking Actor on any
+ * of the intervening tiles (the final tile, where the player stands, is
+ * deliberately excluded from the actor check — the player is the charge's
+ * target, not an obstruction to telegraphing at them). Used only to
+ * decide whether a charge may be telegraphed in the first place; the
+ * charge's own execution (executeGolemCharge) re-walks and re-checks
+ * collision tile-by-tile independently, since the board can change
+ * between the telegraph turn and the charge turn.
+ */
+function isGolemChargeLineClear(state: GameState, enemy: EnemyActor, direction: Direction4, distance: number): boolean {
+  const reached = castGazeRay(state.map, enemy.pos, direction, distance);
+  if (reached.length !== distance) return false; // wall/map edge blocks before reaching the player
+  for (let i = 0; i < reached.length - 1; i++) {
+    const tile = reached[i];
+    if (state.enemies.some((other) => other !== enemy && isMovementBlockingEnemy(other) && other.pos.x === tile.x && other.pos.y === tile.y)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Executes a telegraphed golem's charge (Phase 23.2), the turn after
+ * telegraphing: walks up to GOLEM_CHARGE_MAX_DISTANCE tiles one at a
+ * time along the direction fixed at telegraph time (never re-aimed at
+ * the player's possibly-new position), stopping at the first wall/map-
+ * edge tile (stays exactly where that leaves it — including its
+ * original tile if the very first step is already blocked), the first
+ * movement-blocking Actor's tile (stops one tile short, no damage, no
+ * displacement of that Actor — a skeleton head is deliberately not
+ * blocking here, per isMovementBlockingEnemy, so the golem simply rolls
+ * over/through it), or the player's tile (stops one tile short and
+ * attempts exactly one ordinary enemy-attack-hit resolution — reusing
+ * resolveEnemyAttackHit exactly as tryMeleeAttack does, so accuracy/
+ * evasion/damage/defeat/death handling are all identical to a normal
+ * golem attack, and never knocks the player back, since no enemy-side
+ * knockback mechanic exists anywhere in this codebase). Always resolves
+ * to 'recovering' afterward, whether or not it actually moved or
+ * attacked. Ground items, traps, webs, the exit tile, and monster-house
+ * entry cells never block or interact with the charge (only terrain and
+ * movement-blocking Actors do, via canMove/isMovementBlockingEnemy).
+ */
+function executeGolemCharge(state: GameState, enemy: EnemyActor, events: GameEvent[]): { acted: boolean; attacked: boolean } {
+  const direction = enemy.golemChargeDirection ?? 'N';
+  enemy.golemChargeDirection = undefined;
+  enemy.golemChargeTargetTile = undefined;
+
+  let attackedPlayer = false;
+  let distanceMoved = 0;
+  for (let i = 0; i < GOLEM_CHARGE_MAX_DISTANCE; i++) {
+    if (!canMove(state.map, enemy.pos, direction)) break; // wall or map edge: stop in place
+    const dest = destinationOf(enemy.pos, direction);
+    if (dest.x === state.player.pos.x && dest.y === state.player.pos.y) {
+      enemy.facing = direction;
+      resolveEnemyAttackHit(state, enemy, events);
+      attackedPlayer = true;
+      break; // stop one tile short of the player, whether the attack hits or misses
+    }
+    if (state.enemies.some((other) => other !== enemy && isMovementBlockingEnemy(other) && other.pos.x === dest.x && other.pos.y === dest.y)) {
+      break; // stop one tile short of a blocking living Actor
+    }
+    enemy.facing = direction;
+    enemy.pos = dest;
+    distanceMoved += 1;
+  }
+
+  events.push({ type: 'golem_charge_executed', enemyId: enemy.id ?? 0, enemyType: enemy.type, direction, distanceMoved, attackedPlayer });
+  enemy.golemChargeState = 'recovering';
+  return { acted: true, attacked: attackedPlayer };
+}
+
+/**
+ * Resolves one golem's action ('golem_charge', Phase 23.2, replacing
+ * 'slow_melee'). Dispatches purely on golemChargeState (absent ==
+ * 'idle'):
+ * - 'recovering': a forced rest turn — no movement, no attack, no
+ *   telegraph — then reverts to 'idle' for the *following* turn (never
+ *   chains into idle behavior within this same call, per fixed_spec's
+ *   "idleへ戻った同じターンには追加行動しない").
+ * - 'telegraphed': executes the charge fixed at telegraph time (see
+ *   executeGolemCharge), regardless of the player's current position or
+ *   distance (even outside AGGRO_RANGE — resolveOneEnemy's aggro gate is
+ *   bypassed for this state, see its own comment).
+ * - 'idle' (or absent): priority order highest first —
+ *   1. attack immediately if already 8-direction adjacent (reusing
+ *      tryMeleeAttack exactly as bok/sword/etc. do), then rest;
+ *   2. otherwise, if cardinally aligned with the player at Chebyshev
+ *      distance 2-5 with a fully clear straight line, telegraph a
+ *      charge along that fixed direction (no movement/attack this
+ *      turn, no rest afterward — the telegraph turn is its own phase);
+ *   3. otherwise, take one ordinary chase step (or wait in place if
+ *      none is legal), then rest.
+ */
+function resolveGolemChargeEnemy(
   state: GameState,
   enemy: EnemyActor,
   events: GameEvent[],
 ): { acted: boolean; attacked: boolean } {
-  const phase = (state.turn - (enemy.spawnTurn ?? 0)) % 2;
-  if (phase !== 0) {
-    // Resting turn: deliberately does not attack even if adjacent.
+  const chargeState = enemy.golemChargeState ?? 'idle';
+
+  if (chargeState === 'recovering') {
+    enemy.golemChargeState = 'idle';
     events.push({ type: 'enemy_recovering', enemyType: enemy.type });
     return { acted: false, attacked: false };
   }
+
+  if (chargeState === 'telegraphed') {
+    return executeGolemCharge(state, enemy, events);
+  }
+
+  // idle
   if (tryMeleeAttack(state, enemy, events)) {
+    enemy.golemChargeState = 'recovering';
     return { acted: true, attacked: true };
   }
+
+  const aligned = cardinalAlignedDirection(enemy.pos, state.player.pos);
+  if (
+    aligned &&
+    aligned.distance >= GOLEM_CHARGE_MIN_DISTANCE &&
+    aligned.distance <= GOLEM_CHARGE_MAX_DISTANCE &&
+    isGolemChargeLineClear(state, enemy, aligned.direction, aligned.distance)
+  ) {
+    enemy.golemChargeState = 'telegraphed';
+    enemy.golemChargeDirection = aligned.direction;
+    enemy.golemChargeTargetTile = { ...state.player.pos };
+    events.push({
+      type: 'golem_charge_telegraphed',
+      enemyId: enemy.id ?? 0,
+      enemyType: enemy.type,
+      direction: aligned.direction,
+      target: enemy.golemChargeTargetTile,
+    });
+    return { acted: true, attacked: false };
+  }
+
   tryChaseStep(state, enemy);
+  enemy.golemChargeState = 'recovering';
   return { acted: true, attacked: false };
 }
 
@@ -3249,7 +3390,8 @@ function resolveKrakenEnemy(
  *
  * - 'spider_cardinal': spider's 4-direction-only chase/attack, plus web
  *   placement and corner-crossing A (enemy-behavior-02).
- * - 'slow_melee': golem's every-other-turn chase/attack (enemy-behavior-01).
+ * - 'golem_charge': golem's telegraphed multi-tile charge (Phase 23.2,
+ *   replacing 'slow_melee').
  * - 'fast_melee': sword's up-to-2-steps-per-turn chase/attack
  *   (enemy-behavior-01).
  * - 'recovery_melee': axe's attack-then-forced-wait chase/attack
@@ -3281,7 +3423,16 @@ function resolveOneEnemy(
     return { acted: false, attacked: false };
   }
   const behaviorType = ENEMY_DEFINITIONS[enemy.type].behaviorType;
-  if (behaviorType !== 'stationary' && !isAdjacent(enemy.pos, state.player.pos) && !isWithinAggroRange(enemy, state.player)) {
+  // Phase 23.2: a golem mid-charge-cycle (telegraphed or recovering)
+  // must never be silently stalled by the generic aggro-range gate
+  // below — a telegraphed charge always fires on schedule even if the
+  // player has since retreated out of AGGRO_RANGE, and a recovering
+  // golem still consumes its rest turn regardless of distance
+  // (fixed_spec's "予約済み突進と回復状態が距離変化で永久停止しないよう
+  // にする" / "AGGRO_RANGE外でも回復状態を消化する"). Checked before the
+  // generic gate, exactly like the skeleton-head short-circuit above.
+  const golemChargeInProgress = behaviorType === 'golem_charge' && enemy.golemChargeState && enemy.golemChargeState !== 'idle';
+  if (!golemChargeInProgress && behaviorType !== 'stationary' && !isAdjacent(enemy.pos, state.player.pos) && !isWithinAggroRange(enemy, state.player)) {
     // Phase 16.1: an enemy that hasn't noticed the player yet (further
     // than AGGRO_RANGE away, Chebyshev, and not already adjacent) does
     // nothing this turn — no movement, no attack, no per-species
@@ -3300,8 +3451,8 @@ function resolveOneEnemy(
   switch (behaviorType) {
     case 'spider_cardinal':
       return resolveSpiderEnemy(state, enemy, events);
-    case 'slow_melee':
-      return resolveGolemEnemy(state, enemy, events);
+    case 'golem_charge':
+      return resolveGolemChargeEnemy(state, enemy, events);
     case 'fast_melee':
       return resolveSwordEnemy(state, enemy, events);
     case 'recovery_melee':
