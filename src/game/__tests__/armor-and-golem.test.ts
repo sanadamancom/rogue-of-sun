@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { closeInventory, inventoryEntries, toggleInventory, useSelectedInventoryItem } from '../inventory';
 import { createEmptyInventory, getGroundItemPoolForFloor, ITEM_DEFINITIONS } from '../item-def';
 import { ARMOR_DEFINITIONS } from '../armor-def';
-import { getEnemyPoolForFloor } from '../enemy-def';
+import { getEnemyPoolForFloor, ENEMY_TYPES_IN_ORDER } from '../enemy-def';
 import { ENEMY_COUNT_BY_FLOOR } from '../mapgen';
 import { advanceToNextFloor, createInitialState, randomSeed } from '../state';
 import {
@@ -328,66 +328,60 @@ describe('armor damage reduction', () => {
   });
 });
 
-describe('floor 2 golem availability (Phase 08.4)', () => {
-  it("1F candidate pool does not include golem", () => {
+describe('floor 3 golem availability (Phase 23.6 confirmed roster; golem moved from the Phase 08.4 floor-2 exception to a plain floor-3 unlock)', () => {
+  it('1F candidate pool does not include golem', () => {
     expect(getEnemyPoolForFloor(1)).not.toContain('golem');
   });
 
-  it('2F candidate pool includes golem', () => {
-    expect(getEnemyPoolForFloor(2)).toContain('golem');
+  it('2F candidate pool does not include golem (the Phase 08.4 exception was removed)', () => {
+    expect(getEnemyPoolForFloor(2)).not.toContain('golem');
   });
 
-  it('3F candidate pool is unchanged (no golem)', () => {
-    expect(getEnemyPoolForFloor(3)).not.toContain('golem');
-    expect(new Set(getEnemyPoolForFloor(3))).toEqual(
-      // Phase 23.1 Stage 4: skeleton's provisional normal first-
-      // appearance floor is 3, an intended pool-composition change.
-      // Phase 23.3 adds ghost, Phase 23.4 adds steps, both at the same
-      // provisional floor 3.
-      new Set(['bok', 'bat', 'spider', 'cockatrice', 'mummy', 'skeleton', 'ghost', 'steps']),
-    );
+  it('3F candidate pool includes golem, alongside the full 12-species roster', () => {
+    expect(getEnemyPoolForFloor(3)).toContain('golem');
+    expect(new Set(getEnemyPoolForFloor(3))).toEqual(new Set(ENEMY_TYPES_IN_ORDER));
   });
 
-  it('2F never has more than 1 golem, across many seeds', () => {
-    for (let runSeed = 0; runSeed < 200; runSeed++) {
-      let s: GameState = createInitialState(runSeed);
-      s.enemies.forEach((e) => (e.alive = false));
-      s.player.pos = { ...s.exit };
-      processTurn(s, { type: 'wait' });
-      s = advanceToNextFloor(s);
+  function advanceTwoFloors(runSeed: number): GameState {
+    let s: GameState = createInitialState(runSeed);
+    s.enemies.forEach((e) => (e.alive = false));
+    s.player.pos = { ...s.exit };
+    processTurn(s, { type: 'wait' });
+    s = advanceToNextFloor(s); // now floor 2
+    s.enemies.forEach((e) => (e.alive = false));
+    s.player.pos = { ...s.exit };
+    processTurn(s, { type: 'wait' });
+    s = advanceToNextFloor(s); // now floor 3
+    return s;
+  }
+
+  it('3F allows more than one golem in the same roster (no cap — Phase 23.6 removed the Phase 08.4 dedup)', () => {
+    let sawMultipleGolems = false;
+    for (let runSeed = 0; runSeed < 300 && !sawMultipleGolems; runSeed++) {
+      const s = advanceTwoFloors(runSeed);
       const golemCount = s.enemies.filter((e) => e.type === 'golem').length;
-      expect(golemCount).toBeLessThanOrEqual(1);
+      if (golemCount >= 2) sawMultipleGolems = true;
     }
+    expect(sawMultipleGolems).toBe(true);
   });
 
-  it("2F normal enemy count matches ENEMY_COUNT_BY_FLOOR[2] (Phase 15.5: 7, previously a flat 2)", () => {
+  it('3F normal enemy count matches ENEMY_COUNT_BY_FLOOR[3] (Phase 15.5: 8)', () => {
     let state: GameState = createInitialState(7);
     state.enemies.forEach((e) => (e.alive = false));
-    state.player.pos = { x: state.exit.x, y: state.exit.y - 1 >= 0 ? state.exit.y - 1 : state.exit.y };
-    if (state.player.pos.y === state.exit.y) {
-      state.player.pos = { ...state.exit };
-      processTurn(state, { type: 'wait' });
-    } else {
-      processTurn(state, { type: 'move', direction: 'S' });
-    }
-    state = advanceToNextFloor(state);
-    // Phase 21.4 correction: ENEMY_COUNT_BY_FLOOR counts NORMAL enemies
-    // only. Filter out dedicated monster-house enemies (spawnSource:
-    // 'monster_house') before comparing — an enemy with spawnSource
-    // absent is still treated as normal, matching every enemy's default
-    // treatment elsewhere in production (see monster-house.ts/turn.ts's
-    // hidden-check). Expected value 7 is unchanged.
+    state.player.pos = { ...state.exit };
+    processTurn(state, { type: 'wait' });
+    state = advanceToNextFloor(state); // floor 2
+    state.enemies.forEach((e) => (e.alive = false));
+    state.player.pos = { ...state.exit };
+    processTurn(state, { type: 'wait' });
+    state = advanceToNextFloor(state); // floor 3
     const normalEnemies = state.enemies.filter((e) => e.spawnSource !== 'monster_house');
-    expect(normalEnemies).toHaveLength(ENEMY_COUNT_BY_FLOOR[2]);
+    expect(normalEnemies).toHaveLength(ENEMY_COUNT_BY_FLOOR[3]);
   });
 
-  it('golem stats are unchanged when it appears on 2F (HP10, attack 12, slow_melee) (Phase 15.1 rebalance)', () => {
+  it('golem stats are unchanged when it appears on 3F (HP10, attack 12, golem_charge) (Phase 15.1 rebalance, Phase 23.2 behaviorType rename)', () => {
     for (let runSeed = 0; runSeed < 200; runSeed++) {
-      let s: GameState = createInitialState(runSeed);
-      s.enemies.forEach((e) => (e.alive = false));
-      s.player.pos = { ...s.exit };
-      processTurn(s, { type: 'wait' });
-      s = advanceToNextFloor(s);
+      const s = advanceTwoFloors(runSeed);
       const golem = s.enemies.find((e) => e.type === 'golem');
       if (golem) {
         expect(golem.maxHp).toBe(10);
@@ -396,20 +390,10 @@ describe('floor 2 golem availability (Phase 08.4)', () => {
     }
   });
 
-  it('same seed reproduces the same 2F species+position composition (determinism preserved)', () => {
+  it('same seed reproduces the same 3F species+position composition (determinism preserved)', () => {
     for (const runSeed of [1, 42, 12345]) {
-      let a: GameState = createInitialState(runSeed);
-      a.enemies.forEach((e) => (e.alive = false));
-      a.player.pos = { ...a.exit };
-      processTurn(a, { type: 'wait' });
-      a = advanceToNextFloor(a);
-
-      let b: GameState = createInitialState(runSeed);
-      b.enemies.forEach((e) => (e.alive = false));
-      b.player.pos = { ...b.exit };
-      processTurn(b, { type: 'wait' });
-      b = advanceToNextFloor(b);
-
+      const a = advanceTwoFloors(runSeed);
+      const b = advanceTwoFloors(runSeed);
       expect(a.enemies.map((e) => ({ type: e.type, pos: e.pos }))).toEqual(
         b.enemies.map((e) => ({ type: e.type, pos: e.pos })),
       );

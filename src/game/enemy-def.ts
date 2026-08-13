@@ -398,9 +398,12 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     // Phase 23.3: ghost carries no elemental weakness or resistance —
     // its species-defining trait is the wall-phasing state machine
     // itself, not affinity strength (mirroring skeleton's own
-    // all-neutral rationale in this same file). Provisional stats
-    // throughout this entry are for 3-floor prototype validation only;
-    // see confirmed_spec.roster.rules — reconfirm in Phase 23.6/27.
+    // all-neutral rationale in this same file). Phase 23.6: this entry's
+    // stats are the confirmed 12-species baseline (see
+    // docs/history/phase-23-6-enemy-roster-floors.md's confirmed table)
+    // — values unchanged from their Phase 23.3 introduction, only the
+    // "provisional" description is retired now that Phase 23.5's
+    // integration audit and this phase's roster confirmation are done.
     elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   },
   steps: {
@@ -419,9 +422,12 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     // Phase 23.4: steps carries no elemental weakness or resistance —
     // its species-defining trait is the hidden/telegraphed/revealed
     // state machine itself, not affinity strength (mirroring skeleton/
-    // ghost's own all-neutral rationale in this same file). Provisional
-    // stats throughout this entry are for 3-floor prototype validation
-    // only; see confirmed_spec.roster.note — reconfirm in Phase 23.6.
+    // ghost's own all-neutral rationale in this same file). Phase 23.6:
+    // this entry's stats are the confirmed 12-species baseline (see
+    // docs/history/phase-23-6-enemy-roster-floors.md's confirmed table)
+    // — values unchanged from their Phase 23.4 introduction, only the
+    // "provisional" description is retired now that Phase 23.5's
+    // integration audit and this phase's roster confirmation are done.
     elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   },
 };
@@ -462,48 +468,41 @@ export const ENEMY_TYPES_IN_ORDER: EnemyType[] = [
  * candidate on this floor and every floor after it (cumulative unlock).
  */
 export const ENEMY_FIRST_APPEARANCE_FLOOR: Record<EnemyType, number> = {
+  // Phase 23.6: confirmed 3-tier cumulative unlock schedule — 1F/2F/3F
+  // each newly unlock exactly 4 species (12 total), 1F = basic/low-number
+  // behaviors, 2F = mid-range stats or positioning-control abilities, 3F
+  // = high-threat/wide-area/forced-movement abilities. See
+  // docs/history/phase-23-6-enemy-roster-floors.md for the full
+  // confirmed table and rationale; this Record is the single source of
+  // truth getEnemyPoolForFloor filters against.
   bok: 1,
+  spider: 1,
   bat: 1,
-  spider: 2,
-  cockatrice: 3,
-  mummy: 3,
-  sword: 4,
-  axe: 4,
-  golem: 5,
-  kraken: 5,
-  // Phase 23.1 Stage 4: skeleton's provisional normal first-appearance
-  // floor. This is a genuine, intended change to getEnemyPoolForFloor's
-  // output for floor 3 and beyond (one more candidate species than
-  // before this phase) — not an accidental side effect.
-  skeleton: 3,
-  // Phase 23.3 Stage: ghost's provisional normal first-appearance floor.
-  ghost: 3,
-  // Phase 23.4: steps' provisional normal first-appearance floor.
+  skeleton: 1,
+  cockatrice: 2,
+  mummy: 2,
+  sword: 2,
+  ghost: 2,
+  golem: 3,
+  axe: 3,
+  kraken: 3,
   steps: 3,
 };
 
 /**
  * Returns the read-only set of species eligible to spawn as a normal enemy
  * on the given floor, per ENEMY_FIRST_APPEARANCE_FLOOR's cumulative unlock
- * schedule (floor 1 = bok/bat only; floor 5 and beyond = the full 9-species
- * roster). Order follows ENEMY_TYPES_IN_ORDER. Does not affect species
- * count, weighting, or the underlying seeded RNG selection mechanism —
- * callers still draw uniformly at random from the returned array.
- *
- * Phase 08.4 exception: floor 2 additionally includes 'golem' as a
- * candidate (so a threatening enemy is reachable early, right after armor
- * becomes available), without changing golem's normal first-appearance
- * floor (5) used by every other floor's cumulative calculation above —
- * floor 3 and floor 4's candidate sets are therefore unaffected by this
- * exception, per must_preserve. This is deliberately a floor-specific
- * addition, not a change to ENEMY_FIRST_APPEARANCE_FLOOR itself.
+ * schedule (Phase 23.6: floor 1 = 4 species, floor 2 = 8 species, floor 3
+ * and beyond = the full 12-species roster). Order follows
+ * ENEMY_TYPES_IN_ORDER. Does not affect species count, weighting, or the
+ * underlying seeded RNG selection mechanism — every caller (normal
+ * generation and monsterHouse alike) draws uniformly at random from the
+ * returned array, with no per-species exception of any kind (Phase 23.6
+ * removed the earlier Phase 08.4 floor-2 golem exception, which became
+ * unreachable once golem's own first-appearance floor moved to 3 — see
+ * this phase's history for why removing it changes no observable floor-2
+ * behavior).
  */
 export function getEnemyPoolForFloor(floor: number): EnemyType[] {
-  const pool = ENEMY_TYPES_IN_ORDER.filter(
-    (type) => ENEMY_FIRST_APPEARANCE_FLOOR[type] <= floor,
-  );
-  if (floor === 2 && !pool.includes('golem')) {
-    pool.push('golem');
-  }
-  return pool;
+  return ENEMY_TYPES_IN_ORDER.filter((type) => ENEMY_FIRST_APPEARANCE_FLOOR[type] <= floor);
 }

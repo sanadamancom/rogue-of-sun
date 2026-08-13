@@ -249,23 +249,7 @@ function buildFloorState(
   // placement-position RNG sequence/determinism.
   const speciesRng = createRng(floorSeed ^ 0x8f3c9d21);
   const floorPool = getEnemyPoolForFloor(floor);
-  let types = forcedSpecies ?? chooseSpecies(placement.enemies.length, speciesRng, floorPool);
-  // Phase 08.4 floor-2 golem exception: golem is a candidate on floor 2
-  // but must never appear more than once there. This is a deterministic
-  // post-processing step (no additional rng() calls, so it doesn't
-  // perturb the species RNG stream/consumption count) that demotes any
-  // golem draw beyond the first to 'bok' (always present in every
-  // floor's pool). Only applies to the real random-draw path, never to
-  // forcedSpecies (buildRosterPreviewFloorState).
-  if (!forcedSpecies && floor === 2) {
-    let sawGolem = false;
-    types = types.map((type) => {
-      if (type !== 'golem') return type;
-      if (sawGolem) return 'bok';
-      sawGolem = true;
-      return type;
-    });
-  }
+  const types = forcedSpecies ?? chooseSpecies(placement.enemies.length, speciesRng, floorPool);
   const enemies: EnemyActor[] = buildEnemies(placement.enemies, types, turn).map((e) => ({ ...e, spawnSource: 'normal' as const }));
 
   // Phase 15.4b random ground item generation (replaces the previous
@@ -455,7 +439,7 @@ function buildFloorState(
     const positionRng = createMonsterHouseEnemyPositionRng(floorSeed, createRng);
     const speciesRng = createMonsterHouseEnemySpeciesRng(floorSeed, createRng);
     const dedicatedPositions = selectMonsterHouseEnemyPositions(candidateCells, dedicatedCount, positionRng);
-    const dedicatedTypes = chooseMonsterHouseEnemyTypes(dedicatedCount, floor, speciesRng, types.includes('golem'));
+    const dedicatedTypes = chooseMonsterHouseEnemyTypes(dedicatedCount, floor, speciesRng);
     const dedicatedEnemies = buildEnemies(dedicatedPositions, dedicatedTypes, turn, enemies.length).map((e) => ({
       ...e,
       spawnSource: 'monster_house' as const,

@@ -388,27 +388,58 @@ describe('Phase 23.5: RNG and determinism across a mixed floor', () => {
   });
 });
 
-describe('Phase 23.5: pre-existing slow-trap extra-enemy-phase interaction (record-only)', () => {
-  it('documents that an active movement_slow effect can let a telegraphed golem both telegraph and execute within one processTurn call — a pre-existing characteristic of resolveEnemiesAction shared with cockatrice/kraken, not a Phase 23 regression', () => {
+describe('Phase 23.6: slow-trap additional-enemy-phase / telegraph interaction (confirmed existing contract, Phase 12.2 + telegraph state machines)', () => {
+  it('a golem telegraphs and then executes within the same processTurn call when movement_slow was already active before an ordinary successful move', () => {
     const state = freshState({
       player: createInitialActor({ x: 2, y: 4 }, 30, 1),
       activeEffects: [{ id: 'movement_slow', strength: 1, remainingTurns: 5 }],
-      enemies: [golemAt(7, 4)], // cardinally aligned, distance 5 -> telegraphs this turn
+      enemies: [golemAt(7, 4)], // cardinally aligned, distance 5 -> telegraphs on the first (normal) enemy phase this turn
     });
     const golem = state.enemies[0];
+    expect(golem.golemChargeState ?? 'idle').toBe('idle');
     // An ordinary move (not wait) with movement_slow already active before
-    // this action triggers resolveEnemiesAction's pre-existing (pre-Phase-
-    // 23) "additional enemy phase" a second time within this same
-    // processTurn call — see turn.ts's shouldRunAdditionalEnemyPhase.
+    // this action triggers resolveEnemiesAction's Phase 12.2 "additional
+    // enemy phase" a second time within this same processTurn call (see
+    // turn.ts's shouldRunAdditionalEnemyPhase) — this is confirmed as the
+    // existing intended contract (Phase 12.2's movement_slow spec), not a
+    // telegraph-system bug, so the golem is expected to progress through
+    // both its telegraph (first phase) and its charge execution (second,
+    // additional phase) within this single call.
     processTurn(state, { type: 'move', direction: 'E' });
-    // If the double-resolution path was taken, the golem would have both
-    // telegraphed (first phase) and executed its charge (second phase)
-    // within this single processTurn call, ending in 'recovering' instead
-    // of 'telegraphed'. This is recorded as a pre-existing characteristic
-    // of the whole telegraph-style system (predating Phase 23.1-23.4,
-    // equally reachable by cockatrice/kraken), not something Phase 23.1-
-    // 23.4 introduced or is expected to prevent — see this phase's history
-    // "修正しなかった不明点" section.
-    expect(['telegraphed', 'recovering']).toContain(golem.golemChargeState);
+    expect(golem.golemChargeState).toBe('recovering');
+  });
+
+  it('a cockatrice similarly aims and fires its gaze within the same processTurn call under the same movement_slow contract (pre-Phase-23 telegraph species)', () => {
+    const cockatriceDef = ENEMY_DEFINITIONS.cockatrice;
+    const cockatrice = createInitialEnemy(
+      'cockatrice',
+      { x: 7, y: 4 },
+      cockatriceDef.hp,
+      cockatriceDef.attack,
+      0,
+      0,
+      cockatriceDef.defense,
+      cockatriceDef.accuracy,
+      cockatriceDef.evasion,
+    );
+    const state = freshState({
+      player: createInitialActor({ x: 2, y: 4 }, 30, 1),
+      activeEffects: [{ id: 'movement_slow', strength: 1, remainingTurns: 5 }],
+      enemies: [cockatrice], // cardinally aligned, distance 5 -> aims on the first (normal) enemy phase
+    });
+    expect(cockatrice.gazeDirection).toBeUndefined();
+    processTurn(state, { type: 'move', direction: 'E' });
+    // If it only aimed (first phase) but did not yet fire (second phase),
+    // gazeDirection would still be set; the confirmed additional-phase
+    // contract means it both aims and fires within this one call, so
+    // gazeDirection is cleared again by the time this call returns.
+    expect(cockatrice.gazeDirection).toBeUndefined();
+  });
+
+  it('at normal (non-slowed) speed, a golem only telegraphs — the charge executes on a separate, later processTurn call', () => {
+    const state = freshState({ enemies: [golemAt(7, 4)] }); // no movement_slow active
+    const golem = state.enemies[0];
+    processTurn(state, { type: 'wait' });
+    expect(golem.golemChargeState).toBe('telegraphed'); // not yet executed
   });
 });

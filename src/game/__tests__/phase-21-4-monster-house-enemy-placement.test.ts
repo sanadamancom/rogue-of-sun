@@ -159,23 +159,25 @@ describe('selectMonsterHouseEnemyPositions', () => {
   });
 });
 
-describe('chooseMonsterHouseEnemyTypes: golem cap consistency', () => {
-  it('never draws golem on floor 2 when golemAlreadyPresent is true', () => {
+describe('chooseMonsterHouseEnemyTypes: uniform draw, no per-species post-processing (Phase 23.6)', () => {
+  it('never draws golem on floor 2 (golem is not in the floor-2 pool under the confirmed 3-tier roster)', () => {
     for (let seed = 0; seed < 200; seed++) {
-      const types = chooseMonsterHouseEnemyTypes(8, 2, createRng(seed), true);
+      const types = chooseMonsterHouseEnemyTypes(8, 2, createRng(seed));
       expect(types).not.toContain('golem');
     }
   });
 
-  it('draws at most one golem on floor 2 when golemAlreadyPresent is false', () => {
-    for (let seed = 0; seed < 200; seed++) {
-      const types = chooseMonsterHouseEnemyTypes(8, 2, createRng(seed), false);
-      expect(types.filter((t) => t === 'golem').length).toBeLessThanOrEqual(1);
+  it('never demotes a golem draw to bok on floor 3, even with multiple golems in the same roster', () => {
+    let sawMultipleGolems = false;
+    for (let seed = 0; seed < 500 && !sawMultipleGolems; seed++) {
+      const types = chooseMonsterHouseEnemyTypes(8, 3, createRng(seed));
+      if (types.filter((t) => t === 'golem').length >= 2) sawMultipleGolems = true;
     }
+    expect(sawMultipleGolems).toBe(true);
   });
 
-  it('still returns exactly N types after golem dedup', () => {
-    const types = chooseMonsterHouseEnemyTypes(8, 2, createRng(1), true);
+  it('always returns exactly N types', () => {
+    const types = chooseMonsterHouseEnemyTypes(8, 3, createRng(1));
     expect(types).toHaveLength(8);
   });
 });

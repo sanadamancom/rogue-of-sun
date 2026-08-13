@@ -78,9 +78,9 @@ describe('Phase 23.3: ghost — roster and generation', () => {
     ]);
   });
 
-  it('1F and 2F candidate pools do not include ghost', () => {
+  it('1F candidate pool does not include ghost; 2F does (confirmed Phase 23.6 tier)', () => {
     expect(getEnemyPoolForFloor(1)).not.toContain('ghost');
-    expect(getEnemyPoolForFloor(2)).not.toContain('ghost');
+    expect(getEnemyPoolForFloor(2)).toContain('ghost');
   });
 
   it('3F candidate pool includes ghost', () => {

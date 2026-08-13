@@ -324,40 +324,22 @@ export function selectMonsterHouseEnemyPositions(candidates: Vec2[], count: numb
  * which this mirrors rather than imports to avoid a circular dependency
  * between monster-house.ts and state.ts — both are one-line uniform
  * `Math.floor(rng() * pool.length)` draws over the identical pool).
- * Applies the same floor-2 golem-cap rule state.ts's normal generation
- * applies (never more than one golem spawning on floor 2 across the
- * *entire floor*, not just within one roster) — `golemAlreadyPresent`
- * lets the caller report whether normal generation already placed the
- * floor's one allowed golem, so this dedicated roster never adds a
- * second one; every extra golem draw (including a second one drawn here
- * even when normal generation had none) is demoted to 'bok', always
- * present in every floor's pool. Consumes exactly one rng() call per
- * position (no extra calls from the dedup step, which is pure post-
- * processing).
+ * Phase 23.6: no per-species post-processing of any kind — every draw
+ * (including any number of golem draws on the same floor, and
+ * regardless of how many normal-generation golems already exist) is
+ * returned exactly as drawn. The earlier Phase 08.4 floor-2 golem-cap
+ * exception (and its `golemAlreadyPresent` parameter) was removed once
+ * golem's own first-appearance floor moved to 3, making it unreachable
+ * — see this phase's history for why removing it changes no observable
+ * floor-2 behavior. Consumes exactly one rng() call per position.
  */
-export function chooseMonsterHouseEnemyTypes(
-  count: number,
-  floor: number,
-  rng: () => number,
-  golemAlreadyPresent: boolean = false,
-): EnemyType[] {
+export function chooseMonsterHouseEnemyTypes(count: number, floor: number, rng: () => number): EnemyType[] {
   const pool = getEnemyPoolForFloor(floor);
   const types: EnemyType[] = [];
   for (let i = 0; i < count; i++) {
     const index = Math.floor(rng() * pool.length);
     types.push(pool[index]);
   }
-
-  if (floor === 2) {
-    let sawGolem = golemAlreadyPresent;
-    return types.map((type) => {
-      if (type !== 'golem') return type;
-      if (sawGolem) return 'bok';
-      sawGolem = true;
-      return type;
-    });
-  }
-
   return types;
 }
 
