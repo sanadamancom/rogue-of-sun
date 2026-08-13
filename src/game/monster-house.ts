@@ -66,10 +66,11 @@ export function selectMonsterHouseRoom(candidateRoomIndices: number[], rng: () =
 }
 
 /**
- * Phase 21.2: floors eligible to roll for a monster house at all. The
- * current 3-floor prototype only makes floors 2 and 3 eligible (floor 1
- * never has one); the full-game floor structure is Phase 23's concern, so
- * this stays a small named constant rather than a formula. Not exported
+ * Phase 21.2 (confirmed as the final baseline by Phase 23.7): floors
+ * eligible to roll for a monster house at all. The confirmed 3-floor run
+ * structure makes floors 2 and 3 eligible (floor 1 never has one) — see
+ * docs/history/phase-23-7-final-run-structure.md's final_run_decision and
+ * monster_house sections for the confirmed rationale. Not exported
  * mutable — treat as read-only.
  */
 export const MONSTER_HOUSE_ELIGIBLE_FLOORS: ReadonlySet<number> = new Set([2, 3]);
@@ -80,10 +81,11 @@ export function isMonsterHouseEligibleFloor(floor: number): boolean {
 }
 
 /**
- * Provisional per-floor occurrence probability (independent per eligible
- * floor; no run-wide cap, no minimum guarantee, no dynamic adjustment based
- * on prior rolls). A Phase 20-style placeholder value, reconsidered at
- * Phase 21.7/23/27 balance passes — see phase-21-2 history doc.
+ * Per-floor occurrence probability (independent per eligible floor; no
+ * run-wide cap, no minimum guarantee, no dynamic adjustment based on prior
+ * rolls). Confirmed as the final 3-floor run baseline by Phase 23.7 (see
+ * docs/history/phase-23-7-final-run-structure.md) — not changed by that
+ * phase, only locked in as the shipped value.
  */
 export const MONSTER_HOUSE_OCCURRENCE_PROBABILITY = 0.2;
 
@@ -369,12 +371,12 @@ export function createMonsterHouseEnemySpeciesRng(floorSeed: number, createRngFn
 }
 
 /**
- * Phase 21.5: provisional fixed dedicated-reward count per monster house
- * occurrence. Not balance-final — a placeholder to make the reward
- * element exist at all, reconsidered in a later balance pass (see
- * phase-21-5 history doc). Deliberately not derived from room size (C)
- * the way Phase 21.4's enemy count is; that's a design choice for a
- * later Phase, not an oversight.
+ * Fixed dedicated-reward count per monster house occurrence. Confirmed as
+ * the final 3-floor run baseline by Phase 23.7 (see docs/history/
+ * phase-23-7-final-run-structure.md's monster_house section) — value
+ * unchanged from Phase 21.5, only locked in as the shipped count.
+ * Deliberately not derived from room size (C) the way Phase 21.4's enemy
+ * count is; that remains a deliberate design choice, not an oversight.
  */
 export const MONSTER_HOUSE_REWARD_COUNT = 3;
 
