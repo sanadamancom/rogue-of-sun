@@ -323,11 +323,40 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     // weakness — see docs/history/phase-14-4-enemy-affinities.md.
     elementalAffinities: { sol: 'neutral', flame: 'weak', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   },
+  skeleton: {
+    id: 'skeleton',
+    displayName: 'スケルトン',
+    spriteKey: 'skeleton',
+    hp: 6,
+    attack: 5,
+    defense: 0,
+    accuracy: 90,
+    evasion: 0,
+    behaviorType: 'generic_melee',
+    movementType: 'ground',
+    stationary: false,
+    experienceReward: 2,
+    // Phase 23.1 (revised from Phase 23.0's initial frost-weakness
+    // draft): skeleton deliberately carries no elemental weakness or
+    // resistance at all — its species-defining trait is not affinity
+    // strength but the body/head state machine itself (any activated
+    // element, regardless of which, fully defeats it; a plain
+    // unenchanted hit only knocks it down to a head — see turn.ts's
+    // defeatEnemyIfNeeded). Kept all-neutral exactly like spider/bat so
+    // this species doesn't silently gain or lose damage from any
+    // particular element choice.
+    elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
+  },
 };
 
 // Fixed order used to assign one of each species per floor (Phase 06
 // foundation: ENEMY_COUNT_PER_FLOOR equals the roster size, so this order
 // also fixes each species' index in state.enemies).
+// Phase 23.1: 'skeleton' appended at the end (never inserted in the
+// middle) so every pre-existing index-based lookup against this array
+// (e.g. enemy-roster-foundation.test.ts's roster-preview ordering
+// check) keeps matching the original 9 species at their original
+// indices; only the array's length and its final entry change.
 export const ENEMY_TYPES_IN_ORDER: EnemyType[] = [
   'bok',
   'cockatrice',
@@ -338,6 +367,7 @@ export const ENEMY_TYPES_IN_ORDER: EnemyType[] = [
   'sword',
   'axe',
   'kraken',
+  'skeleton',
 ];
 
 /**
@@ -355,6 +385,11 @@ export const ENEMY_FIRST_APPEARANCE_FLOOR: Record<EnemyType, number> = {
   axe: 4,
   golem: 5,
   kraken: 5,
+  // Phase 23.1 Stage 4: skeleton's provisional normal first-appearance
+  // floor. This is a genuine, intended change to getEnemyPoolForFloor's
+  // output for floor 3 and beyond (one more candidate species than
+  // before this phase) — not an accidental side effect.
+  skeleton: 3,
 };
 
 /**

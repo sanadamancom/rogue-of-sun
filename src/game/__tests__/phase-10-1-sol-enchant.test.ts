@@ -281,7 +281,7 @@ describe('sol enchantment activation (Phase 10.1)', () => {
     expect(result.events.some((e) => e.type === 'sol_enchantment_used')).toBe(false);
   });
 
-  it('does not apply the melee bonus to the solar gun', () => {
+  it('the solar gun always fires through its own lens instead of the melee enchant bonus (Phase 23.1)', () => {
     const state = freshState({
       equippedWeaponId: 'solar_gun',
       inventory: { ...createEmptyInventory(), solar_gun: 1 },
@@ -292,13 +292,21 @@ describe('sol enchantment activation (Phase 10.1)', () => {
     });
     faceEastAtEnemy(state);
     const result = processTurn(state, { type: 'action' });
-    // Solar gun still spends its own 3 SOL via its existing mechanism
-    // (cost raised 1->3 by Phase 16.1), but never the sol-enchantment
-    // bonus/event on top of that.
+    // Solar gun spends only its own 3 SOL (cost raised 1->3 by Phase
+    // 16.1) — never an additional melee-enchant SOL cost on top of that
+    // (fixed_spec's "太陽銃へ3 SOL以外の追加属性コストを課さない").
     expect(state.solarEnergy).toBe(2);
+    // Phase 23.1: the solar gun never reuses melee's sol_enchantment_used
+    // event — it pushes its own solar_gun_element_fired instead (see
+    // events.ts's doc comment for why reusing the melee event would
+    // distort its SOL-cost meaning).
     expect(result.events.some((e) => e.type === 'sol_enchantment_used')).toBe(false);
+    expect(result.events.some((e) => e.type === 'solar_gun_element_fired' && e.element === 'sol')).toBe(true);
     const attackEvent = result.events.find((e) => e.type === 'player_attack');
-    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(2); // fixture player.attack 1 + solar_gun bonus 1, no sol enchant bonus
+    // fixture player.attack 1 + solar_gun weaponBonus 1 (physical 2)
+    // plus the solar gun's own sol-lens elemental bonus against bok's
+    // weak sol affinity (3, mind bonus 0 at rank 0) = 5 total.
+    expect(attackEvent && (attackEvent as { damage: number }).damage).toBe(5);
   });
 
   it('never consumes more than 1 SOL for a single hit', () => {

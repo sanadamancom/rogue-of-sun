@@ -87,17 +87,20 @@ const CONFIRMED_TABLE: Record<EnemyType, Record<ElementId, ElementalAffinity>> =
   sword: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   axe: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
   kraken: { sol: 'neutral', flame: 'weak', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
+  // Phase 23.1: skeleton deliberately carries no elemental weakness or
+  // resistance at all — see enemy-def.ts's skeleton entry doc comment.
+  skeleton: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
 };
 
 describe('Phase 14.4: definition table', () => {
-  it('matches the confirmed table exactly for all 9 enemies', () => {
+  it('matches the confirmed table exactly for all 10 enemies', () => {
     for (const [type, affinities] of Object.entries(CONFIRMED_TABLE)) {
       expect(ENEMY_DEFINITIONS[type as EnemyType].elementalAffinities).toEqual(affinities);
     }
   });
 
-  it('still has exactly 9 enemy types', () => {
-    expect(ENEMY_TYPES_IN_ORDER).toHaveLength(9);
+  it('has exactly 10 enemy types (Phase 23.1 adds skeleton)', () => {
+    expect(ENEMY_TYPES_IN_ORDER).toHaveLength(10);
   });
 
   it('has exactly 5 weak assignments total', () => {

@@ -56,11 +56,12 @@ describe('Phase 15.5: normal generation uses the per-floor count', () => {
 describe('Phase 15.5: enemyCount resolution order', () => {
   it('an explicit enemyCount override takes priority over the per-floor normal value', () => {
     // buildRosterPreviewFloorState always passes an explicit override
-    // (ENEMY_TYPES_IN_ORDER.length = 9), which must win over floor 1's
-    // normal value of 6.
+    // (ENEMY_TYPES_IN_ORDER.length = 10, grown from 9 by Phase 23.1's
+    // skeleton addition), which must win over floor 1's normal value of
+    // 6.
     const state = buildRosterPreviewFloorState(42);
     expect(state.enemies).toHaveLength(ENEMY_TYPES_IN_ORDER.length);
-    expect(state.enemies).toHaveLength(9);
+    expect(state.enemies).toHaveLength(10);
   });
 
   it('choosePlacement itself still defaults to ENEMY_COUNT_PER_FLOOR when no count is passed (unrelated to floor resolution, which is state.ts\'s responsibility)', () => {

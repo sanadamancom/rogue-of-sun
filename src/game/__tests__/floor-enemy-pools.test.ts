@@ -15,37 +15,40 @@ describe('floor-based enemy pools (Phase 08.1)', () => {
     expect(asSet(getEnemyPoolForFloor(2))).toEqual(new Set(['bok', 'bat', 'spider', 'golem']));
   });
 
-  it('3F is exactly bok, bat, spider, cockatrice, mummy', () => {
+  it('3F is exactly bok, bat, spider, cockatrice, mummy, skeleton', () => {
+    // Phase 23.1 Stage 4: skeleton's provisional normal first-appearance
+    // floor is 3 (ENEMY_FIRST_APPEARANCE_FLOOR.skeleton), an intended
+    // pool-composition change from before this phase.
     expect(asSet(getEnemyPoolForFloor(3))).toEqual(
-      new Set(['bok', 'bat', 'spider', 'cockatrice', 'mummy']),
+      new Set(['bok', 'bat', 'spider', 'cockatrice', 'mummy', 'skeleton']),
     );
   });
 
-  it('4F is exactly bok, bat, spider, cockatrice, mummy, sword, axe', () => {
+  it('4F is exactly bok, bat, spider, cockatrice, mummy, skeleton, sword, axe', () => {
     expect(asSet(getEnemyPoolForFloor(4))).toEqual(
-      new Set(['bok', 'bat', 'spider', 'cockatrice', 'mummy', 'sword', 'axe']),
+      new Set(['bok', 'bat', 'spider', 'cockatrice', 'mummy', 'skeleton', 'sword', 'axe']),
     );
   });
 
-  it('5F is the full 9-species roster', () => {
+  it('5F is the full 10-species roster', () => {
     expect(asSet(getEnemyPoolForFloor(5))).toEqual(new Set(ENEMY_TYPES_IN_ORDER));
   });
 
-  it('6F and beyond stays the full 9-species roster', () => {
+  it('6F and beyond stays the full 10-species roster', () => {
     expect(asSet(getEnemyPoolForFloor(6))).toEqual(new Set(ENEMY_TYPES_IN_ORDER));
     expect(asSet(getEnemyPoolForFloor(50))).toEqual(new Set(ENEMY_TYPES_IN_ORDER));
   });
 
   it('1F never includes any species unlocked from 2F onward', () => {
     const pool = getEnemyPoolForFloor(1);
-    for (const type of ['spider', 'cockatrice', 'mummy', 'sword', 'axe', 'golem', 'kraken'] as const) {
+    for (const type of ['spider', 'cockatrice', 'mummy', 'skeleton', 'sword', 'axe', 'golem', 'kraken'] as const) {
       expect(pool).not.toContain(type);
     }
   });
 
   it('2F never includes any species unlocked from 3F onward (golem is excepted, see Phase 08.4)', () => {
     const pool = getEnemyPoolForFloor(2);
-    for (const type of ['cockatrice', 'mummy', 'sword', 'axe', 'kraken'] as const) {
+    for (const type of ['cockatrice', 'mummy', 'skeleton', 'sword', 'axe', 'kraken'] as const) {
       expect(pool).not.toContain(type);
     }
   });

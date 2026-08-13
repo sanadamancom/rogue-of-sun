@@ -78,6 +78,37 @@ import {
 const ELEMENT_ENCHANT_ELIGIBLE_WEAPONS: WeaponId[] = ['sword', 'spear', 'hammer'];
 
 /**
+ * Phase 23.1: whether `enemy` counts as an obstacle for movement/
+ * placement purposes (player stepping, enemy chase/retreat steps,
+ * corner-cross checks, knockback/pull destinations). A head-form
+ * skeleton (EnemyActor.skeletonForm === 'head') never blocks movement —
+ * fixed_spec's "頭部は移動を阻害しない" — while remaining a fully valid
+ * attack target elsewhere (every attack-target lookup in this file
+ * still uses a plain `enemy.alive` check, deliberately not this
+ * helper — see Stage 2's "通行・占有" split: 攻撃対象は頭部を含む,
+ * 移動阻害は頭部を含まない). Every other species/form is unaffected
+ * (identical to the old bare `enemy.alive` check).
+ */
+function isMovementBlockingEnemy(enemy: EnemyActor): boolean {
+  return enemy.alive && !(enemy.type === 'skeleton' && enemy.skeletonForm === 'head');
+}
+
+/**
+ * Phase 23.1: finds the living enemy at `pos` to actually attack,
+ * preferring a body-form actor over a head-form skeleton when both
+ * occupy the same tile (fixed_spec's "同じマスに通常状態の敵がいる場合、
+ * 攻撃対象は通常敵を優先する") — a head never blocks movement, so this
+ * is the only place two living enemies can legitimately share a tile.
+ * Every ordinary case (at most one living enemy per tile) behaves
+ * identically to a plain `enemies.find(enemy => enemy.alive && ...)`.
+ */
+function findAttackTarget(enemies: EnemyActor[], pos: Vec2): EnemyActor | undefined {
+  const atPos = enemies.filter((enemy) => enemy.alive && enemy.pos.x === pos.x && enemy.pos.y === pos.y);
+  if (atPos.length === 0) return undefined;
+  return atPos.find((enemy) => !(enemy.type === 'skeleton' && enemy.skeletonForm === 'head')) ?? atPos[0];
+}
+
+/**
  * SOL consumed per successful enchanted hit, one entry per ElementId
  * (Phase 14.3 five-element combat effects). sol keeps its original
  * Phase 10.1 cost of 1; the other four elements cost 2 each -- a
@@ -126,6 +157,50 @@ function getEnchantmentCycleCandidates(state: GameState): EnchantmentId[] {
   return ENCHANTMENT_CYCLE_ORDER.filter(
     (id) => id === 'none' || state.unlockedEnchantments[id as ElementId],
   );
+}
+
+/**
+ * Phase 23.1 solar gun element foundation: the ElementId the solar gun
+ * actually fires with, derived from the exact same GameState.
+ * selectedEnchantment/unlockedEnchantments fields melee enchantment
+ * reads above — no separate lens inventory, unlock state, or GameState
+ * field exists for the solar gun. `'none'` and `'sol'` both mean the
+ * solar gun's standard Sol lens, which — unlike melee's sol enchant —
+ * is always usable even before unlockedEnchantments.sol is ever set
+ * (fixed_spec's "太陽銃の標準Solレンズは、近接用sol_enchantmentを未取得
+ * でも使用可能"). A selected-but-locked element (an invalid fixture;
+ * never producible through the normal cycle below) also falls back to
+ * sol rather than ever returning an unusable element. Pure — reads
+ * GameState but never mutates it.
+ */
+export function getSolarGunEffectiveElement(state: GameState): ElementId {
+  const selected = state.selectedEnchantment;
+  if (selected === 'none' || selected === 'sol') return 'sol';
+  return state.unlockedEnchantments[selected] ? selected : 'sol';
+}
+
+/**
+ * Phase 23.1: the solar gun's own lens-switching candidate list for the
+ * 'toggle_enchantment' action while the solar gun is equipped — 'sol'
+ * (the always-available standard lens; deliberately never 'none', so
+ * the UI never shows both at once — fixed_spec's "'none'と'sol'を太陽
+ * 銃UI上で重複表示しない") plus every unlocked non-sol element, in
+ * ENCHANTMENT_CYCLE_ORDER's existing order. Distinct from
+ * getEnchantmentCycleCandidates (melee's own list, which keeps 'none'
+ * and only includes 'sol' once unlockedEnchantments.sol is true) —
+ * sharing one function between the two weapon categories would either
+ * duplicate 'none'/'sol' for the solar gun or hide 'none' from melee,
+ * so each keeps its own candidate function reading the same underlying
+ * state. A locked non-sol element is never included (fixed_spec's
+ * "locked属性を候補に含めない").
+ */
+export function getSolarGunEnchantmentCandidates(state: GameState): EnchantmentId[] {
+  const candidates: EnchantmentId[] = ['sol'];
+  for (const id of ENCHANTMENT_CYCLE_ORDER) {
+    if (id === 'none' || id === 'sol') continue;
+    if (state.unlockedEnchantments[id as ElementId]) candidates.push(id);
+  }
+  return candidates;
 }
 
 /** Consumed player actions required for one natural HP tick (Phase 15.2 recovery/satiety/status rebalance: 5->10 — see docs/history/phase-15-2-recovery-satiety-status-rebalance.md). */
@@ -295,8 +370,66 @@ export function getIncomingDamage(state: GameState, attackPower: number): number
  * in production yet (confirmed by this phase's audit) — nothing else to
  * connect here. A no-op if `target.hp > 0`.
  */
-function defeatEnemyIfNeeded(state: GameState, target: EnemyActor, targetId: number, events: GameEvent[]): boolean {
+/**
+ * Skeleton-only (Phase 23.1): world turns a head-form skeleton waits
+ * before becoming eligible to revert to 'body' (subject also to its own
+ * tile being unoccupied — see resolveSkeletonRevivals). Single source
+ * of truth: no other literal duplicates this value.
+ */
+const SKELETON_HEAD_REVIVE_TURNS = 8;
+
+function defeatEnemyIfNeeded(
+  state: GameState,
+  target: EnemyActor,
+  targetId: number,
+  events: GameEvent[],
+  // Phase 23.1: the ElementId actually activated on the attack that
+  // brought this target to 0 HP, or null for a plain unenchanted hit
+  // (including every existing card-driven fixed-damage source, which
+  // never activates an element and always passes null explicitly or by
+  // omission). Every species except skeleton ignores this parameter
+  // completely — the branch below is the only place it's read.
+  attackElement: ElementId | null = null,
+): boolean {
   if (target.hp > 0) return false;
+
+  // Phase 23.1 skeleton body/head state machine — the single shared
+  // choke point for every way a skeleton's HP can reach 0, whether via
+  // a player melee/solar-gun hit (applyPlayerAttackToEnemy) or a fixed
+  // card-room-damage source (justice/devil/tower), matching
+  // fixed_spec's "カード等の既存無属性ダメージでLIFE0になった場合も頭
+  // 部化する". No separate skeleton-specific branch exists anywhere
+  // else in the codebase — every call site of this function already
+  // routes through here regardless of damage source.
+  if (target.type === 'skeleton') {
+    const form = target.skeletonForm ?? 'body';
+    if (form === 'head') {
+      if (attackElement === null) {
+        // Ineffective: form, revive timer, and HP all stay exactly as
+        // they were; no experience, no defeat event.
+        events.push({ type: 'skeleton_head_attack_no_effect', targetId });
+        return false;
+      }
+      // Any activated element, regardless of which, fully defeats a
+      // head — falls through to the ordinary defeat path below (no
+      // separate branch needed; target.alive is still true here, hp is
+      // already 0, so the code below applies unchanged).
+    } else if (attackElement === null) {
+      // Body form, no element activated: becomes a head instead of a
+      // full defeat. Stays on the board (alive: true) at its own
+      // position; no experience, no drop, no enemy_defeated event, no
+      // RNG consumed.
+      target.alive = true;
+      target.skeletonForm = 'head';
+      target.skeletonReviveAtTurn = state.turn + SKELETON_HEAD_REVIVE_TURNS;
+      events.push({ type: 'skeleton_headified', targetId });
+      return false;
+    }
+    // form === 'body' with attackElement !== null (any element) falls
+    // through to the ordinary full-defeat path below, same as every
+    // other species.
+  }
+
   target.alive = false;
   events.push({ type: 'enemy_defeated', enemyType: target.type, targetId });
 
@@ -364,6 +497,13 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
   // unlockedEnchantments here reproduces sol's exact pre-14.3 unlock
   // condition without a redundant solUnlocked check.
   const selectedEnchantment = state.selectedEnchantment;
+  // Phase 23.1: the solar gun is never in ELEMENT_ENCHANT_ELIGIBLE_
+  // WEAPONS, so weaponEligible (and therefore elementSelectedAndUnlocked/
+  // insufficientSolElement/meleeActivatedElement below) is always false
+  // for it, exactly as before this phase — this melee-only calculation
+  // is completely untouched; the solar gun's own always-elemental
+  // behavior is layered on separately right after it.
+  const isSolarGun = weaponId === 'solar_gun';
   const weaponEligible = weaponId !== null && ELEMENT_ENCHANT_ELIGIBLE_WEAPONS.includes(weaponId);
   const elementSelectedAndUnlocked =
     weaponEligible && selectedEnchantment !== 'none' && state.unlockedEnchantments[selectedEnchantment];
@@ -379,7 +519,7 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
     elementSelectedAndUnlocked && state.solarEnergy < ELEMENT_ENCHANTMENT_SOL_COST[selectedEnchantment]
       ? selectedEnchantment
       : null;
-  const activatedElement: ElementId | null =
+  const meleeActivatedElement: ElementId | null =
     elementSelectedAndUnlocked && state.solarEnergy >= ELEMENT_ENCHANTMENT_SOL_COST[selectedEnchantment]
       ? selectedEnchantment
       : null;
@@ -387,14 +527,27 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
   const solBefore = state.solarEnergy;
   let elementalDamage = 0;
   let affinity: ElementalAffinity = 'neutral';
+  // Phase 23.1 solar gun element foundation: the solar gun always fires
+  // through its own lens (getSolarGunEffectiveElement, defaulting to
+  // sol) — never null, unlike melee's meleeActivatedElement. Its SOL
+  // cost is the weapon's own solarCost, already fully spent by
+  // resolveSolarGunAttack before this function ever runs; melee's
+  // ELEMENT_ENCHANTMENT_SOL_COST is a completely separate, melee-only
+  // charge that must never be deducted a second time here for the solar
+  // gun (fixed_spec's "太陽銃へ3 SOL以外の追加属性コストを課さない").
+  const activatedElement: ElementId | null = isSolarGun ? getSolarGunEffectiveElement(state) : meleeActivatedElement;
   if (activatedElement) {
-    state.solarEnergy -= ELEMENT_ENCHANTMENT_SOL_COST[activatedElement];
+    if (!isSolarGun) {
+      state.solarEnergy -= ELEMENT_ENCHANTMENT_SOL_COST[activatedElement];
+    }
     affinity = ENEMY_DEFINITIONS[target.type].elementalAffinities[activatedElement];
     // Phase 15.3: elemental damage is now a small fixed additive value
     // per affinity (combat.ts's ELEMENTAL_AFFINITY_BONUS_DAMAGE), plus
     // the mind-ability bonus (floor(mindRank/2)) added on top —
-    // identically for every element including sol. Never affected by
-    // enemy defense (computeElementalDamage never reads it).
+    // identically for every element including sol, and identically for
+    // the solar gun and melee (fixed_spec's "affinityとmind bonusは近
+    // 接属性攻撃と同じ計算を使う"). Never affected by enemy defense
+    // (computeElementalDamage never reads it).
     elementalDamage = computeElementalDamage(affinity, getElementalMindBonus(state));
     damage += elementalDamage;
   }
@@ -405,13 +558,37 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
   const defeated = target.hp === 0;
   events.push(
     state.equippedWeaponId
-      ? { type: 'player_attack', enemyType: target.type, targetId, damage, targetHpBefore, targetHpAfter, weaponId: state.equippedWeaponId }
-      : { type: 'player_attack', enemyType: target.type, targetId, damage, targetHpBefore, targetHpAfter },
+      ? {
+          type: 'player_attack',
+          enemyType: target.type,
+          targetId,
+          damage,
+          targetHpBefore,
+          targetHpAfter,
+          weaponId: state.equippedWeaponId,
+          element: activatedElement ?? undefined,
+        }
+      : { type: 'player_attack', enemyType: target.type, targetId, damage, targetHpBefore, targetHpAfter, element: activatedElement ?? undefined },
   );
   if (insufficientSolElement) {
     events.push({ type: 'element_activation_failed', element: insufficientSolElement, reason: 'insufficient_sol' });
   }
-  if (activatedElement === 'sol') {
+  if (isSolarGun) {
+    // Phase 23.1: dedicated event, never reusing sol_enchantment_used/
+    // element_enchantment_used (both imply an *additional* SOL cost
+    // beyond the weapon's own — see this event's own doc comment in
+    // events.ts). Fires on every solar-gun hit, whichever lens is
+    // active — activatedElement is never null here.
+    events.push({
+      type: 'solar_gun_element_fired',
+      element: activatedElement as ElementId,
+      affinity,
+      enemyType: target.type,
+      targetId,
+      physicalDamage: baseDamage,
+      elementalDamage,
+    });
+  } else if (activatedElement === 'sol') {
     // sol keeps its own Phase 10.1 event name/payload/field-meanings
     // unchanged — see existing_sol_compatibility.
     events.push({
@@ -441,7 +618,7 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
     });
   }
   if (defeated) {
-    defeatEnemyIfNeeded(state, target, targetId, events);
+    defeatEnemyIfNeeded(state, target, targetId, events, activatedElement);
   }
   return { hit: true, defeated };
 }
@@ -589,13 +766,33 @@ function applyPlayerAction(
   // element. UI-only, like 'face' below — never consumes a turn and
   // never triggers enemy actions.
   if (action.type === 'toggle_enchantment') {
-    const candidates = getEnchantmentCycleCandidates(state);
+    // Phase 23.1: the solar gun cycles through its own candidate list
+    // (getSolarGunEnchantmentCandidates) while equipped, instead of
+    // melee's none/sol/flame/frost/cloud/earth cycle — every other
+    // equipped weapon (including bare hands) is completely unchanged
+    // from before this phase.
+    const isSolarGunEquipped = state.equippedWeaponId === 'solar_gun';
+    const candidates = isSolarGunEquipped
+      ? getSolarGunEnchantmentCandidates(state)
+      : getEnchantmentCycleCandidates(state);
     if (candidates.length <= 1) {
       return { consumed: false, attacked: false, defeated: false };
     }
-    const currentIndex = candidates.indexOf(state.selectedEnchantment);
+    const currentIndex = isSolarGunEquipped
+      ? candidates.indexOf(getSolarGunEffectiveElement(state))
+      : candidates.indexOf(state.selectedEnchantment);
     const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % candidates.length;
-    state.selectedEnchantment = candidates[nextIndex];
+    const nextSelection = candidates[nextIndex];
+    if (isSolarGunEquipped && nextSelection === 'sol') {
+      // Landing back on the solar gun's standard Sol lens: mirror
+      // melee's own sol unlock state (fixed_spec's "近接Solが解放済み
+      // ならselectedEnchantment='sol'／未解放なら'none'") so a later
+      // melee-weapon switch reproduces melee's exact pre-14.3 sol
+      // behavior instead of silently granting melee sol for free.
+      state.selectedEnchantment = state.unlockedEnchantments.sol ? 'sol' : 'none';
+    } else {
+      state.selectedEnchantment = nextSelection;
+    }
     events.push({ type: 'enchantment_toggled', selected: state.selectedEnchantment });
     return { consumed: false, attacked: false, defeated: false };
   }
@@ -686,9 +883,7 @@ function applyPlayerAction(
   // enemy's tile is simply a blocked move (no HP change, no turn
   // consumed) — the only way to attack is the 'action' (X) input above,
   // which reads the already-updated player.facing.
-  const occupiedByEnemy = enemies.some(
-    (enemy) => enemy.alive && enemy.pos.x === destination.x && enemy.pos.y === destination.y,
-  );
+  const occupiedByEnemy = enemies.some((enemy) => isMovementBlockingEnemy(enemy) && enemy.pos.x === destination.x && enemy.pos.y === destination.y);
   if (occupiedByEnemy) {
     return { consumed: false, attacked: false, defeated: false };
   }
@@ -867,7 +1062,7 @@ function resolveFacingAttack(
   // Cardinal directions are always open by definition, so this only ever
   // changes the diagonal case.
   const target = isDiagonalCornerOpen(map, player.pos, destination)
-    ? enemies.find((enemy) => enemy.alive && enemy.pos.x === destination.x && enemy.pos.y === destination.y)
+    ? findAttackTarget(enemies, destination)
     : undefined;
   if (target) {
     const result = applyPlayerAttackToEnemy(state, target, events);
@@ -891,9 +1086,7 @@ function resolveFacingAttack(
       // legality check independently.
       if (canMove(map, destination, direction)) {
         const farTile = destinationOf(destination, direction);
-        const farTarget = enemies.find(
-          (enemy) => enemy.alive && enemy.pos.x === farTile.x && enemy.pos.y === farTile.y,
-        );
+        const farTarget = findAttackTarget(enemies, farTile);
         if (farTarget) {
           const result = applyPlayerAttackToEnemy(state, farTarget, events);
           if (result.hit && !result.defeated) {
@@ -941,7 +1134,7 @@ function tryKnockback(state: GameState, target: EnemyActor, direction: Direction
 
   const occupied =
     (state.player.pos.x === dest.x && state.player.pos.y === dest.y) ||
-    state.enemies.some((e) => e !== target && e.alive && e.pos.x === dest.x && e.pos.y === dest.y);
+    state.enemies.some((e) => e !== target && isMovementBlockingEnemy(e) && e.pos.x === dest.x && e.pos.y === dest.y);
   if (occupied) return;
 
   target.pos = dest;
@@ -991,7 +1184,7 @@ function resolveSolarGunAttack(
   // would not guarantee this.
   let target: EnemyActor | undefined;
   for (const tile of reached) {
-    target = state.enemies.find((enemy) => enemy.alive && enemy.pos.x === tile.x && enemy.pos.y === tile.y);
+    target = findAttackTarget(state.enemies, tile);
     if (target) break;
   }
 
@@ -2388,7 +2581,7 @@ function tryChaseStep(state: GameState, enemy: EnemyActor): boolean {
   const isOccupied = (pos: Vec2): boolean => {
     if (pos.x === player.pos.x && pos.y === player.pos.y) return true;
     return enemies.some(
-      (other) => other !== enemy && other.alive && other.pos.x === pos.x && other.pos.y === pos.y,
+      (other) => other !== enemy && isMovementBlockingEnemy(other) && other.pos.x === pos.x && other.pos.y === pos.y,
     );
   };
 
@@ -2543,7 +2736,7 @@ function canCornerCross(state: GameState, enemy: EnemyActor, dir: Direction8): b
   if (!isWalkable(state.map, dest)) return false;
   if (dest.x === state.player.pos.x && dest.y === state.player.pos.y) return false;
   const occupiedByEnemy = state.enemies.some(
-    (other) => other !== enemy && other.alive && other.pos.x === dest.x && other.pos.y === dest.y,
+    (other) => other !== enemy && isMovementBlockingEnemy(other) && other.pos.x === dest.x && other.pos.y === dest.y,
   );
   if (occupiedByEnemy) return false;
 
@@ -2599,7 +2792,7 @@ function trySpiderChaseStep(state: GameState, enemy: EnemyActor): boolean {
   const isOccupied = (pos: Vec2): boolean => {
     if (pos.x === player.pos.x && pos.y === player.pos.y) return true;
     return enemies.some(
-      (other) => other !== enemy && other.alive && other.pos.x === pos.x && other.pos.y === pos.y,
+      (other) => other !== enemy && isMovementBlockingEnemy(other) && other.pos.x === pos.x && other.pos.y === pos.y,
     );
   };
 
@@ -2722,7 +2915,7 @@ function tryBatRetreatStep(state: GameState, enemy: EnemyActor): boolean {
   const isOccupied = (pos: Vec2): boolean => {
     if (pos.x === player.pos.x && pos.y === player.pos.y) return true;
     return enemies.some(
-      (other) => other !== enemy && other.alive && other.pos.x === pos.x && other.pos.y === pos.y,
+      (other) => other !== enemy && isMovementBlockingEnemy(other) && other.pos.x === pos.x && other.pos.y === pos.y,
     );
   };
 
@@ -3012,7 +3205,7 @@ function resolveKrakenEnemy(
             isWalkable(map, dest) &&
             !(dest.x === enemy.pos.x && dest.y === enemy.pos.y) &&
             !state.enemies.some(
-              (other) => other.alive && other.pos.x === dest.x && other.pos.y === dest.y,
+              (other) => isMovementBlockingEnemy(other) && other.pos.x === dest.x && other.pos.y === dest.y,
             );
           if (validDestination) {
             const from = { ...player.pos };
@@ -3079,6 +3272,14 @@ function resolveOneEnemy(
   enemy: EnemyActor,
   events: GameEvent[],
 ): { acted: boolean; attacked: boolean } {
+  // Phase 23.1: a head-form skeleton takes no action at all — no
+  // movement, no attack, no per-species book-keeping, no RNG — until it
+  // reverts to 'body' (resolveSkeletonRevivals, checked once per world
+  // turn). Checked before the aggro-range early-return below so a head
+  // never even counts as "noticing" the player.
+  if (enemy.type === 'skeleton' && enemy.skeletonForm === 'head') {
+    return { acted: false, attacked: false };
+  }
   const behaviorType = ENEMY_DEFINITIONS[enemy.type].behaviorType;
   if (behaviorType !== 'stationary' && !isAdjacent(enemy.pos, state.player.pos) && !isWithinAggroRange(enemy, state.player)) {
     // Phase 16.1: an enemy that hasn't noticed the player yet (further
@@ -3404,6 +3605,44 @@ function applyPoisonTick(state: GameState, events: GameEvent[], skipThisTurn: bo
   events.push({ type: 'poison_damage', actualDamage, hpBefore, hpAfter: state.player.hp });
   if (state.player.hp <= 0) {
     state.player.alive = false;
+  }
+}
+
+/**
+ * Phase 23.1: reverts every head-form skeleton whose
+ * skeletonReviveAtTurn has been reached back to 'body' at full HP, in
+ * fixed state.enemies order (deterministic; no RNG). A skeleton whose
+ * own tile is occupied by the player or by another living body-form
+ * actor is simply left as a head and re-checked the following world
+ * turn — the revival position itself never moves. Because this walks
+ * state.enemies in order and mutates in place, a skeleton revived
+ * earlier in this same pass is already visible (as an occupant) to any
+ * later skeleton's occupancy check on the same tile, so two head-form
+ * skeletons stacked on one tile (heads never block movement/placement —
+ * see EnemyActor.skeletonForm's doc comment) resolve deterministically
+ * one at a time rather than racing. Other head-form skeletons never
+ * count as occupants (heads don't block anything), only the player and
+ * living body-form actors do.
+ */
+function resolveSkeletonRevivals(state: GameState, events: GameEvent[]): void {
+  for (const enemy of state.enemies) {
+    if (!enemy.alive || enemy.type !== 'skeleton' || enemy.skeletonForm !== 'head') continue;
+    if (enemy.skeletonReviveAtTurn === undefined || state.turn < enemy.skeletonReviveAtTurn) continue;
+    const occupied =
+      (state.player.pos.x === enemy.pos.x && state.player.pos.y === enemy.pos.y) ||
+      state.enemies.some(
+        (other) =>
+          other !== enemy &&
+          other.alive &&
+          !(other.type === 'skeleton' && other.skeletonForm === 'head') &&
+          other.pos.x === enemy.pos.x &&
+          other.pos.y === enemy.pos.y,
+      );
+    if (occupied) continue;
+    enemy.skeletonForm = 'body';
+    enemy.hp = enemy.maxHp;
+    enemy.skeletonReviveAtTurn = undefined;
+    events.push({ type: 'skeleton_revived', targetId: enemy.id ?? 0 });
   }
 }
 
@@ -3737,6 +3976,11 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
   // placed on turn T survives turns T..T+5 (6 total, including the
   // placement turn) and is removed starting turn T+6.
   expireWebs(state);
+  // Phase 23.1: skeleton revival is a world-turn-based check (not tied
+  // to any enemy's own action-gauge activations), so it runs exactly
+  // once per processTurn call, right after the turn counter increments
+  // — mirroring expireWebs' own placement in this per-turn sequence.
+  resolveSkeletonRevivals(state, events);
 
   if (playerDefeated) {
     state.phase = 'gameover';

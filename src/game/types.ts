@@ -167,7 +167,8 @@ export type EnemyType =
   | 'golem'
   | 'sword'
   | 'axe'
-  | 'kraken';
+  | 'kraken'
+  | 'skeleton';
 
 /** An enemy Actor tagged with its species; used for AI branching and sprite/texture selection. */
 export interface EnemyActor extends Actor {
@@ -301,6 +302,41 @@ export interface EnemyActor extends Actor {
    * origin tag.
    */
   spawnSource?: 'normal' | 'monster_house';
+  /**
+   * Skeleton-only (Phase 23.1 solar gun element foundation +
+   * skeleton revival): which of the two forms this skeleton is
+   * currently in. Absent/undefined is equivalent to `'body'` (every
+   * pre-Phase-23.1 EnemyActor literal across the test suite, and every
+   * freshly spawned skeleton, has no explicit value here) — `'head'` is
+   * only ever set once a body-form skeleton is defeated by an attack
+   * that did not activate any element (see turn.ts's
+   * defeatEnemyIfNeeded). A head-form skeleton stays `alive: true`
+   * (it is never fully defeated — see EnemyActor doc above) and simply
+   * sits at its own position doing nothing (no movement, no attack, no
+   * AI dispatch — see turn.ts's resolveOneEnemy) until it either
+   * reverts to `'body'` (skeletonReviveAtTurn reached, tile unoccupied)
+   * or is fully defeated by any element hitting the head. Irrelevant
+   * for every other species. No schemaVersion bump: purely an optional
+   * addition, defaulting exactly as before this phase for every
+   * existing fixture.
+   */
+  skeletonForm?: 'body' | 'head';
+  /**
+   * Skeleton-only (Phase 23.1): the exact GameState.turn value (world
+   * turn count, not this enemy's own action-gauge activations) at or
+   * after which a head-form skeleton becomes eligible to revert to
+   * 'body' — set to `state.turn + SKELETON_HEAD_REVIVE_TURNS` the
+   * instant this skeleton becomes a head (turn.ts's
+   * defeatEnemyIfNeeded), and cleared (set back to undefined) the
+   * instant it actually revives (turn.ts's resolveSkeletonRevivals).
+   * Revival additionally requires this skeleton's own tile to be free
+   * of the player and any other living body-form actor — an occupied
+   * tile simply leaves this field untouched and re-checks the
+   * following world turn; the revival position itself never moves (no
+   * RNG is ever consumed by this field's use). Irrelevant/absent for
+   * every other species and for a body-form skeleton.
+   */
+  skeletonReviveAtTurn?: number;
 }
 
 // 'floor_cleared' is a transient signal set for a single processTurn call

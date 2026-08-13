@@ -58,8 +58,8 @@ import {
   toggleAbilityOverlay,
 } from './game/ability';
 import { EFFECT_DEFINITIONS, getActiveEffects } from './game/effects';
-import { processTurn, TurnResult, ELEMENT_ENCHANTMENT_SOL_COST, isCardIdentified } from './game/turn';
-import { DIRECTION_VECTORS, EnemyType, GameState, Direction8 } from './game/types';
+import { processTurn, TurnResult, ELEMENT_ENCHANTMENT_SOL_COST, isCardIdentified, getSolarGunEffectiveElement } from './game/turn';
+import { DIRECTION_VECTORS, EnemyType, EnemyActor, GameState, Direction8 } from './game/types';
 import { CAMERA_VIEW_WIDTH, CAMERA_VIEW_HEIGHT } from './game/camera';
 import { canTakeDashStep, shouldStopDashAfterStep } from './game/dash';
 import {
@@ -191,9 +191,35 @@ function textureKeyForEnemyType(type: EnemyType): string {
   return ENEMY_DEFINITIONS[type].spriteKey;
 }
 
-/** All distinct sprite sheet keys used by the current 9-species roster, in fixed roster order. */
+/**
+ * Phase 23.1: sprite keys used by the game that are NOT any species'
+ * own EnemyDefinition.spriteKey — currently just skeleton's separate
+ * head sprite (public/assets/sprites/skeleton_head.png), which
+ * spriteKeyForEnemy below selects only while a skeleton is in its
+ * 'head' form. Kept as its own small list (rather than adding a fake
+ * EnemyDefinition entry) so ENEMY_DEFINITIONS/ENEMY_TYPES_IN_ORDER stay
+ * exactly "one entry per playable species" with no non-species entries
+ * mixed in.
+ */
+const EXTRA_SPRITE_KEYS = ['skeleton_head'];
+
+/** All distinct sprite sheet keys used by the current 10-species roster, in fixed roster order, plus any extra non-species sprite keys (EXTRA_SPRITE_KEYS). */
 function allEnemySpriteKeys(): string[] {
-  return Object.values(ENEMY_DEFINITIONS).map((def) => def.spriteKey);
+  return [...Object.values(ENEMY_DEFINITIONS).map((def) => def.spriteKey), ...EXTRA_SPRITE_KEYS];
+}
+
+/**
+ * Phase 23.1: the sprite sheet key to actually render `enemy` with —
+ * the single, purely-descriptive boundary between EnemyActor state and
+ * sprite selection referenced everywhere a sprite is drawn/retextured,
+ * so no call site needs its own skeleton-specific branch (Stage 3's
+ * "描画コード内へスケルトン専用ifを複数散在させない"). Every species
+ * other than a head-form skeleton is identical to
+ * textureKeyForEnemyType(enemy.type).
+ */
+function spriteKeyForEnemy(enemy: EnemyActor): string {
+  if (enemy.type === 'skeleton' && enemy.skeletonForm === 'head') return 'skeleton_head';
+  return textureKeyForEnemyType(enemy.type);
 }
 
 class MainScene extends Phaser.Scene {
@@ -596,6 +622,16 @@ class MainScene extends Phaser.Scene {
    * be unlocked (and selected) independently of sol.
    */
   private enchantHudLabel(): string {
+    // Phase 23.1: the solar gun shows its own lens label instead of
+    // melee's ENCHANT line — it always has an active element (never
+    // "未取得"/"なし"/SOL不足, since its lens costs no extra SOL beyond
+    // the weapon's own fixed solarCost) — fixed_spec's "近接武器装備時
+    // の既存ENCHANT表示を壊さない" (the branch below is untouched for
+    // every other weapon).
+    if (this.state.equippedWeaponId === 'solar_gun') {
+      const lens = getSolarGunEffectiveElement(this.state);
+      return `LENS：${ELEMENT_DISPLAY_NAMES[lens]}`;
+    }
     const anyUnlocked = Object.values(this.state.unlockedEnchantments).some((u) => u);
     if (!anyUnlocked) return 'ENCHANT：未取得';
     if (this.state.selectedEnchantment === 'none') return 'ENCHANT：なし';
@@ -797,7 +833,7 @@ class MainScene extends Phaser.Scene {
       if (i >= this.enemySprites.length) return; // handled by the growth loop below
       try {
         this.tweens.killTweensOf(this.enemySprites[i]); // clear any in-flight move animation left over from the previous floor
-        this.enemySprites[i].setTexture(textureKeyForEnemyType(enemy.type), idleFrame('S'));
+        this.enemySprites[i].setTexture(spriteKeyForEnemy(enemy), idleFrame('S'));
         this.enemySprites[i].setScale(SPRITE_SCALE_X, SPRITE_SCALE_Y);
         this.enemySprites[i].setVisible(true);
       } catch (error) {
@@ -808,7 +844,7 @@ class MainScene extends Phaser.Scene {
     while (this.enemySprites.length < enemies.length) {
       const enemy = enemies[this.enemySprites.length];
       try {
-        const sprite = this.add.sprite(0, 0, textureKeyForEnemyType(enemy.type), idleFrame('S'));
+        const sprite = this.add.sprite(0, 0, spriteKeyForEnemy(enemy), idleFrame('S'));
         sprite.setScale(SPRITE_SCALE_X, SPRITE_SCALE_Y);
         this.enemySprites.push(sprite);
       } catch (error) {
@@ -855,7 +891,7 @@ class MainScene extends Phaser.Scene {
         console.error(`snapAllEnemies: no sprite at index ${i} for ${this.state.enemies.length} enemies (enemySprites has ${this.enemySprites.length}); skipping instead of crashing`);
         return;
       }
-      this.snapActor(sprite, enemy, textureKeyForEnemyType(enemy.type), this.isCurrentlyVisible(enemy.pos));
+      this.snapActor(sprite, enemy, spriteKeyForEnemy(enemy), this.isCurrentlyVisible(enemy.pos));
     });
   }
 
@@ -2255,7 +2291,7 @@ class MainScene extends Phaser.Scene {
         console.error(`applyTurnResult: no sprite at index ${i} for ${this.state.enemies.length} enemies (enemySprites has ${this.enemySprites.length}); skipping instead of crashing`);
         return;
       }
-      const spriteKey = textureKeyForEnemyType(enemy.type);
+      const spriteKey = spriteKeyForEnemy(enemy);
       const moved = enemy.pos.x !== before.x || enemy.pos.y !== before.y;
       // refreshStaticView() (called earlier this same turn, above) already
       // recomputed this.currentVisible from the player's post-move

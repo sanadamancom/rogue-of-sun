@@ -44,6 +44,17 @@ export function formatEvent(event: GameEvent): string {
       const name = ENEMY_DEFINITIONS[event.enemyType].displayName;
       return `${name}をたおした。`;
     }
+    // Phase 23.1 skeleton revival: only skeleton ever produces these
+    // three event types, so the display name is a fixed literal rather
+    // than an ENEMY_DEFINITIONS lookup (these events carry no
+    // enemyType field — targetId alone is enough for telemetry/tests to
+    // identify which skeleton).
+    case 'skeleton_headified':
+      return 'スケルトンの体がくずれ、頭部だけが残った。';
+    case 'skeleton_head_attack_no_effect':
+      return 'スケルトンの頭部には効かなかった。';
+    case 'skeleton_revived':
+      return 'スケルトンの頭部が体を取り戻した。';
     case 'enemy_recovering': {
       const name = ENEMY_DEFINITIONS[event.enemyType].displayName;
       return `${name}は動きを止めている。`;
@@ -221,6 +232,16 @@ export function formatEvent(event: GameEvent): string {
       if (event.affinity === 'weak') return `${name}の力が弱点を突いた！`;
       if (event.affinity === 'resist') return `${name}の力が軽減された。`;
       return `${name}の力が攻撃に宿った。`;
+    }
+    // Phase 23.1 solar gun element foundation: dedicated line, never
+    // reusing sol_enchantment_used/element_enchantment_used's wording
+    // (see this event's own doc comment in events.ts for why) — same
+    // weak/neutral/resist differentiation as melee enchantment.
+    case 'solar_gun_element_fired': {
+      const name = ELEMENT_DISPLAY_NAMES[event.element];
+      if (event.affinity === 'weak') return `太陽銃の${name}が弱点を突いた！`;
+      if (event.affinity === 'resist') return `太陽銃の${name}が軽減された。`;
+      return `太陽銃の${name}が撃ち込まれた。`;
     }
     // Phase 15.3 SOL/element/ability rebalance: step_3's "SOL不足による
     // 属性不発をログとtelemetryで識別可能にする" — a dedicated line,

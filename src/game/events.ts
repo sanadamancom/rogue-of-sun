@@ -25,7 +25,17 @@ export type GameEvent =
   // target had already died and stayed in the array (alive:false, never
   // removed). Carrying the actual EnemyActor.id and the exact HP values
   // already computed here removes any need for that re-lookup.
-  | { type: 'player_attack'; enemyType: EnemyType; targetId: number; damage: number; targetHpBefore: number; targetHpAfter: number; weaponId?: WeaponId }
+  // Phase 23.1 solar gun element foundation: `element` is an optional,
+  // purely observational addition — the ElementId actually activated on
+  // this hit (melee enchantment or the solar gun's own lens), or absent
+  // when no element activated at all (a plain unenchanted hit). Never
+  // read by combat/defeat logic itself, which already receives the same
+  // value directly as a function argument (turn.ts's
+  // applyPlayerAttackToEnemy -> defeatEnemyIfNeeded) — this field exists
+  // only so observers (tests, telemetry, a future debug overlay) can see
+  // it without re-deriving it from the more detailed sol_enchantment_used
+  // / element_enchantment_used / solar_gun_element_fired events below.
+  | { type: 'player_attack'; enemyType: EnemyType; targetId: number; damage: number; targetHpBefore: number; targetHpAfter: number; weaponId?: WeaponId; element?: ElementId }
   | { type: 'enemy_attack'; enemyType: EnemyType; attackerId: number; damage: number }
   // Phase 10.3 accuracy/evasion foundation: pushed instead of
   // 'player_attack'/'enemy_attack' when a confirmed attack attempt (a
@@ -36,6 +46,23 @@ export type GameEvent =
   | { type: 'player_attack_missed'; enemyType: EnemyType; targetId: number; weaponId?: WeaponId; hitChance: number; roll: number }
   | { type: 'enemy_attack_missed'; enemyType: EnemyType; attackerId: number; hitChance: number; roll: number }
   | { type: 'enemy_defeated'; enemyType: EnemyType; targetId: number }
+  // Phase 23.1 skeleton revival: pushed instead of 'enemy_defeated' when
+  // a body-form skeleton's HP reaches 0 from an attack that did not
+  // activate any element — the skeleton stays on the board as a head
+  // (alive: true, EnemyActor.skeletonForm: 'head') rather than being
+  // fully defeated, so no experience/drop/enemy_defeated event fires
+  // this turn. See turn.ts's defeatEnemyIfNeeded.
+  | { type: 'skeleton_headified'; targetId: number }
+  // Pushed instead of any damage/defeat event when an attack that did
+  // not activate any element hits an already-head-form skeleton: the
+  // hit has no effect at all (form, revive timer, and HP all stay
+  // exactly as they were) — this is the only feedback the player gets
+  // for that turn's attack.
+  | { type: 'skeleton_head_attack_no_effect'; targetId: number }
+  // Pushed once a head-form skeleton reverts to 'body' (turn.ts's
+  // resolveSkeletonRevivals, checked once per world turn): always at
+  // its own existing tile (never a new position), always at max HP.
+  | { type: 'skeleton_revived'; targetId: number }
   | { type: 'enemy_recovering'; enemyType: EnemyType }
   | { type: 'sword_dash'; enemyType: EnemyType }
   | { type: 'web_placed'; enemyType: EnemyType }
@@ -195,6 +222,24 @@ export type GameEvent =
   // applyPlayerAttackToEnemy for the exact trigger condition (distinct
   // from "no element selected", which still pushes nothing at all).
   | { type: 'element_activation_failed'; element: ElementId; reason: 'insufficient_sol' }
+  // Phase 23.1 solar gun element foundation: pushed on every solar-gun
+  // hit instead of sol_enchantment_used/element_enchantment_used —
+  // reusing either of those would distort their existing meaning (both
+  // imply an *additional* SOL cost beyond the weapon's own; the solar
+  // gun's element never costs more than its single fixed solarCost, so
+  // solBefore/solAfter would misleadingly show no change). `element` is
+  // never null: the solar gun always fires through some lens (defaulting
+  // to sol — see turn.ts's getSolarGunEffectiveElement), so this fires
+  // on every successful solar-gun hit, whichever lens is active.
+  | {
+      type: 'solar_gun_element_fired';
+      element: ElementId;
+      affinity: ElementalAffinity;
+      enemyType: EnemyType;
+      targetId: number;
+      physicalDamage: number;
+      elementalDamage: number;
+    }
   // Phase 12.1 common temporary-effect foundation. 'effect_granted' fires
   // when banana grants attack_up with no prior instance active;
   // 'effect_refreshed' fires when banana renews an already-active

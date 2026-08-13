@@ -150,24 +150,34 @@ describe('solar gun firing (Phase 09.2)', () => {
     { dir: 'SW', dx: -1, dy: 1 },
   ];
 
+  // Phase 23.1: the solar gun now always fires as an elemental attack
+  // through its lens (defaulting to sol — see turn.ts's
+  // getSolarGunEffectiveElement), so a hit is no longer pure physical
+  // damage. With this fixture (player.attack 1, solar_gun weaponBonus
+  // 1, defense 0) physical damage is 2 (unchanged from before this
+  // phase); bok's sol affinity is 'weak' (enemy-def.ts), adding a fixed
+  // +3 elemental bonus (combat.ts's ELEMENTAL_AFFINITY_BONUS_DAMAGE,
+  // mind bonus 0 at rank 0) for a total of 5. hp is raised well above
+  // that total so these tests keep asserting a specific surviving HP
+  // rather than incidentally testing defeat.
   it.each(directions)('hits an adjacent enemy in direction $dir', ({ dir, dx, dy }) => {
     const state = freshState({ equippedWeaponId: 'solar_gun' });
     state.player.facing = dir;
-    const enemy = createInitialEnemy('bok', { x: 10 + dx, y: 10 + dy }, 5, 1);
+    const enemy = createInitialEnemy('bok', { x: 10 + dx, y: 10 + dy }, 20, 1);
     state.enemies = [enemy];
     const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(true);
-    expect(enemy.hp).toBe(3);
+    expect(enemy.hp).toBe(15);
   });
 
   it.each([1, 2, 3, 4, 5])('hits an enemy at distance %i', (distance) => {
     const state = freshState({ equippedWeaponId: 'solar_gun' });
     state.player.facing = 'E';
-    const enemy = createInitialEnemy('bok', { x: 10 + distance, y: 10 }, 5, 1);
+    const enemy = createInitialEnemy('bok', { x: 10 + distance, y: 10 }, 20, 1);
     state.enemies = [enemy];
     const result = processTurn(state, { type: 'action' });
     expect(result.playerAttacked).toBe(true);
-    expect(enemy.hp).toBe(3);
+    expect(enemy.hp).toBe(15);
   });
 
   it('does not hit an enemy at distance 6', () => {
@@ -180,14 +190,14 @@ describe('solar gun firing (Phase 09.2)', () => {
     expect(enemy.hp).toBe(5);
   });
 
-  it('hits only the closest enemy on the ray, dealing exactly 2 damage (Phase 15.1: fixture player.attack 1 + solar_gun bonus 1)', () => {
+  it('hits only the closest enemy on the ray, dealing exactly 5 damage (Phase 23.1: physical 2 + sol-lens elemental bonus 3 against bok\'s weak affinity)', () => {
     const state = freshState({ equippedWeaponId: 'solar_gun' });
     state.player.facing = 'E';
-    const near = createInitialEnemy('bok', { x: 12, y: 10 }, 5, 1);
+    const near = createInitialEnemy('bok', { x: 12, y: 10 }, 20, 1);
     const far = createInitialEnemy('bok', { x: 14, y: 10 }, 5, 1);
     state.enemies = [near, far];
     processTurn(state, { type: 'action' });
-    expect(near.hp).toBe(3);
+    expect(near.hp).toBe(15);
     expect(far.hp).toBe(5);
   });
 
