@@ -10,6 +10,7 @@ import { GameMap, GameState, Room, Tile } from '../types';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { formatEvent, formatEvents } from '../message-log';
 import { createInitialState, advanceToNextFloor } from '../state';
+import { createEmptyInventory } from '../item-def';
 
 // Same 2-room fixture shape as Phase 21.3's tests: room A (start) at
 // x:[1,6), y:[1,6); room B (monster house target) at x:[10,16), y:[1,6),
@@ -53,7 +54,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     nextWebId: 0,
     groundItems: [],
     nextGroundItemId: 0,
-    inventory: {
+    inventory: { ...createEmptyInventory(),
       apple: 0, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0,
       sol_enchantment: 0, flame_enchantment: 0, frost_enchantment: 0, cloud_enchantment: 0, earth_enchantment: 0,
       chocolate: 0, banana: 0, antidote: 0, panacea: 0, clairvoyance_fruit: 0,

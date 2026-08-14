@@ -1,5 +1,8 @@
 import { EquipmentRank, WeaponId } from './types';
 
+/** Which of the 3 melee weapon lines (sword/spear/hammer) a species belongs to. solar_gun belongs to none (undefined) — see WeaponDefinition.family. */
+export type WeaponFamily = 'sword' | 'spear' | 'hammer';
+
 /**
  * A single weapon species' fixed combat data (Phase 08.3 weapon/equipment
  * foundation; Phase 08.5 adds `reach`).
@@ -63,6 +66,35 @@ export interface WeaponDefinition {
    * EquipmentRank's own doc comment in types.ts for the full scope note.
    */
   rank: EquipmentRank;
+  /**
+   * Phase 24.3 全装備カタログ: which melee weapon line this species
+   * belongs to (undefined for solar_gun, which has no family/lineage and
+   * is never solar-forge eligible — see solar-forge.ts's
+   * isForgeEligibleWeaponId). solar-forge.ts's lineage-based C/B/A tier
+   * resolution requires both materials to share the same family and the
+   * same rank; the S->R tier's 2 fixed pairs are still keyed by exact
+   * definitionId (order-independent) rather than family.
+   */
+  family?: WeaponFamily;
+  /**
+   * Phase 24.3 太陽鍛冶レシピ: the species this individual becomes when
+   * used as the *first-selected* solar-forge material against any other
+   * same-family, same-rank material (rogue-of-sun-development-plan_.md's
+   * forge_lineage decision: "第1素材の系譜を完成品へ引き継ぐ" — the
+   * second material only needs to match family+rank, its own specific
+   * species is otherwise irrelevant to the output). Undefined for every
+   * S-rank species (S->R instead uses solar-forge-recipes.ts's fixed,
+   * order-independent pairs) and for R/solar_gun (terminal/ineligible).
+   */
+  forgeNextId?: WeaponId;
+  /**
+   * Phase 24.3 装備効果: the equipment-effect-module key this species'
+   * individual combat effect is dispatched under (equipment-effects.ts).
+   * Undefined for the 6 "none"-effect C-rank species (sword, short_sword,
+   * spear, glaive, hammer, basic_hammer) and for solar_gun (Phase 23.1
+   * unchanged).
+   */
+  effectId?: string;
 }
 
 // Single source of truth for every registered weapon's combat stats.
@@ -79,6 +111,100 @@ export const WEAPON_DEFINITIONS: Record<WeaponId, WeaponDefinition> = {
     hasRecoil: false,
     hitModifier: 5,
     rank: 'C',
+    family: 'sword',
+    forgeNextId: 'flamberge',
+  },
+  short_sword: {
+    id: 'short_sword',
+    attackPower: 2,
+    reach: 1,
+    knockbackDistance: 0,
+    hasRecoil: false,
+    hitModifier: 5,
+    rank: 'C',
+    family: 'sword',
+    forgeNextId: 'magic_sword',
+  },
+  flamberge: {
+    id: 'flamberge',
+    attackPower: 2,
+    reach: 1,
+    knockbackDistance: 0,
+    hasRecoil: false,
+    hitModifier: 5,
+    rank: 'B',
+    family: 'sword',
+    forgeNextId: 'bushido_blade',
+    effectId: 'flame_bonus',
+  },
+  magic_sword: {
+    id: 'magic_sword',
+    attackPower: 2,
+    reach: 1,
+    knockbackDistance: 0,
+    hasRecoil: false,
+    hitModifier: 5,
+    rank: 'B',
+    family: 'sword',
+    forgeNextId: 'blood_sword',
+    effectId: 'sol_cost_reduction',
+  },
+  bushido_blade: {
+    id: 'bushido_blade',
+    attackPower: 3,
+    reach: 1,
+    knockbackDistance: 0,
+    hasRecoil: false,
+    hitModifier: 5,
+    rank: 'A',
+    family: 'sword',
+    forgeNextId: 'solar_sword',
+    effectId: 'low_life_bonus',
+  },
+  blood_sword: {
+    id: 'blood_sword',
+    attackPower: 3,
+    reach: 1,
+    knockbackDistance: 0,
+    hasRecoil: false,
+    hitModifier: 5,
+    rank: 'A',
+    family: 'sword',
+    forgeNextId: 'dark_sword',
+    effectId: 'blood_defeat_heal',
+  },
+  solar_sword: {
+    id: 'solar_sword',
+    attackPower: 4,
+    reach: 1,
+    knockbackDistance: 0,
+    hasRecoil: false,
+    hitModifier: 5,
+    rank: 'S',
+    family: 'sword',
+    effectId: 'sol_max_bonus',
+  },
+  dark_sword: {
+    id: 'dark_sword',
+    attackPower: 4,
+    reach: 1,
+    knockbackDistance: 0,
+    hasRecoil: false,
+    hitModifier: 5,
+    rank: 'S',
+    family: 'sword',
+    effectId: 'night_dark_bonus',
+  },
+  gram: {
+    id: 'gram',
+    attackPower: 5,
+    reach: 1,
+    knockbackDistance: 0,
+    hasRecoil: false,
+    hitModifier: 5,
+    rank: 'R',
+    family: 'sword',
+    effectId: 'dual_light_dark_bonus',
   },
   spear: {
     id: 'spear',
@@ -88,6 +214,100 @@ export const WEAPON_DEFINITIONS: Record<WeaponId, WeaponDefinition> = {
     hasRecoil: false,
     hitModifier: 5,
     rank: 'C',
+    family: 'spear',
+    forgeNextId: 'corsesca',
+  },
+  glaive: {
+    id: 'glaive',
+    attackPower: 1,
+    reach: 2,
+    knockbackDistance: 0,
+    hasRecoil: false,
+    hitModifier: 5,
+    rank: 'C',
+    family: 'spear',
+    forgeNextId: 'ice_glaive',
+  },
+  corsesca: {
+    id: 'corsesca',
+    attackPower: 1,
+    reach: 2,
+    knockbackDistance: 0,
+    hasRecoil: false,
+    hitModifier: 5,
+    rank: 'B',
+    family: 'spear',
+    forgeNextId: 'grand_lance',
+    effectId: 'stun_chance',
+  },
+  ice_glaive: {
+    id: 'ice_glaive',
+    attackPower: 1,
+    reach: 2,
+    knockbackDistance: 0,
+    hasRecoil: false,
+    hitModifier: 5,
+    rank: 'B',
+    family: 'spear',
+    forgeNextId: 'blood_spear',
+    effectId: 'frost_bonus',
+  },
+  grand_lance: {
+    id: 'grand_lance',
+    attackPower: 2,
+    reach: 2,
+    knockbackDistance: 0,
+    hasRecoil: false,
+    hitModifier: 5,
+    rank: 'A',
+    family: 'spear',
+    forgeNextId: 'white_queen',
+    effectId: 'earth_bonus',
+  },
+  blood_spear: {
+    id: 'blood_spear',
+    attackPower: 2,
+    reach: 2,
+    knockbackDistance: 0,
+    hasRecoil: false,
+    hitModifier: 5,
+    rank: 'A',
+    family: 'spear',
+    forgeNextId: 'black_queen',
+    effectId: 'blood_defeat_sol',
+  },
+  white_queen: {
+    id: 'white_queen',
+    attackPower: 3,
+    reach: 2,
+    knockbackDistance: 0,
+    hasRecoil: false,
+    hitModifier: 5,
+    rank: 'S',
+    family: 'spear',
+    effectId: 'sol_max_bonus',
+  },
+  black_queen: {
+    id: 'black_queen',
+    attackPower: 3,
+    reach: 2,
+    knockbackDistance: 0,
+    hasRecoil: false,
+    hitModifier: 5,
+    rank: 'S',
+    family: 'spear',
+    effectId: 'night_dark_bonus',
+  },
+  gungnir: {
+    id: 'gungnir',
+    attackPower: 4,
+    reach: 2,
+    knockbackDistance: 0,
+    hasRecoil: false,
+    hitModifier: 5,
+    rank: 'R',
+    family: 'spear',
+    effectId: 'dual_light_dark_bonus',
   },
   hammer: {
     id: 'hammer',
@@ -97,6 +317,100 @@ export const WEAPON_DEFINITIONS: Record<WeaponId, WeaponDefinition> = {
     hasRecoil: true,
     hitModifier: -5,
     rank: 'C',
+    family: 'hammer',
+    forgeNextId: 'maul',
+  },
+  basic_hammer: {
+    id: 'basic_hammer',
+    attackPower: 3,
+    reach: 1,
+    knockbackDistance: 1,
+    hasRecoil: true,
+    hitModifier: -5,
+    rank: 'C',
+    family: 'hammer',
+    forgeNextId: 'silver_flail',
+  },
+  maul: {
+    id: 'maul',
+    attackPower: 3,
+    reach: 1,
+    knockbackDistance: 1,
+    hasRecoil: true,
+    hitModifier: -5,
+    rank: 'B',
+    family: 'hammer',
+    forgeNextId: 'battle_axe',
+    effectId: 'construct_bonus',
+  },
+  silver_flail: {
+    id: 'silver_flail',
+    attackPower: 3,
+    reach: 1,
+    knockbackDistance: 1,
+    hasRecoil: true,
+    hitModifier: -5,
+    rank: 'B',
+    family: 'hammer',
+    forgeNextId: 'bloody_mace',
+    effectId: 'undead_bonus',
+  },
+  battle_axe: {
+    id: 'battle_axe',
+    attackPower: 4,
+    reach: 1,
+    knockbackDistance: 1,
+    hasRecoil: true,
+    hitModifier: -5,
+    rank: 'A',
+    family: 'hammer',
+    forgeNextId: 'dawn',
+    effectId: 'floor_species_bonus',
+  },
+  bloody_mace: {
+    id: 'bloody_mace',
+    attackPower: 4,
+    reach: 1,
+    knockbackDistance: 1,
+    hasRecoil: true,
+    hitModifier: -5,
+    rank: 'A',
+    family: 'hammer',
+    forgeNextId: 'twilight',
+    effectId: 'blood_defeat_heal',
+  },
+  dawn: {
+    id: 'dawn',
+    attackPower: 4,
+    reach: 1,
+    knockbackDistance: 1,
+    hasRecoil: true,
+    hitModifier: -5,
+    rank: 'S',
+    family: 'hammer',
+    effectId: 'sol_max_bonus',
+  },
+  twilight: {
+    id: 'twilight',
+    attackPower: 4,
+    reach: 1,
+    knockbackDistance: 1,
+    hasRecoil: true,
+    hitModifier: -5,
+    rank: 'S',
+    family: 'hammer',
+    effectId: 'night_dark_bonus',
+  },
+  mjolnir: {
+    id: 'mjolnir',
+    attackPower: 5,
+    reach: 1,
+    knockbackDistance: 1,
+    hasRecoil: true,
+    hitModifier: -5,
+    rank: 'R',
+    family: 'hammer',
+    effectId: 'dual_light_dark_bonus',
   },
   solar_gun: {
     id: 'solar_gun',
@@ -129,5 +443,39 @@ export const WEAPON_DEFINITIONS: Record<WeaponId, WeaponDefinition> = {
   },
 };
 
-/** Fixed iteration order for weapons (Phase 08.3: sword; Phase 08.5 adds spear; Phase 08.7 adds hammer; Phase 09.2 adds solar_gun). */
-export const WEAPON_IDS_IN_ORDER: WeaponId[] = ['sword', 'spear', 'hammer', 'solar_gun'];
+/**
+ * Fixed iteration order for weapons (Phase 08.3: sword; Phase 08.5 adds
+ * spear; Phase 08.7 adds hammer; Phase 09.2 adds solar_gun; Phase 24.3
+ * adds the remaining 23 melee species, grouped by family then by rank
+ * chain, matching the equipment_catalog table's own listed order).
+ */
+export const WEAPON_IDS_IN_ORDER: WeaponId[] = [
+  'sword',
+  'short_sword',
+  'flamberge',
+  'magic_sword',
+  'bushido_blade',
+  'blood_sword',
+  'solar_sword',
+  'dark_sword',
+  'gram',
+  'spear',
+  'glaive',
+  'corsesca',
+  'ice_glaive',
+  'grand_lance',
+  'blood_spear',
+  'white_queen',
+  'black_queen',
+  'gungnir',
+  'hammer',
+  'basic_hammer',
+  'maul',
+  'silver_flail',
+  'battle_axe',
+  'bloody_mace',
+  'dawn',
+  'twilight',
+  'mjolnir',
+  'solar_gun',
+];

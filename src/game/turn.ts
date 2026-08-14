@@ -17,7 +17,7 @@ import {
   STARVATION_DAMAGE,
   STARVATION_INTERVAL,
 } from './hunger';
-import { WEAPON_DEFINITIONS } from './weapon-def';
+import { WEAPON_DEFINITIONS, WEAPON_IDS_IN_ORDER } from './weapon-def';
 import { ARMOR_DEFINITIONS } from './armor-def';
 import { computeAttackDamage, computeIncomingDamage, computeHitChance, resolvesAsHit, computeElementalDamage } from './combat';
 import { advanceEffectDurations, EFFECT_DEFINITIONS, getActiveEffect, getEffectStrength, getPoisonTickProgress, grantOrRefreshEffect, isEffectAtMaxDuration, POISON_TICK_INTERVAL, removeEffect, removeStatusAilment, STATUS_AILMENT_IDS } from './effects';
@@ -51,7 +51,22 @@ import {
   normalizeEquipmentInstances,
   removeInstanceById,
 } from './equipment-instance';
-import { validateForgeMaterials } from './solar-forge';
+import { validateForgeMaterialsWithLineage } from './solar-forge';
+import {
+  getWeaponPreHitDamageBonus,
+  getWeaponElementalBonus,
+  getMagicSwordSolCostReduction,
+  isCorsescaStunEligible,
+  applyWeaponDefeatEffects,
+  getArmorEffectiveAttackBonus,
+  applyMagicRobeSolSpendRefund,
+  getEffectiveMaxSolarEnergy,
+  isPlayerPoisonImmune,
+  getArmorAggroRangeReduction,
+  isSpikeMailEquipped,
+  SPIKE_MAIL_REFLECT_DAMAGE,
+  tickBlackArmorEquippedTurn,
+} from './equipment-effects';
 import { SOLAR_FORGE_RECIPES } from './solar-forge-recipes';
 import {
   AbilityId,
@@ -85,7 +100,7 @@ import {
  * separate exclusion check is needed there. Single source of truth: no
  * other per-element weapon list exists anywhere in this file.
  */
-const ELEMENT_ENCHANT_ELIGIBLE_WEAPONS: WeaponId[] = ['sword', 'spear', 'hammer'];
+const ELEMENT_ENCHANT_ELIGIBLE_WEAPONS: WeaponId[] = WEAPON_IDS_IN_ORDER.filter((id) => id !== 'solar_gun');
 
 /**
  * Phase 23.1: whether `enemy` counts as an obstacle for movement/
@@ -321,7 +336,7 @@ function getPlayerWeaponHitModifier(state: GameState): number {
  * flooring at 1.
  */
 export function getEffectiveAttackPower(state: GameState): number {
-  return state.player.attack + getPlayerWeaponBonus(state);
+  return state.player.attack + getPlayerWeaponBonus(state) + getArmorEffectiveAttackBonus(state);
 }
 
 /**
@@ -514,11 +529,23 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
   }
 
   const baseDamage = computeAttackDamage(
-    state.player.attack + getPlayerAttackUpBonus(state, weaponId) + getPowerDamageBonus(state),
+    state.player.attack + getPlayerAttackUpBonus(state, weaponId) + getPowerDamageBonus(state) + getArmorEffectiveAttackBonus(state),
     getPlayerWeaponBonus(state),
     target.defense,
   );
   let damage = baseDamage;
+  // Phase 24.3 装備効果: attack-start weapon-species bonus (sol_max_bonus/
+  // night_dark_bonus/low_life_bonus/dual_light_dark_bonus), trait bonus
+  // (maul/silver_flail), and battle_axe's per-floor-species bonus —
+  // evaluated once here, added directly to final damage exactly like
+  // elementalDamage below (never touching baseAttack/defense math, and
+  // never applied to solar_gun since it's never in
+  // ELEMENT_ENCHANT_ELIGIBLE_WEAPONS-adjacent weaponId-only dispatch —
+  // getWeaponPreHitDamageBonus itself returns 0 for solar_gun since it
+  // has no effectId).
+  const equippedWeaponInstance = state.equippedWeaponInstanceId ? getEquipmentInstanceById(state, state.equippedWeaponInstanceId) : undefined;
+  const weaponPreHitBonus = getWeaponPreHitDamageBonus(state, weaponId, equippedWeaponInstance, target.type);
+  damage += weaponPreHitBonus;
 
   // Melee enchantment activation (Phase 10.1 sol-only; Phase 14.3
   // generalizes this to all five elements through one shared check
@@ -557,12 +584,20 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
   // telemetry can identify SOL-insufficiency specifically (step_3's
   // "SOL不足による属性不発をログとtelemetryで識別可能にする"), instead of
   // being indistinguishable from "not selected" as before.
+  // Phase 24.3 magic_sword (sol_cost_reduction): the effective melee
+  // elemental SOL cost after magic_sword's -1 (floor 1, only when the
+  // confirmed base cost is >=2) — never applied to the solar gun's own
+  // cost (meleeEffectiveSolCost is only ever read below for the melee
+  // insufficient/meleeActivatedElement/deduction checks, never for
+  // isSolarGun's separate branch).
+  const meleeBaseSolCost = elementSelectedAndUnlocked ? ELEMENT_ENCHANTMENT_SOL_COST[selectedEnchantment] : 0;
+  const meleeEffectiveSolCost = Math.max(1, meleeBaseSolCost - getMagicSwordSolCostReduction(weaponId, meleeBaseSolCost));
   const insufficientSolElement: ElementId | null =
-    elementSelectedAndUnlocked && state.solarEnergy < ELEMENT_ENCHANTMENT_SOL_COST[selectedEnchantment]
+    elementSelectedAndUnlocked && state.solarEnergy < meleeEffectiveSolCost
       ? selectedEnchantment
       : null;
   const meleeActivatedElement: ElementId | null =
-    elementSelectedAndUnlocked && state.solarEnergy >= ELEMENT_ENCHANTMENT_SOL_COST[selectedEnchantment]
+    elementSelectedAndUnlocked && state.solarEnergy >= meleeEffectiveSolCost
       ? selectedEnchantment
       : null;
 
@@ -580,7 +615,12 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
   const activatedElement: ElementId | null = isSolarGun ? getSolarGunEffectiveElement(state) : meleeActivatedElement;
   if (activatedElement) {
     if (!isSolarGun) {
-      state.solarEnergy -= ELEMENT_ENCHANTMENT_SOL_COST[activatedElement];
+      state.solarEnergy -= meleeEffectiveSolCost;
+      // Phase 24.3 magic_robe: track actual SOL spent while equipped
+      // (never the solar gun's own cost, per magic_robe's own
+      // "装備を外している間は蓄積しない"/scope — this only fires for the
+      // melee elemental deduction just above).
+      applyMagicRobeSolSpendRefund(state, meleeEffectiveSolCost);
     }
     affinity = ENEMY_DEFINITIONS[target.type].elementalAffinities[activatedElement];
     // Phase 15.3: elemental damage is now a small fixed additive value
@@ -591,6 +631,12 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
     // 接属性攻撃と同じ計算を使う"). Never affected by enemy defense
     // (computeElementalDamage never reads it).
     elementalDamage = computeElementalDamage(affinity, getElementalMindBonus(state));
+    // Phase 24.3 flamberge/ice_glaive/grand_lance (effect_timing.
+    // elemental_bonus): +1 when the equipped weapon's own species effect
+    // matches the actually-activated element — added directly to the
+    // elemental portion, once, on top of the pre-existing affinity/mind
+    // calculation.
+    elementalDamage += getWeaponElementalBonus(weaponId, activatedElement);
     damage += elementalDamage;
   }
 
@@ -598,6 +644,21 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
   target.hp = Math.max(0, target.hp - damage);
   const targetHpAfter = target.hp;
   const defeated = target.hp === 0;
+  // Phase 24.3 corsesca (effect_timing.corsesca): only on a connecting
+  // hit against a still-living target, using the existing combat RNG
+  // stream (never a new one) — a 10% roll that, on success, sets (never
+  // stacks beyond) a single skipped resolve on the target. Never rolled
+  // against an already-dead target or a skeleton head (skeletonForm
+  // check mirrors defeatEnemyIfNeeded's own head-vs-body distinction;
+  // corsesca still deals its normal damage to a head either way, this
+  // only gates the *stun* roll).
+  if (!defeated && isCorsescaStunEligible(weaponId) && !(target.type === 'skeleton' && target.skeletonForm === 'head')) {
+    const stunRoll = rollPercent(state.combatRngState);
+    state.combatRngState = stunRoll.nextState;
+    if (resolvesAsHit(stunRoll.roll, 10)) {
+      target.corsescaStunTurns = 1;
+    }
+  }
   events.push(
     state.equippedWeaponId
       ? {
@@ -660,7 +721,14 @@ function applyPlayerAttackToEnemy(state: GameState, target: EnemyActor, events: 
     });
   }
   if (defeated) {
-    defeatEnemyIfNeeded(state, target, targetId, events, activatedElement);
+    const genuinelyDefeated = defeatEnemyIfNeeded(state, target, targetId, events, activatedElement);
+    // Phase 24.3 blood_sword/blood_spear/bloody_mace/battle_axe
+    // (effect_timing.defeat_effects): only on a genuine full defeat
+    // (never a skeleton headify/no-effect outcome) — defeatEnemyIfNeeded's
+    // own return value is the single choke point for that distinction.
+    if (genuinelyDefeated) {
+      applyWeaponDefeatEffects(state, weaponId, equippedWeaponInstance, target.type);
+    }
   }
   return { hit: true, defeated };
 }
@@ -865,7 +933,12 @@ function applyPlayerAction(
   // SOL never changes, and this is the only place plain 'wait' handling
   // lives.
   if (action.type === 'wait') {
-    if (isSunlitAt(state.sunlight, state.player.pos) && state.solarEnergy < state.maxSolarEnergy) {
+    // Phase 24.3 dark_garb (dark_garb): while equipped, standing in
+    // sunlight never triggers the automatic charge-instead-of-wait path
+    // (dark_garb's own "装備中は日向による通常SOLチャージを発生させない")
+    // — every other 'wait' behavior (hammerRecovery reset, etc.) is
+    // otherwise identical to an ordinary shadow wait.
+    if (isSunlitAt(state.sunlight, state.player.pos) && state.solarEnergy < getEffectiveMaxSolarEnergy(state) && state.equippedArmorId !== 'dark_garb') {
       return resolveSolarCharge(state, events);
     }
     state.hammerRecovery = false;
@@ -992,6 +1065,16 @@ function applyPlayerAction(
       trap.triggered = true;
       events.push({ type: 'trap_triggered', trapType: trap.trapType });
       const effectId = trap.trapType === 'slow_trap' ? 'movement_slow' : 'poison';
+      // Phase 24.3 poison_guard (poison_guard): blocks only a *new*
+      // poison application at its single production choke point (the
+      // poison trap) — never treats already-active poison, and never
+      // affects movement_slow. isPlayerPoisonImmune reads only
+      // state.equippedArmorId, so this stays a pure gate with no other
+      // side effect when blocked (still reveals/triggers the trap above
+      // exactly as before — only the effect grant itself is skipped).
+      if (effectId === 'poison' && isPlayerPoisonImmune(state)) {
+        events.push({ type: 'effect_blocked', effectId: 'poison', reason: 'poison_guard' });
+      } else {
       const def = EFFECT_DEFINITIONS[effectId];
       const result = grantOrRefreshEffect(state, effectId);
       // Phase 15.2 recovery/satiety/status rebalance: a fresh grant or
@@ -1007,6 +1090,7 @@ function applyPlayerAction(
           ? { type: 'effect_granted', effectId, strength: def.strength, remainingTurns: def.duration }
           : { type: 'effect_refreshed', effectId, strength: def.strength, remainingTurns: def.duration },
       );
+      }
     }
     // Auto-pickup (Phase 08.2): stepping onto a ground item tile collects
     // it as part of this same move — no extra turn, and enemies still act
@@ -1054,7 +1138,7 @@ function applyPlayerAction(
         // covers a ground weapon/armor that somehow reached the floor
         // through a non-floor-generation path without one already set
         // (defensive; no such path exists in production this phase).
-        if (item.itemId === 'sword' || item.itemId === 'spear' || item.itemId === 'hammer' || item.itemId === 'solar_gun' || item.itemId === 'armor') {
+        if (isWeaponOrArmorId(item.itemId)) {
           if (!item.equipmentInstanceId || !getEquipmentInstanceById(state, item.equipmentInstanceId)) {
             createEquipmentInstance(state, item.itemId);
           }
@@ -1288,7 +1372,7 @@ export const SUNLIGHT_CHARGE_AMOUNT = 1;
  * behavior rather than inventing a new rule.
  */
 function resolveSolarCharge(state: GameState, events: GameEvent[]): { consumed: boolean; attacked: boolean; defeated: boolean } {
-  state.solarEnergy = Math.min(state.maxSolarEnergy, state.solarEnergy + SUNLIGHT_CHARGE_AMOUNT);
+  state.solarEnergy = Math.min(getEffectiveMaxSolarEnergy(state), state.solarEnergy + SUNLIGHT_CHARGE_AMOUNT);
   events.push({ type: 'solar_charge_used', recovered: SUNLIGHT_CHARGE_AMOUNT });
   return { consumed: true, attacked: false, defeated: false };
 }
@@ -1388,12 +1472,12 @@ function applyItemUse(
   // energy stat.
   const solarAmount = def.solarAmount ?? 0;
   if (solarAmount > 0) {
-    if (state.solarEnergy >= state.maxSolarEnergy) {
+    if (state.solarEnergy >= getEffectiveMaxSolarEnergy(state)) {
       events.push({ type: 'sun_fruit_use_failed', itemId, reason: 'sol_full' });
       return { consumed: false, attacked: false, defeated: false };
     }
     const before = state.solarEnergy;
-    state.solarEnergy = Math.min(state.maxSolarEnergy, state.solarEnergy + solarAmount);
+    state.solarEnergy = Math.min(getEffectiveMaxSolarEnergy(state), state.solarEnergy + solarAmount);
     const recovered = state.solarEnergy - before;
     state.inventory[itemId] = owned - 1;
     events.push({ type: 'sun_fruit_used', itemId, recovered });
@@ -1684,8 +1768,8 @@ function applyLoversCardUse(
   cardId: CardId,
   events: GameEvent[],
 ): { consumed: boolean; attacked: boolean; defeated: boolean } {
-  const recovered = state.maxSolarEnergy - state.solarEnergy;
-  state.solarEnergy = state.maxSolarEnergy;
+  const recovered = getEffectiveMaxSolarEnergy(state) - state.solarEnergy;
+  state.solarEnergy = getEffectiveMaxSolarEnergy(state);
   finishSuccessfulCardUse(state, cardId, events);
   events.push({ type: 'lovers_used', recovered });
   return { consumed: true, attacked: false, defeated: false };
@@ -1717,7 +1801,7 @@ function applyHangedManCardUse(
   const oldLife = state.player.hp;
   const oldSol = state.solarEnergy;
   const newLife = Math.min(oldSol, state.player.maxHp);
-  const newSol = Math.min(oldLife, state.maxSolarEnergy);
+  const newSol = Math.min(oldLife, getEffectiveMaxSolarEnergy(state));
   state.player.hp = newLife;
   state.solarEnergy = newSol;
   finishSuccessfulCardUse(state, cardId, events);
@@ -1756,7 +1840,7 @@ function applyDeathCardUse(
 ): { consumed: boolean; attacked: boolean; defeated: boolean } {
   finishSuccessfulCardUse(state, cardId, events);
   state.player.hp = 0;
-  state.solarEnergy = state.maxSolarEnergy;
+  state.solarEnergy = getEffectiveMaxSolarEnergy(state);
   // Phase 20.3: see hanged_man's identical doc comment above — death's
   // direct HP write needs the same explicit alive sync, since no other
   // code path performs it for a card-driven HP change. Calling
@@ -2740,7 +2824,7 @@ export function applySolarForge(
 ): { consumed: boolean; attacked: boolean; defeated: boolean } {
   normalizeEquipmentInstances(state);
   const [idA, idB] = materialInstanceIds;
-  const result = validateForgeMaterials(state, registry, idA, idB);
+  const result = validateForgeMaterialsWithLineage(state, registry, idA, idB);
   if (!result.ok) {
     events.push({ type: 'solar_forge_failed', reason: result.reason });
     return { consumed: false, attacked: false, defeated: false };
@@ -2832,6 +2916,23 @@ function resolveEnemyAttackHit(state: GameState, enemy: EnemyActor, events: Game
   const damage = getIncomingDamage(state, enemy.attack);
   player.hp = Math.max(0, player.hp - damage);
   events.push({ type: 'enemy_attack', enemyType: enemy.type, attackerId, damage });
+  // Phase 24.3 spike_mail (spike_mail): only for an adjacent attacker
+  // (tryMeleeAttack is the sole caller that reaches resolveEnemyAttackHit
+  // via adjacency — resolveSpiderEnemy's web/ranged branch and
+  // resolveKrakenEnemy's tentacle strike never call this for a non-
+  // adjacent hit per their own doc comments), a positive-damage hit
+  // (damage > 0 is always true here since computeIncomingDamage floors
+  // at 1, but checked explicitly per spec), and only while the player
+  // survives the hit. Uses defeatEnemyIfNeeded directly (never
+  // applyWeaponDefeatEffects — spike_mail reflect kills never trigger
+  // blood/battle_axe weapon-defeat effects per effect_timing.spike_mail).
+  if (damage > 0 && player.alive && isSpikeMailEquipped(state) && enemy.alive && isAdjacent(enemy.pos, player.pos)) {
+    enemy.hp = Math.max(0, enemy.hp - SPIKE_MAIL_REFLECT_DAMAGE);
+    events.push({ type: 'spike_mail_reflected', enemyType: enemy.type, targetId: attackerId, damage: SPIKE_MAIL_REFLECT_DAMAGE });
+    if (enemy.hp === 0) {
+      defeatEnemyIfNeeded(state, enemy, attackerId, events, null);
+    }
+  }
   if (player.hp === 0) player.alive = false;
   return true;
 }
@@ -3301,9 +3402,10 @@ function resolveSpiderEnemy(
  */
 const AGGRO_RANGE = 8;
 
-/** Whether `player` is within `enemy`'s aggro range (see AGGRO_RANGE) — always true once already adjacent (checked separately by callers), so this only needs to cover the "not yet adjacent" case. */
-function isWithinAggroRange(enemy: EnemyActor, player: Actor): boolean {
-  return chebyshevDistance(enemy.pos, player.pos) <= AGGRO_RANGE;
+/** Whether `player` is within `enemy`'s aggro range (see AGGRO_RANGE) — always true once already adjacent (checked separately by callers), so this only needs to cover the "not yet adjacent" case. Phase 24.3 skull_suit: `state` (optional, defaults undefined for any pre-24.3 caller) supplies the -2/floor-2 initial-detection reduction while equipped — never applied to the golem-charge/steps-mid-cycle bypasses, which never call this function at all. */
+function isWithinAggroRange(enemy: EnemyActor, player: Actor, state?: GameState): boolean {
+  const range = state ? Math.max(2, AGGRO_RANGE - getArmorAggroRangeReduction(state)) : AGGRO_RANGE;
+  return chebyshevDistance(enemy.pos, player.pos) <= range;
 }
 
 /**
@@ -3916,6 +4018,16 @@ function resolveOneEnemy(
   enemy: EnemyActor,
   events: GameEvent[],
 ): { acted: boolean; attacked: boolean } {
+  // Phase 24.3 corsesca (effect_timing.corsesca): a stunned enemy skips
+  // exactly this one resolve — no movement, no attack, no per-species
+  // book-keeping, no RNG — decrementing the counter and returning
+  // immediately, before any other state (telegraphed/recovering/golem-
+  // charge/steps-cycle/etc.) is read or touched, so none of it advances
+  // or regresses this resolve.
+  if (enemy.corsescaStunTurns && enemy.corsescaStunTurns > 0) {
+    enemy.corsescaStunTurns -= 1;
+    return { acted: true, attacked: false };
+  }
   // Phase 23.1: a head-form skeleton takes no action at all — no
   // movement, no attack, no per-species book-keeping, no RNG — until it
   // reverts to 'body' (resolveSkeletonRevivals, checked once per world
@@ -3943,7 +4055,7 @@ function resolveOneEnemy(
   // AGGRO_RANGE外でもカウントを確実に消化する"). 'hidden' steps still
   // uses the ordinary gate (no bypass), matching golem's own 'idle'.
   const stepsMidCycle = behaviorType === 'steps_spike' && enemy.stepsState && enemy.stepsState !== 'hidden';
-  if (!golemChargeInProgress && !stepsMidCycle && behaviorType !== 'stationary' && !isAdjacent(enemy.pos, state.player.pos) && !isWithinAggroRange(enemy, state.player)) {
+  if (!golemChargeInProgress && !stepsMidCycle && behaviorType !== 'stationary' && !isAdjacent(enemy.pos, state.player.pos) && !isWithinAggroRange(enemy, state.player, state)) {
     // Phase 16.1: an enemy that hasn't noticed the player yet (further
     // than AGGRO_RANGE away, Chebyshev, and not already adjacent) does
     // nothing this turn — no movement, no attack, no per-species
@@ -4639,6 +4751,12 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
     actualMoveHappened && state.player.pos.x === state.exit.x && state.player.pos.y === state.exit.y;
 
   state.turn += 1;
+  // Phase 24.3 black_armor (black_armor): ticks once per completed world
+  // turn, only while equipped — a no-op (including counter itself) when
+  // unequipped. May bring player.hp to 0; the existing playerDefeated
+  // confirmation further down processTurn picks that up exactly like
+  // any other same-turn HP-reaching-0 cause.
+  tickBlackArmorEquippedTurn(state);
   // Web lifetime update comes last in the per-turn sequence (player
   // action -> enemy actions -> death/regen/floor checks -> turn increment
   // -> web lifetime), and uses the just-incremented turn count so a web

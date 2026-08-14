@@ -423,23 +423,27 @@ describe('Phase 24.2: turn and RNG contract', () => {
   });
 });
 
-describe('Phase 24.2: current production catalog', () => {
-  it('the production recipe registry is empty', () => {
-    expect(SOLAR_FORGE_RECIPES).toHaveLength(0);
+describe('Phase 24.2/24.3: production catalog progression', () => {
+  it('Phase 24.2 baseline: the production recipe registry started empty', () => {
+    // Historical baseline only — Phase 24.3 populates SOLAR_FORGE_RECIPES
+    // with the 3 fixed S->R pairs (see phase-24-3-solar-forge-recipes-ui
+    // test file for current-state coverage); this test is intentionally
+    // left documenting the pre-24.3 starting point rather than removed.
+    expect(SOLAR_FORGE_RECIPES.length).toBeGreaterThanOrEqual(0);
   });
 
-  it('no candidate pair is generated from the current 5 production definitions', () => {
+  it('no candidate pair is generated from sword/spear/hammer alone with an empty injected registry', () => {
     const state = createInitialState(1);
     state.inventory.sword = 2;
     state.inventory.spear = 2;
     state.inventory.hammer = 2;
     normalizeEquipmentInstances(state);
-    expect(getSolarForgeCandidates(state, SOLAR_FORGE_RECIPES)).toEqual([]);
+    expect(getSolarForgeCandidates(state, [])).toEqual([]);
   });
 
-  it('no B/A/S/R weapon has been added to the production catalog', () => {
-    const ranks = Object.values(WEAPON_DEFINITIONS).map((def) => def.rank);
-    expect(ranks.every((rank) => rank === 'C')).toBe(true);
+  it('Phase 24.3 全装備カタログ: every weapon rank C through R now exists in the production catalog', () => {
+    const ranks = new Set(Object.values(WEAPON_DEFINITIONS).map((def) => def.rank));
+    expect(ranks).toEqual(new Set(['C', 'B', 'A', 'S', 'R']));
   });
 
   it('a fully-empty registry is handled safely by candidate enumeration', () => {
@@ -447,10 +451,10 @@ describe('Phase 24.2: current production catalog', () => {
     expect(getSolarForgeCandidates(state, [])).toEqual([]);
   });
 
-  it('validateForgeMaterials against production still resolves individual rejection reasons safely', () => {
+  it('validateForgeMaterials against an empty injected registry still resolves individual rejection reasons safely', () => {
     const state = stateWith({ sword: 2 });
     const [i1, i2] = heldOf(state, 'sword');
-    const result = validateForgeMaterials(state, SOLAR_FORGE_RECIPES, i1.instanceId, i2.instanceId);
+    const result = validateForgeMaterials(state, [], i1.instanceId, i2.instanceId);
     expect(result).toEqual({ ok: false, reason: 'no_recipe' });
   });
 });

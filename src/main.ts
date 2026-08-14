@@ -16,6 +16,9 @@ import {
 import { ELEMENT_DISPLAY_NAMES, ALL_ELEMENT_IDS } from './game/element-def';
 import { ARMOR_DEFINITIONS } from './game/armor-def';
 import { WEAPON_DEFINITIONS } from './game/weapon-def';
+import { getEquipmentInstanceById } from './game/equipment-instance';
+import { SOLAR_FORGE_RECIPES } from './game/solar-forge-recipes';
+import { getSolarForgeSecondMaterialCandidates, isForgeEligibleWeaponId, SolarForgeCandidate } from './game/solar-forge';
 import {
   closeInventory,
   inventoryEntries,
@@ -415,11 +418,20 @@ class MainScene extends Phaser.Scene {
 
   // ----- Phase 14.5 SFC-style small-window menu -----
 
-  private menuScreen: 'closed' | 'root' | 'items' | 'item_actions' | 'card_target_selection' | 'ability' | 'status' | 'records' | 'other' | 'help' | 'confirm_quit' = 'closed';
+  private menuScreen: 'closed' | 'root' | 'items' | 'item_actions' | 'card_target_selection' | 'solar_forge_material_b' | 'ability' | 'status' | 'records' | 'other' | 'help' | 'confirm_quit' = 'closed';
   private menuRootIndex = 0;
   private itemActionIndex = 0;
   /** Phase 20.0d: transient UI state for temperance/star's target-selection screen — never a GameState field (see card-target-selection.ts's CardTargetSelectionState doc comment). */
   private cardTargetSelection: CardTargetSelectionState | null = null;
+  /**
+   * Phase 24.3 太陽鍛冶 UI: set once the player has chosen material A
+   * (from item_actions' '太陽鍛冶' action) — `candidates` is the exact
+   * getSolarForgeSecondMaterialCandidates(state, SOLAR_FORGE_RECIPES,
+   * materialAId) list at selection time, re-fetched fresh every time this
+   * screen is entered so a stale candidate list can never be confirmed
+   * against (selection_and_ui's "実行直前の状態変化はapply時に再検証").
+   */
+  private solarForgeSelection: { materialAId: string; candidates: SolarForgeCandidate[]; cursor: number } | null = null;
   /**
    * Phase 20.0d correction: encapsulated lifecycle holder for a
    * successful CardTargetEffectTransaction, awaiting a future commit
@@ -1678,6 +1690,14 @@ class MainScene extends Phaser.Scene {
       // routing in inventory.ts.
       const equipped = entry.kind === 'equipment_instance' && entry.equipped;
       actions.push(equipped ? '外す' : '装備する');
+      // Phase 24.3 太陽鍛冶 UI: offered whenever this entry is a
+      // forge-eligible weapon individual (never solar_gun, never armor,
+      // curse status irrelevant to whether the action itself is *shown*
+      // — a cursed material is still rejected at candidate-enumeration/
+      // apply time, matching curse_rules' "呪いを断定しない汎用文言").
+      if (def.category === 'weapon' && isForgeEligibleWeaponId(entry.itemId as import('./game/types').WeaponId)) {
+        actions.push('太陽鍛冶');
+      }
     } else if (def.consumable) {
       actions.push('食べる／使う');
     }
@@ -1809,6 +1829,11 @@ class MainScene extends Phaser.Scene {
           this.cardTargetSelection = moveCardTargetCursor(this.cardTargetSelection, delta);
         }
         break;
+      case 'solar_forge_material_b':
+        if (this.solarForgeSelection && this.solarForgeSelection.candidates.length > 0) {
+          this.solarForgeSelection.cursor = this.wrapIndex(this.solarForgeSelection.cursor + delta, this.solarForgeSelection.candidates.length);
+        }
+        break;
       case 'ability':
         moveAbilitySelection(this.state, delta);
         break;
@@ -1893,6 +1918,19 @@ class MainScene extends Phaser.Scene {
           }
           break;
         }
+        if (action === '太陽鍛冶') {
+          const materialAId = selectedEquipmentInstanceId(this.state);
+          if (materialAId) {
+            const candidates = getSolarForgeSecondMaterialCandidates(this.state, SOLAR_FORGE_RECIPES, materialAId);
+            // Phase 24.3 selection_and_ui: "候補0件では『合成できる武器が
+            // ない』と表示" — handled by the render switch below reading
+            // an empty `candidates` array, not by refusing to enter the
+            // screen at all, so the message actually shows to the player.
+            this.solarForgeSelection = { materialAId, candidates, cursor: 0 };
+            this.menuScreen = 'solar_forge_material_b';
+          }
+          break;
+        }
         if (action === '置く') {
           const itemId = selectedItemId(this.state);
           const equipmentInstanceId = selectedEquipmentInstanceId(this.state);
@@ -1941,6 +1979,25 @@ class MainScene extends Phaser.Scene {
           finalizeRun(this.telemetry, this.state);
         }
         this.applyTurnResult(result, playerBefore, enemiesBefore);
+        this.state.inventoryOpen = true;
+        this.menuScreen = 'items';
+        break;
+      }
+      case 'solar_forge_material_b': {
+        // Phase 24.3 selection_and_ui: re-fetch candidates fresh
+        // (never trusting the snapshot taken when this screen was
+        // entered) so a state change since then (material discarded/
+        // cursed/equipped elsewhere) is caught here, exactly like
+        // applySolarForge's own re-validation on the actual apply.
+        const selection = this.solarForgeSelection;
+        if (selection) {
+          const freshCandidates = getSolarForgeSecondMaterialCandidates(this.state, SOLAR_FORGE_RECIPES, selection.materialAId);
+          const chosen = freshCandidates[selection.cursor] ?? freshCandidates[0];
+          if (chosen) {
+            this.dispatchGameAction({ type: 'solar_forge', materialInstanceIds: [chosen.instanceIdA, chosen.instanceIdB] });
+          }
+        }
+        this.solarForgeSelection = null;
         this.state.inventoryOpen = true;
         this.menuScreen = 'items';
         break;
@@ -2061,6 +2118,13 @@ class MainScene extends Phaser.Scene {
         this.pendingCardTargetEffect.clear();
         this.menuScreen = 'item_actions';
         break;
+      case 'solar_forge_material_b':
+        // Phase 24.3 selection_and_ui: "取消は完全no-op・イベントなし" —
+        // clears only the local UI selection snapshot, never dispatches
+        // any PlayerAction.
+        this.solarForgeSelection = null;
+        this.menuScreen = 'item_actions';
+        break;
       case 'other':
         this.menuScreen = 'root';
         break;
@@ -2175,6 +2239,31 @@ class MainScene extends Phaser.Scene {
           listLines.push(`${i === this.itemActionIndex ? '> ' : '  '}${action}`);
         });
         detailLines = ['J/Enter：決定　K/Esc：戻る'];
+        break;
+      }
+      case 'solar_forge_material_b': {
+        listLines.push('太陽鍛冶：素材2を選ぶ', '');
+        const selection = this.solarForgeSelection;
+        if (selection && selection.candidates.length > 0) {
+          selection.candidates.forEach((candidate, i) => {
+            const instanceB = getEquipmentInstanceById(this.state, candidate.instanceIdB);
+            const marker = i === selection.cursor ? '> ' : '  ';
+            if (instanceB) {
+              const equipMark = this.state.equippedWeaponInstanceId === instanceB.instanceId ? 'E ' : '  ';
+              const name = this.displayedItemName(instanceB.definitionId as import('./game/types').ItemId);
+              const curseMark = instanceB.cursed && instanceB.curseRevealed ? '（呪）' : '';
+              listLines.push(`${marker}${equipMark}${name}[${instanceB.rank}]${curseMark}`);
+              if (i === selection.cursor) {
+                detailLines.push(`完成：${this.displayedItemName(candidate.recipe.outputDefinitionId)}[${candidate.recipe.outputRank}]`);
+              }
+            } else {
+              listLines.push(`${marker}(不明な個体)`);
+            }
+          });
+        } else {
+          listLines.push('合成できる武器がない');
+        }
+        detailLines.push('', 'J/Enter：決定　K/Esc：取消');
         break;
       }
       case 'card_target_selection': {

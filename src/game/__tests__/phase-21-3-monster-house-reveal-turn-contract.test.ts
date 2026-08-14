@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { GameMap, GameState, Room, Tile } from '../types';
 import { applyMonsterHouseReveal } from '../monster-house';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
+import { createEmptyInventory } from '../item-def';
 
 // Two rooms connected by a 1-wide corridor: room A (start) at x:[1,6),
 // y:[1,6); room B (monster house target) at x:[10,16), y:[1,6). Corridor
@@ -54,7 +55,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     nextWebId: 0,
     groundItems: [],
     nextGroundItemId: 0,
-    inventory: {
+    inventory: { ...createEmptyInventory(),
       apple: 0,
       sword: 0,
       armor: 0,

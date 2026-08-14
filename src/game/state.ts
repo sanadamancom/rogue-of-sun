@@ -39,6 +39,7 @@ import {
   isWeaponOrArmorId,
   mintEquipmentInstance,
   normalizeEquipmentInstances,
+  resetPerFloorEquipmentEffectState,
 } from './equipment-instance';
 import { generateSunlightLayer } from './sunlight';
 import { HUNGER_MAX } from './hunger';
@@ -716,7 +717,14 @@ export function advanceToNextFloor(state: GameState): GameState {
     equippedWeaponInstanceId: state.equippedWeaponInstanceId ?? null,
     equippedArmorInstanceId: state.equippedArmorInstanceId ?? null,
   };
-  return buildFloorState(state.runSeed, state.floor + 1, state.turn, carry);
+  const nextState = buildFloorState(state.runSeed, state.floor + 1, state.turn, carry);
+  // Phase 24.3 effect_state floor_transition: floorTriggerUses/
+  // defeatedEnemyTypes reset per floor; solSpentRemainder/
+  // equippedTurnCounter (not touched here) persist across the
+  // transition via `carry.equipmentInstances`'s plain `{ ...i }` copy
+  // above.
+  resetPerFloorEquipmentEffectState(nextState);
+  return nextState;
 }
 
 /**

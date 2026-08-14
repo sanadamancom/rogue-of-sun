@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { advanceToNextFloor, createInitialState } from '../state';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { GameMap, GameState, Room, Tile, TrapTile } from '../types';
+import { createEmptyInventory } from '../item-def';
 
 const TEST_LAYOUT: string[] = [
   '####################',
@@ -43,7 +44,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     nextWebId: 0,
     groundItems: [],
     nextGroundItemId: 0,
-    inventory: {
+    inventory: { ...createEmptyInventory(),
       apple: 0,
       sword: 0,
       armor: 0,

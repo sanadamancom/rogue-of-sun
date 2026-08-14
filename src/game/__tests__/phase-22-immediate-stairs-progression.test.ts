@@ -3,6 +3,7 @@ import { advanceToNextFloor, createInitialState } from '../state';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { EnemyActor, GameMap, GameState, Tile } from '../types';
 import { deriveFloorSeed } from '../floor';
+import { createEmptyInventory } from '../item-def';
 
 /**
  * Steps the player onto the exit tile via an actual, player-initiated
@@ -91,7 +92,7 @@ function krakenPullOntoExitState(): GameState {
     nextWebId: 0,
     groundItems: [],
     nextGroundItemId: 0,
-    inventory: {
+    inventory: { ...createEmptyInventory(),
       apple: 1, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0,
       sol_enchantment: 0, flame_enchantment: 0, frost_enchantment: 0, cloud_enchantment: 0,
       earth_enchantment: 0, chocolate: 0, banana: 0, antidote: 0, panacea: 0,

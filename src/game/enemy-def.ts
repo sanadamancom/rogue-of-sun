@@ -179,7 +179,20 @@ export interface EnemyDefinition {
    * enchant damage is unchanged from before this phase.
    */
   elementalAffinities: Record<ElementId, ElementalAffinity>;
+  /**
+   * Phase 24.3 enemy_traits: optional species-tags for weapon special-
+   * effect targeting (maul's construct_bonus, silver_flail's
+   * undead_bonus — see equipment-effects.ts). Absent/undefined is
+   * equivalent to no traits (every pre-24.3 species implicitly had
+   * none). Never read by AI, generation, or stats — display/effect-
+   * targeting data only, per enemy_traits.constraints' "外見・AI・stats・
+   * 生成順は変更しない".
+   */
+  traits?: EnemyTrait[];
 }
+
+/** Phase 24.3 enemy_traits: the trait vocabulary maul/silver_flail's bonus damage checks against. */
+export type EnemyTrait = 'construct' | 'undead';
 
 // Fixed spawn/species order used whenever a floor spawns one of each
 // species (see ENEMY_COUNT_PER_FLOOR in mapgen.ts). Phase 15.1 core
@@ -283,6 +296,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     // flame weakness (not the sequel's sol weakness — see docs/history/
     // phase-14-4-enemy-affinities.md for the basis).
     elementalAffinities: { sol: 'neutral', flame: 'weak', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
+    traits: ['undead'],
   },
   golem: {
     id: 'golem',
@@ -301,6 +315,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     // material's clay golem, which carries a cloud weakness — see
     // docs/history/phase-14-4-enemy-affinities.md.
     elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'weak', earth: 'neutral' },
+    traits: ['construct'],
   },
   sword: {
     id: 'sword',
@@ -381,6 +396,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     // this species doesn't silently gain or lose damage from any
     // particular element choice.
     elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
+    traits: ['undead'],
   },
   ghost: {
     id: 'ghost',
@@ -405,6 +421,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyType, EnemyDefinition> = {
     // "provisional" description is retired now that Phase 23.5's
     // integration audit and this phase's roster confirmation are done.
     elementalAffinities: { sol: 'neutral', flame: 'neutral', frost: 'neutral', cloud: 'neutral', earth: 'neutral' },
+    traits: ['undead'],
   },
   steps: {
     id: 'steps',

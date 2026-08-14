@@ -16,6 +16,7 @@ import {
 import { createRng, roomIndexContaining } from '../mapgen';
 import { createInitialState, advanceToNextFloor } from '../state';
 import { createInitialActor, processTurn } from '../turn';
+import { createEmptyInventory } from '../item-def';
 
 describe('computeMonsterHouseEnemyCount (N formula)', () => {
   it('C=4 -> 4', () => expect(computeMonsterHouseEnemyCount(4)).toBe(4));
@@ -346,7 +347,7 @@ describe('hidden suppression and reveal-turn participation (regression from Phas
       nextWebId: 0,
       groundItems: [],
       nextGroundItemId: 0,
-      inventory: {
+      inventory: { ...createEmptyInventory(),
         apple: 0, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0,
         sol_enchantment: 0, flame_enchantment: 0, frost_enchantment: 0, cloud_enchantment: 0, earth_enchantment: 0,
         chocolate: 0, banana: 0, antidote: 0, panacea: 0, clairvoyance_fruit: 0,

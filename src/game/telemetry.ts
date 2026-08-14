@@ -55,6 +55,8 @@ import { EnemyType, GameState, PlayerAction, WeaponId, ArmorId, ItemId, AbilityI
 import type { TurnResult } from './turn';
 import { getEffectivePlayerDefense, REGEN_AMOUNT_PER_TICK, SUNLIGHT_CHARGE_AMOUNT } from './turn';
 import { ITEM_DEFINITIONS } from './item-def';
+import { WEAPON_IDS_IN_ORDER } from './weapon-def';
+import { ARMOR_IDS_IN_ORDER } from './armor-def';
 import { getExperience, getLevel, getUnspentAbilityPoints } from './progression';
 import { getAbilities, getElementalMindBonus, getPowerDamageBonus } from './ability';
 import { getHunger } from './hunger';
@@ -336,8 +338,12 @@ function pushEvent(telemetry: RunTelemetry, state: GameState, turnConsumed: bool
   } as RunEvent);
 }
 
-const WEAPON_IDS: WeaponId[] = ['sword', 'spear', 'hammer', 'solar_gun'];
-const ARMOR_IDS: ArmorId[] = ['armor'];
+// Phase 24.3: sourced from weapon-def.ts/armor-def.ts's own id-order
+// arrays (single source of truth for the full 42-species roster) rather
+// than a hardcoded literal list that only ever covered the pre-24.3 5
+// species.
+const WEAPON_IDS: WeaponId[] = WEAPON_IDS_IN_ORDER;
+const ARMOR_IDS: ArmorId[] = ARMOR_IDS_IN_ORDER;
 
 function weaponOrUnarmed(id: WeaponId | null): WeaponId | 'unarmed' {
   return id ?? 'unarmed';

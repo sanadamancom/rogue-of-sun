@@ -197,6 +197,20 @@ export interface EnemyActor extends Actor {
    */
   recovering?: boolean;
   /**
+   * Phase 24.3 corsesca (effect_timing.corsesca): number of upcoming
+   * enemy-turn resolves this actor must skip (0 = not stunned). Set to 1
+   * by corsesca's 10% on-hit stun roll; turn.ts's enemy-resolution step
+   * decrements it and treats exactly that many resolves as a no-op
+   * (still consuming the enemy's turn, matching "対象の次回resolve 1回
+   * をskip") without disturbing any other in-progress state (telegraphed/
+   * recovering/etc. are left untouched — only the resolve itself is
+   * skipped). Never stacks beyond what a single hit sets (repeated hits
+   * while already stunned re-roll independently but this field is
+   * simply set back to 1, never incremented, per "同一対象へ重複発動して
+   * も1回分を超えてstackしない").
+   */
+  corsescaStunTurns?: number;
+  /**
    * Stable per-floor identifier (its index in state.enemies at creation
    * time), used only to tag WebTile.ownerEnemyId so a spider's own webs
    * can be identified regardless of position changes. Irrelevant for
@@ -951,6 +965,49 @@ export type ItemId =
   | 'hammer'
   | 'sun_fruit'
   | 'solar_gun'
+  // Phase 24.3 全装備カタログ: every additional WeaponId/ArmorId species
+  // folded into ItemId the same way sword/spear/hammer/armor already
+  // are, so ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> stays a
+  // single exhaustive map — see weapon-def.ts/armor-def.ts for each
+  // species' combat data and item-def.ts for its shared display data.
+  | 'short_sword'
+  | 'flamberge'
+  | 'magic_sword'
+  | 'bushido_blade'
+  | 'blood_sword'
+  | 'solar_sword'
+  | 'dark_sword'
+  | 'gram'
+  | 'glaive'
+  | 'corsesca'
+  | 'ice_glaive'
+  | 'grand_lance'
+  | 'blood_spear'
+  | 'white_queen'
+  | 'black_queen'
+  | 'gungnir'
+  | 'basic_hammer'
+  | 'maul'
+  | 'silver_flail'
+  | 'battle_axe'
+  | 'bloody_mace'
+  | 'dawn'
+  | 'twilight'
+  | 'mjolnir'
+  | 'chain_mail'
+  | 'plate_mail'
+  | 'samurai_armor'
+  | 'mail_of_sol'
+  | 'mail_of_dark'
+  | 'dragon_scale'
+  | 'magic_robe'
+  | 'skull_suit'
+  | 'poison_guard'
+  | 'ninja_suit'
+  | 'light_garb'
+  | 'dark_garb'
+  | 'spike_mail'
+  | 'black_armor'
   | 'sol_enchantment'
   | 'chocolate'
   | 'banana'
@@ -1053,16 +1110,67 @@ export type EnchantmentId = ElementId | 'none';
  * WEAPON_DEFINITIONS) from silently accepting a consumable's or armor's
  * id.
  */
-export type WeaponId = 'sword' | 'spear' | 'hammer' | 'solar_gun';
+export type WeaponId =
+  | 'sword'
+  | 'spear'
+  | 'hammer'
+  | 'solar_gun'
+  // Phase 24.3 全装備カタログ: 26 additional melee weapons (9 per family
+  // — sword/spear/hammer — each with 2 C, 2 B, 2 A, 2 S, and 1 R rank
+  // individual) registered alongside the 4 pre-existing species. See
+  // weapon-def.ts's WEAPON_DEFINITIONS for each species' full data and
+  // docs/history/phase-24-3-equipment-catalog-effects.md for the
+  // complete roster/rank table.
+  | 'short_sword'
+  | 'flamberge'
+  | 'magic_sword'
+  | 'bushido_blade'
+  | 'blood_sword'
+  | 'solar_sword'
+  | 'dark_sword'
+  | 'gram'
+  | 'glaive'
+  | 'corsesca'
+  | 'ice_glaive'
+  | 'grand_lance'
+  | 'blood_spear'
+  | 'white_queen'
+  | 'black_queen'
+  | 'gungnir'
+  | 'basic_hammer'
+  | 'maul'
+  | 'silver_flail'
+  | 'battle_axe'
+  | 'bloody_mace'
+  | 'dawn'
+  | 'twilight'
+  | 'mjolnir';
 
 /**
  * Armor species — Phase 08.4 registers only 'armor'. A separate union
  * from ItemId/WeaponId for the same reason WeaponId is separate: armor
  * occupies its own independent equipment slot (equippedArmorId), distinct
  * from the weapon slot, so the two can never be confused at the type
- * level.
+ * level. Phase 24.3 全装備カタログ adds 14 additional armor species (15
+ * total) — see armor-def.ts's ARMOR_DEFINITIONS for each species' full
+ * data.
  */
-export type ArmorId = 'armor';
+export type ArmorId =
+  | 'armor'
+  | 'chain_mail'
+  | 'plate_mail'
+  | 'samurai_armor'
+  | 'mail_of_sol'
+  | 'mail_of_dark'
+  | 'dragon_scale'
+  | 'magic_robe'
+  | 'skull_suit'
+  | 'poison_guard'
+  | 'ninja_suit'
+  | 'light_garb'
+  | 'dark_garb'
+  | 'spike_mail'
+  | 'black_armor';
 
 /**
  * Phase 24.1 equipment rank data foundation (rogue-of-sun-development-
@@ -1114,6 +1222,37 @@ export interface EquipmentInstance {
    * EquipmentRank's own doc comment for the full scope note.
    */
   rank: EquipmentRank;
+  /**
+   * Phase 24.3 装備効果 effectState: per-individual counters/accumulators
+   * a handful of B/A/S/R weapon and armor effects need (blood weapons'
+   * "1フロア2回まで" cap, battle_axe's per-floor defeated-species memory,
+   * magic_robe's SOL-spend remainder, black_armor's equipped-turn
+   * counter). Optional/absent on every pre-24.3 fixture and on any
+   * individual whose species has no effect needing it — normalizeEquipmentInstances
+   * backfills a valid default (see equipment-instance.ts) rather than
+   * requiring every call site to null-check. Never shared between
+   * individuals of the same definitionId (each instance's effectState is
+   * its own).
+   */
+  effectState?: EquipmentEffectState;
+}
+
+/**
+ * Phase 24.3 装備効果: the 4 per-individual effect counters/accumulators
+ * documented in rogue-of-sun-development-plan_.md's effect_state
+ * decision. `floorTriggerUses`/`defeatedEnemyTypes` reset to their
+ * defaults (0/[]) on every floor transition (advanceToNextFloor);
+ * `solSpentRemainder`/`equippedTurnCounter` persist across floors.
+ */
+export interface EquipmentEffectState {
+  /** Times this individual's blood-defeat effect (blood_sword/blood_spear/bloody_mace) has fired this floor. Capped at 2 (curse_rules-independent, effect_timing's own "個体ごと・1フロア2回" cap) — see equipment-effects.ts. */
+  floorTriggerUses: number;
+  /** Total SOL actually spent while this magic_robe individual was equipped, minus whatever's already been refunded (magic_robe's own "累計5ごとにSOL1還元"). Always 0 for every non-magic_robe individual. */
+  solSpentRemainder: number;
+  /** World turns completed while this black_armor individual was equipped, since the last LIFE-1 tick (or since mint). Always 0 for every non-black_armor individual. */
+  equippedTurnCounter: number;
+  /** EnemyTypes this individual (battle_axe) has fully defeated so far this floor — never duplicated. Always [] for every non-battle_axe individual. */
+  defeatedEnemyTypes: EnemyType[];
 }
 
 /** Stacked item counts held by the player; never negative, absent/0 entries are not shown in UI. */

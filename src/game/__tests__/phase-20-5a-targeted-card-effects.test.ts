@@ -4,6 +4,7 @@ import { createEquipmentInstance, getEquipmentInstanceById, getHeldEquipmentInst
 import { advanceToNextFloor, createInitialState } from '../state';
 import { isCardIdentified, processTurn } from '../turn';
 import { GameState, ItemId } from '../types';
+import { WEAPON_IDS_IN_ORDER } from '../weapon-def';
 
 function withCard(state: GameState, cardId: ItemId, count: number): GameState {
   return { ...state, inventory: { ...state.inventory, [cardId]: count } };
@@ -138,16 +139,20 @@ describe('Phase 20.5a: temperance and star', () => {
       useTargetedCard(state, 'star', target);
       const remaining = getHeldEquipmentInstances(state).filter((i) => i.instanceId !== instance.instanceId);
       expect(remaining.length).toBe(1);
-      expect(['spear', 'hammer', 'solar_gun']).toContain(remaining[0].definitionId);
+      // Phase 24.3 catalog expansion: any of the other 26 weapon species
+      // (never 'sword' itself, never solar_gun's own category-exclusion
+      // rules — both weapon category members, so any is a valid result).
+      expect(remaining[0].definitionId).not.toBe('sword');
+      expect(WEAPON_IDS_IN_ORDER).toContain(remaining[0].definitionId);
     });
 
-    it('excludes armor from candidates (single-species roster has no alternate)', () => {
+    it('includes armor from candidates now that multiple armor species exist (Phase 24.3 catalog expansion)', () => {
       const state = createInitialState(1);
       state.inventory.armor = 1;
       createEquipmentInstance(state, 'armor');
       const selection = beginCardTargetSelection(state, 'star');
       if (selection) {
-        expect(selection.candidates.some((c) => c.kind === 'equipment_instance')).toBe(false);
+        expect(selection.candidates.some((c) => c.kind === 'equipment_instance')).toBe(true);
       }
     });
 

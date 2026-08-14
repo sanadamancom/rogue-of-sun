@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { getCockatriceTelegraph, getKrakenTelegraph } from '../telegraph';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { GameMap, GameState, Tile } from '../types';
+import { createEmptyInventory } from '../item-def';
 
 // Open layout with a large clear room, matching the style of the other
 // enemy-behavior unit tests. Retained only for these telegraph-specific
@@ -46,7 +47,7 @@ function baseState(map: GameMap): GameState {
     nextWebId: 0,
     groundItems: [],
     nextGroundItemId: 0,
-    inventory: { apple: 0, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, flame_enchantment: 0, frost_enchantment: 0, cloud_enchantment: 0, earth_enchantment: 0, chocolate: 0, banana: 0, antidote: 0, panacea: 0, clairvoyance_fruit: 0, high_priestess: 0, empress: 0, emperor: 0, lovers: 0, chariot: 0, strength: 0, wheel_of_fortune: 0, justice: 0, hanged_man: 0, death: 0, temperance: 0, devil: 0, tower: 0, star: 0, moon: 0, sun: 0, judgement: 0 },
+    inventory: { ...createEmptyInventory(), apple: 0, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, flame_enchantment: 0, frost_enchantment: 0, cloud_enchantment: 0, earth_enchantment: 0, chocolate: 0, banana: 0, antidote: 0, panacea: 0, clairvoyance_fruit: 0, high_priestess: 0, empress: 0, emperor: 0, lovers: 0, chariot: 0, strength: 0, wheel_of_fortune: 0, justice: 0, hanged_man: 0, death: 0, temperance: 0, devil: 0, tower: 0, star: 0, moon: 0, sun: 0, judgement: 0 },
     inventoryOpen: false,
     selectedItemIndex: 0,
     equippedWeaponId: null,

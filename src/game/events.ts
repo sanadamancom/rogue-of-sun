@@ -354,6 +354,14 @@ export type GameEvent =
   // pushed per status ailment actually removed (e.g. panacea curing all
   // 4 pushes 4 of these), never one aggregate event.
   | { type: 'effect_removed'; effectId: StatusAilmentId; reason: 'antidote' | 'panacea' }
+  // Phase 24.3 poison_guard: a poison application was blocked outright
+  // (never granted/refreshed) because the player currently has
+  // poison_guard equipped — distinct from effect_removed (nothing was
+  // active to remove; the grant itself never happened).
+  | { type: 'effect_blocked'; effectId: 'poison'; reason: 'poison_guard' }
+  // Phase 24.3 spike_mail: 1 reflect damage dealt back to an adjacent
+  // enemy that just dealt positive damage to the player.
+  | { type: 'spike_mail_reflected'; enemyType: EnemyType; targetId: number; damage: number }
   // Antidote (Phase 12.4): cures only 'poison'. 'removedEffectIds' is an
   // array (always length 1 in practice, since antidote only ever targets
   // one ailment) rather than a single id, so its payload shape matches

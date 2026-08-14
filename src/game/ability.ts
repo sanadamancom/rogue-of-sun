@@ -1,6 +1,7 @@
 import { GameEvent } from './events';
 import { getUnspentAbilityPoints } from './progression';
 import { AbilityId, AbilityValues, GameState } from './types';
+import { getArmorEffectiveSpeedBonus } from './equipment-effects';
 
 /**
  * Phase 13.2 ability point allocation foundation. Deliberately never
@@ -99,7 +100,7 @@ export const SPEED_PER_RANK = 10;
  * Never mutates `state`.
  */
 export function getPlayerSpeed(state: GameState): number {
-  return PLAYER_BASE_SPEED + SPEED_PER_RANK * getAbilityValue(state, 'speed');
+  return PLAYER_BASE_SPEED + SPEED_PER_RANK * getAbilityValue(state, 'speed') + getArmorEffectiveSpeedBonus(state);
 }
 
 function isAbilityId(value: unknown): value is AbilityId {

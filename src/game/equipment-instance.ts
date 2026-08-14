@@ -1,6 +1,6 @@
-import { ArmorId, EquipmentInstance, EquipmentRank, GameState, WeaponId } from './types';
-import { WEAPON_DEFINITIONS } from './weapon-def';
-import { ARMOR_DEFINITIONS } from './armor-def';
+import { ArmorId, EquipmentInstance, EquipmentEffectState, EquipmentRank, GameState, WeaponId, EnemyType } from './types';
+import { WEAPON_DEFINITIONS, WEAPON_IDS_IN_ORDER } from './weapon-def';
+import { ARMOR_DEFINITIONS, ARMOR_IDS_IN_ORDER } from './armor-def';
 
 /**
  * Phase 20.0c equipment-instance foundation. This module is the single
@@ -20,8 +20,14 @@ import { ARMOR_DEFINITIONS } from './armor-def';
  * equip/unequip/floor-transition.
  */
 
+// Phase 24.3 全装備カタログ: derived from WEAPON_IDS_IN_ORDER/
+// ARMOR_IDS_IN_ORDER (single source of truth for the full 42-species
+// roster) rather than a hardcoded literal list, which only ever covered
+// the pre-24.3 5 species and would silently reject every new one.
+const WEAPON_OR_ARMOR_ID_SET: ReadonlySet<string> = new Set<string>([...WEAPON_IDS_IN_ORDER, ...ARMOR_IDS_IN_ORDER]);
+
 export function isWeaponOrArmorId(id: string): id is WeaponId | ArmorId {
-  return id === 'sword' || id === 'spear' || id === 'hammer' || id === 'solar_gun' || id === 'armor';
+  return WEAPON_OR_ARMOR_ID_SET.has(id);
 }
 
 const VALID_RANKS: readonly EquipmentRank[] = ['C', 'B', 'A', 'S', 'R'];
@@ -33,7 +39,13 @@ const VALID_RANKS: readonly EquipmentRank[] = ['C', 'B', 'A', 'S', 'R'];
  * stays the one source of truth for rank, never duplicated inline.
  */
 function definitionRankFor(definitionId: WeaponId | ArmorId): EquipmentRank {
-  return definitionId === 'armor' ? ARMOR_DEFINITIONS.armor.rank : WEAPON_DEFINITIONS[definitionId].rank;
+  // Phase 24.3: was a single `=== 'armor'` check, correct only while
+  // 'armor' was the sole registered ArmorId — now checks set membership
+  // across all 15 armor species so a non-'armor' armor definitionId
+  // (e.g. 'black_armor') resolves its rank correctly too.
+  return (ARMOR_IDS_IN_ORDER as readonly string[]).includes(definitionId)
+    ? ARMOR_DEFINITIONS[definitionId as ArmorId].rank
+    : WEAPON_DEFINITIONS[definitionId as WeaponId].rank;
 }
 
 /** Whether `value` is one of the 5 valid EquipmentRank strings. */
@@ -100,7 +112,49 @@ export function mintEquipmentInstance(
     cursed,
     curseRevealed: false,
     rank: definitionRankFor(definitionId),
+    effectState: createDefaultEquipmentEffectState(),
   };
+}
+
+/** A fresh, all-zero/empty EquipmentEffectState — Phase 24.3's single source of truth for "no accumulated effect state yet", used by mintEquipmentInstance and normalizeEquipmentInstances alike. */
+export function createDefaultEquipmentEffectState(): EquipmentEffectState {
+  return { floorTriggerUses: 0, solSpentRemainder: 0, equippedTurnCounter: 0, defeatedEnemyTypes: [] };
+}
+
+/**
+ * Corrects a possibly-missing/malformed EquipmentEffectState into a
+ * valid one — non-negative integers for the 3 counters, a deduplicated
+ * EnemyType[] for defeatedEnemyTypes. Idempotent; a no-op once already
+ * valid, mirroring normalizeEquipmentInstances' own correction-only-
+ * when-malformed pattern for refineLevel/cursed/rank.
+ */
+export function normalizeEquipmentEffectState(state: EquipmentEffectState | undefined): EquipmentEffectState {
+  const defaults = createDefaultEquipmentEffectState();
+  if (!state || typeof state !== 'object') return defaults;
+  const normalizeCounter = (value: unknown): number =>
+    typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0;
+  const defeated = Array.isArray(state.defeatedEnemyTypes) ? Array.from(new Set(state.defeatedEnemyTypes)) : [];
+  return {
+    floorTriggerUses: normalizeCounter(state.floorTriggerUses),
+    solSpentRemainder: normalizeCounter(state.solSpentRemainder),
+    equippedTurnCounter: normalizeCounter(state.equippedTurnCounter),
+    defeatedEnemyTypes: defeated as EnemyType[],
+  };
+}
+
+/**
+ * Phase 24.3 floor_transition reset: called once per advanceToNextFloor
+ * (state.ts), resets `floorTriggerUses`/`defeatedEnemyTypes` to their
+ * defaults on every held-or-floor equipment instance while leaving
+ * `solSpentRemainder`/`equippedTurnCounter` untouched (effect_state's
+ * "preserve" list) — identity itself (instanceId, which individual is
+ * which) is never touched by this function.
+ */
+export function resetPerFloorEquipmentEffectState(state: GameState): void {
+  for (const instance of getEquipmentInstances(state)) {
+    const current = normalizeEquipmentEffectState(instance.effectState);
+    instance.effectState = { ...current, floorTriggerUses: 0, defeatedEnemyTypes: [] };
+  }
 }
 
 /** All equipment instances currently tracked, or [] if the field is absent (existing GameState fixtures predate this phase — see types.ts's GameState.equipmentInstances doc comment). Pure/side-effect-free. */
@@ -275,6 +329,7 @@ export function createEquipmentInstanceWithRank(
     cursed: false,
     curseRevealed: false,
     rank,
+    effectState: createDefaultEquipmentEffectState(),
   };
   state.nextEquipmentInstanceId = next + 1;
   if (!state.equipmentInstances) {
@@ -363,6 +418,11 @@ export function normalizeEquipmentInstances(state: GameState): void {
     if (!isValidRank(instance.rank)) {
       instance.rank = definitionRankFor(instance.definitionId);
     }
+    // Phase 24.3 装備効果 effectState: backfill/repair a missing or
+    // malformed effectState (every pre-24.3 fixture, and any hand-built
+    // malformed state) — normalize_defaults's "欠落時は0または空配列" /
+    // "不正値、負数、重複enemy typeをnormalize".
+    instance.effectState = normalizeEquipmentEffectState(instance.effectState);
   }
 
   const inventory = state.inventory ?? {};

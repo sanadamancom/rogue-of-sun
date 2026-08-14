@@ -434,6 +434,12 @@ export function formatEvent(event: GameEvent): string {
       return '太陽鍛冶に失敗した。';
     case 'monster_house_revealed':
       return 'モンスターハウスだ！';
+    case 'effect_blocked':
+      return '毒を防いだ！';
+    case 'spike_mail_reflected': {
+      const enemyName = ENEMY_DEFINITIONS[event.enemyType].displayName;
+      return `${enemyName}に${event.damage}のダメージを反射した。`;
+    }
     default: {
       const exhaustiveCheck: never = event;
       throw new Error(`Unhandled game event: ${JSON.stringify(exhaustiveCheck)}`);

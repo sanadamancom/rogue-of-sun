@@ -148,16 +148,16 @@ describe('Phase 20.0d: card target selection foundation', () => {
       expect(candidates.some((c) => c.kind === 'inventory_item' && c.itemId === 'judgement')).toBe(false);
     });
 
-    it('excludes armor instances (only 1 armor species exists -> no alternate transform target)', () => {
+    it('includes armor instances now that multiple armor species exist (Phase 24.3 catalog expansion)', () => {
       const state = createInitialState(1);
       state.inventory.armor = 1;
       const instance = createEquipmentInstance(state, 'armor');
       const candidates = getStarCandidates(state);
-      expect(candidates.some((c) => c.kind === 'equipment_instance' && c.instanceId === instance.instanceId)).toBe(false);
+      expect(candidates.some((c) => c.kind === 'equipment_instance' && c.instanceId === instance.instanceId)).toBe(true);
     });
 
-    it('hasAlternateTransformCategory is false for armor and true for weapon/consumable', () => {
-      expect(hasAlternateTransformCategory('armor')).toBe(false);
+    it('hasAlternateTransformCategory is true for armor (Phase 24.3: 15 species), weapon, and consumable', () => {
+      expect(hasAlternateTransformCategory('armor')).toBe(true);
       expect(hasAlternateTransformCategory('sword')).toBe(true);
       expect(hasAlternateTransformCategory('apple')).toBe(true);
     });
