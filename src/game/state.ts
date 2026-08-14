@@ -41,6 +41,7 @@ import {
   normalizeEquipmentInstances,
   resetPerFloorEquipmentEffectState,
 } from './equipment-instance';
+import { floorProgressRatio, isNormalEquipmentSlot, selectNormalEquipmentDefinition } from './equipment-loot';
 import { generateSunlightLayer } from './sunlight';
 import { HUNGER_MAX } from './hunger';
 import {
@@ -387,6 +388,17 @@ function buildFloorState(
   // previously-held individual's attributes survive unchanged into this
   // floor's equipmentInstances before any new ones are appended.
   const equipmentCurseRng = createRng(floorSeed ^ 0xc7d4a19e);
+  // Phase 24.4a: resolves a ground-item pool equipment "slot" ('sword' |
+  // 'spear' | 'hammer' | 'armor' | 'solar_gun') into an actual catalog
+  // definitionId (e.g. 'flamberge'), weighted by this floor's depth
+  // ratio — see equipment-loot.ts. Its own independent RNG stream (own
+  // XOR constant), consumed exactly once per floor-generated weapon/
+  // armor ground item (normal generation below and monsterHouse reward
+  // generation further down), in the same relative order as
+  // equipmentCurseRng — never perturbing itemCountRng/itemSelectionRng/
+  // itemPlacementRng/equipmentCurseRng's own consumption counts.
+  const equipmentDefinitionRng = createRng(floorSeed ^ 0xd4e8a273);
+  const equipmentFloorRatio = floorProgressRatio(floor, TOTAL_FLOORS);
   const floorEquipmentInstances: EquipmentInstance[] = carry ? carry.equipmentInstances.map((i) => ({ ...i })) : [];
   let nextFloorEquipmentInstanceId = carry ? carry.nextEquipmentInstanceId : 0;
   const groundItems: GroundItem[] = [];
@@ -402,10 +414,19 @@ function buildFloorState(
     if (isWeaponOrArmorId(itemId)) {
       const roll = equipmentCurseRng();
       const cursed = roll < FLOOR_EQUIPMENT_CURSE_CHANCE;
-      const instance = mintEquipmentInstance(nextFloorEquipmentInstanceId, itemId, cursed);
+      // Phase 24.4a: itemId here is always one of the 5 pool "slots"
+      // (isNormalEquipmentSlot true) — the resolved catalog definitionId
+      // is what actually gets minted/placed, so pickup/inventory/equip
+      // downstream see the real species (e.g. 'flamberge') from the
+      // moment it's on the floor, matching the pre-existing "結果が個体
+      // へ固定される" contract this same curse roll already followed.
+      const resolvedDefinitionId = isNormalEquipmentSlot(itemId)
+        ? selectNormalEquipmentDefinition(itemId, equipmentFloorRatio, equipmentDefinitionRng)
+        : itemId;
+      const instance = mintEquipmentInstance(nextFloorEquipmentInstanceId, resolvedDefinitionId, cursed);
       nextFloorEquipmentInstanceId += 1;
       floorEquipmentInstances.push(instance);
-      groundItems.push({ id: groundItems.length, itemId, pos, equipmentInstanceId: instance.instanceId });
+      groundItems.push({ id: groundItems.length, itemId: resolvedDefinitionId, pos, equipmentInstanceId: instance.instanceId });
     } else {
       groundItems.push({ id: groundItems.length, itemId, pos });
     }
@@ -491,12 +512,18 @@ function buildFloorState(
         if (isWeaponOrArmorId(rewardItemId)) {
           const roll = equipmentCurseRng();
           const cursed = roll < FLOOR_EQUIPMENT_CURSE_CHANCE;
-          const instance = mintEquipmentInstance(nextFloorEquipmentInstanceId, rewardItemId, cursed);
+          // Phase 24.4a: same slot->definitionId resolution as normal
+          // generation above, same equipmentDefinitionRng stream
+          // (continuing its consumption order, never a separate table).
+          const resolvedRewardDefinitionId = isNormalEquipmentSlot(rewardItemId)
+            ? selectNormalEquipmentDefinition(rewardItemId, equipmentFloorRatio, equipmentDefinitionRng)
+            : rewardItemId;
+          const instance = mintEquipmentInstance(nextFloorEquipmentInstanceId, resolvedRewardDefinitionId, cursed);
           nextFloorEquipmentInstanceId += 1;
           floorEquipmentInstances.push(instance);
           groundItems.push({
             id: groundItems.length,
-            itemId: rewardItemId,
+            itemId: resolvedRewardDefinitionId,
             pos: rewardPos,
             equipmentInstanceId: instance.instanceId,
             spawnSource: 'monster_house',

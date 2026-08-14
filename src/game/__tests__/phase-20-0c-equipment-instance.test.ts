@@ -7,6 +7,7 @@ import {
   getEquipmentInstances,
   getHeldEquipmentInstances,
   isValidRefineLevel,
+  isWeaponOrArmorId,
   normalizeEquipmentInstances,
 } from '../equipment-instance';
 import { advanceToNextFloor, createInitialState } from '../state';
@@ -537,7 +538,12 @@ describe('Phase 20.0c: equipment instance foundation', () => {
     it('consumable and card ground items never receive a curse determination (no equipmentInstanceId)', () => {
       const state = createInitialState(7);
       for (const ground of state.groundItems) {
-        const isWeaponOrArmor = ['sword', 'spear', 'hammer', 'solar_gun', 'armor'].includes(ground.itemId);
+        // Phase 24.4a: ground.itemId is now the resolved catalog
+        // definitionId (e.g. 'flamberge'), not always one of the
+        // original 5 pool-slot ids — isWeaponOrArmorId covers the full
+        // 42-species roster, so this still correctly distinguishes
+        // equipment from consumable/card ground items.
+        const isWeaponOrArmor = isWeaponOrArmorId(ground.itemId);
         if (!isWeaponOrArmor) {
           expect(ground.equipmentInstanceId).toBeUndefined();
         }
