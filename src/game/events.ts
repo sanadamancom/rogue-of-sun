@@ -46,6 +46,16 @@ export type GameEvent =
   | { type: 'player_attack_missed'; enemyType: EnemyType; targetId: number; weaponId?: WeaponId; hitChance: number; roll: number }
   | { type: 'enemy_attack_missed'; enemyType: EnemyType; attackerId: number; hitChance: number; roll: number }
   | { type: 'enemy_defeated'; enemyType: EnemyType; targetId: number }
+  // Phase 24.4b enemy drops: pushed once, immediately after
+  // 'enemy_defeated', when this genuine terminal defeat's drop roll
+  // succeeded and a valid placement cell was found (never pushed on a
+  // failed roll or a discarded-for-no-valid-cell drop — those produce no
+  // event at all, per producer_decisions' "配置不能・抽選失敗を通常の
+  // プレイヤーログへ大量表示しない"). `equipmentInstanceId` is present
+  // only when `itemId` resolved to a weapon/armor species. See
+  // turn.ts's defeatEnemyIfNeeded (the single terminal-defeat choke
+  // point) and enemy-drop.ts.
+  | { type: 'enemy_drop_spawned'; enemyId: number; enemyType: EnemyType; itemId: ItemId; pos: Vec2; equipmentInstanceId?: string }
   // Phase 23.1 skeleton revival: pushed instead of 'enemy_defeated' when
   // a body-form skeleton's HP reaches 0 from an attack that did not
   // activate any element — the skeleton stays on the board as a head

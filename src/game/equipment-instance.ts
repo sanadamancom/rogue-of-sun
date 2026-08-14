@@ -297,6 +297,29 @@ export function createEquipmentInstance(state: GameState, definitionId: WeaponId
 }
 
 /**
+ * Phase 24.4b enemy drops: like createEquipmentInstance above, but takes
+ * an explicit `cursed` result instead of always minting uncursed —
+ * mintEquipmentInstance's `cursed` parameter already supports this (see
+ * its own doc comment); this helper is simply the state-mutating wrapper
+ * for callers (turn.ts's enemy-drop terminal hook) that already resolved
+ * their own curse roll from a dedicated RNG stream (never this
+ * function's concern — it performs no RNG itself, identical to
+ * createEquipmentInstance's own RNG-free counter-only contract).
+ * curseRevealed is always false for a freshly-minted individual, exactly
+ * like every other creation path — nothing reveals a curse at mint time.
+ */
+export function createEquipmentInstanceWithCurse(state: GameState, definitionId: WeaponId | ArmorId, cursed: boolean): EquipmentInstance {
+  const next = state.nextEquipmentInstanceId ?? 0;
+  const instance = mintEquipmentInstance(next, definitionId, cursed);
+  state.nextEquipmentInstanceId = next + 1;
+  if (!state.equipmentInstances) {
+    state.equipmentInstances = [];
+  }
+  state.equipmentInstances.push(instance);
+  return instance;
+}
+
+/**
  * Phase 24.2 太陽鍛冶コア: like createEquipmentInstance above, but takes
  * an explicit `rank` instead of deriving it from `definitionId`'s
  * species-default table entry — the only creation path whose rank can

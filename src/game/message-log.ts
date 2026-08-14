@@ -440,6 +440,10 @@ export function formatEvent(event: GameEvent): string {
       const enemyName = ENEMY_DEFINITIONS[event.enemyType].displayName;
       return `${enemyName}に${event.damage}のダメージを反射した。`;
     }
+    case 'enemy_drop_spawned': {
+      const itemName = ITEM_DEFINITIONS[event.itemId].displayName;
+      return `「${itemName}」を落とした。`;
+    }
     default: {
       const exhaustiveCheck: never = event;
       throw new Error(`Unhandled game event: ${JSON.stringify(exhaustiveCheck)}`);

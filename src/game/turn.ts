@@ -37,6 +37,7 @@ import {
 } from './card-target-selection';
 import {
   createEquipmentInstance,
+  createEquipmentInstanceWithCurse,
   createEquipmentInstanceWithRank,
   ensureAvailableInstanceForEquip,
   EQUIPMENT_REFINE_LEVEL_CAP,
@@ -51,6 +52,15 @@ import {
   normalizeEquipmentInstances,
   removeInstanceById,
 } from './equipment-instance';
+import {
+  findNearestValidDropCell,
+  isNormalEquipmentSlot,
+  resolveEnemyDropEquipmentDefinition,
+  rollEnemyDropCurse,
+  rollEnemyDropOccurs,
+  selectEnemyDropItemId,
+} from './enemy-drop';
+import { TOTAL_FLOORS } from './floor';
 import { validateForgeMaterialsWithLineage } from './solar-forge';
 import {
   getWeaponPreHitDamageBonus,
@@ -72,6 +82,7 @@ import {
   AbilityId,
   Actor,
   ALL_DIRECTIONS,
+  ArmorId,
   CardId,
   Direction8,
   Direction4,
@@ -435,6 +446,84 @@ export function getIncomingDamage(state: GameState, attackPower: number): number
  */
 const SKELETON_HEAD_REVIVE_TURNS = 8;
 
+/**
+ * Phase 24.4b enemy drops: the single call site (defeatEnemyIfNeeded,
+ * immediately below) for the entire drop pipeline — occurrence roll,
+ * item/equipment resolution, placement search, and the actual
+ * GroundItem/EquipmentInstance state mutation. Called exactly once per
+ * genuine terminal defeat (never for a skeleton headify or no-effect
+ * outcome, since defeatEnemyIfNeeded only reaches its own `return true`
+ * path — where this is invoked — on a true full defeat). A no-op
+ * (silently discards, no event, no instance) if the drop roll fails or
+ * no valid placement cell exists — never blocks/reverts the EXP award
+ * or enemy-removal that already happened above this call.
+ */
+function spawnEnemyDropIfAny(state: GameState, target: EnemyActor, events: GameEvent[]): void {
+  const floorSeed = state.seed;
+  // Stable per-floor id (EnemyActor.id, assigned once at creation from
+  // this enemy's creation-time index in state.enemies — see
+  // state.ts's buildEnemies) — never a live array-position lookup, so
+  // the seed this enemy's drop derives from cannot change based on
+  // other enemies dying first.
+  const enemyId = target.id ?? 0;
+  if (!rollEnemyDropOccurs(floorSeed, enemyId)) return;
+
+  const drawnItemId = selectEnemyDropItemId(state.floor, floorSeed, enemyId);
+  let finalItemId: ItemId = drawnItemId;
+  let resolvedDefinitionId: WeaponId | ArmorId | undefined;
+  let cursed = false;
+  if (isNormalEquipmentSlot(drawnItemId)) {
+    resolvedDefinitionId = resolveEnemyDropEquipmentDefinition(drawnItemId, state.floor, TOTAL_FLOORS, floorSeed, enemyId);
+    finalItemId = resolvedDefinitionId;
+    cursed = rollEnemyDropCurse(floorSeed, enemyId);
+  }
+
+  // producer_decisions' placement rules: floor tile only, never the
+  // exit, never a movement-blocking Actor (player or another living
+  // enemy — `target` itself is already alive:false by this point, so it
+  // never self-excludes its own cell), never an existing GroundItem's
+  // cell. No RNG consumed by this search (findNearestValidDropCell is
+  // entirely deterministic).
+  const exclusions: Vec2[] = [
+    state.map.exit,
+    ...(state.player.alive ? [state.player.pos] : []),
+    ...state.enemies.filter((e) => isMovementBlockingEnemy(e)).map((e) => e.pos),
+    ...state.groundItems.map((item) => item.pos),
+  ];
+  const dropPos = findNearestValidDropCell(state.map, target.pos, exclusions);
+  if (!dropPos) {
+    // No eligible cell anywhere reachable from the defeat cell: the drop
+    // is discarded entirely (no GroundItem, no EquipmentInstance, no
+    // event) per producer_decisions' "有効セルが存在しない場合は安全に
+    // ドロップを破棄し、ゲーム進行を止めない" — nothing above this point
+    // (EXP, enemy_defeated, alive:false) is reverted.
+    return;
+  }
+
+  let equipmentInstanceId: string | undefined;
+  if (resolvedDefinitionId) {
+    const instance = createEquipmentInstanceWithCurse(state, resolvedDefinitionId, cursed);
+    equipmentInstanceId = instance.instanceId;
+  }
+
+  state.groundItems.push({
+    id: state.nextGroundItemId,
+    itemId: finalItemId,
+    pos: dropPos,
+    ...(equipmentInstanceId ? { equipmentInstanceId } : {}),
+  });
+  state.nextGroundItemId += 1;
+
+  events.push({
+    type: 'enemy_drop_spawned',
+    enemyId,
+    enemyType: target.type,
+    itemId: finalItemId,
+    pos: dropPos,
+    ...(equipmentInstanceId ? { equipmentInstanceId } : {}),
+  });
+}
+
 function defeatEnemyIfNeeded(
   state: GameState,
   target: EnemyActor,
@@ -509,6 +598,11 @@ function defeatEnemyIfNeeded(
       unspentAbilityPoints: levelUp.unspentAbilityPointsAfter,
     });
   }
+  // Phase 24.4b enemy drops: called exactly once here, the single
+  // terminal-defeat choke point every attack path already shares for
+  // EXP — never duplicated per attack method (melee/reach/solar_gun/
+  // room-card/spike_mail-reflect all reach this same return path).
+  spawnEnemyDropIfAny(state, target, events);
   return true;
 }
 
