@@ -114,7 +114,8 @@ describe('production wiring: reward placement on generated floors', () => {
     }
   });
 
-  it('reward item ids come from the same legal weighted pool as normal ground items (no cards)', () => {
+  it('Phase 24.4c: reward item ids may include a legitimate card (loot routes connected — see docs/history/phase-24-4c-card-supply.md), but fool never appears (not a defined CardId) and any card reward has no equipment/instance state attached', () => {
+    let sawAnyCard = false;
     for (const seed of seeds) {
       let state = createInitialState(seed);
       for (const _f of [2, 3]) {
@@ -124,14 +125,19 @@ describe('production wiring: reward placement on generated floors', () => {
         if (!state.map.monsterHouse) continue;
         const rewards = state.groundItems.filter((i) => i.spawnSource === 'monster_house');
         for (const r of rewards) {
-          // Card ids are never eligible (floorDropEnabled: false in
-          // Phase 20/21) — confirm no reward is a card.
-          expect(['high_priestess', 'empress', 'emperor', 'lovers', 'chariot', 'strength', 'wheel_of_fortune',
-            'justice', 'hanged_man', 'death', 'temperance', 'devil', 'tower', 'star', 'moon', 'sun', 'judgement',
-            'fool'].includes(r.itemId)).toBe(false);
+          expect(r.itemId).not.toBe('fool');
+          if (
+            ['high_priestess', 'empress', 'emperor', 'lovers', 'chariot', 'strength', 'wheel_of_fortune',
+              'justice', 'hanged_man', 'death', 'temperance', 'devil', 'tower', 'star', 'moon', 'sun', 'judgement',
+            ].includes(r.itemId)
+          ) {
+            sawAnyCard = true;
+            expect(r.equipmentInstanceId).toBeUndefined();
+          }
         }
       }
     }
+    expect(sawAnyCard).toBe(true);
   });
 
   it('at most one of each enchantment id across normal + reward ground items combined on one floor', () => {

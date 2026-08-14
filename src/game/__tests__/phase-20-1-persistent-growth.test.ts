@@ -320,17 +320,18 @@ describe('Phase 20.1: persistent growth cards', () => {
       }
     });
 
-    it('no card appears across 100 seeds of real floor generation', () => {
-      // Re-confirms floorDropEnabled=false holds for all 17 in an actual
-      // production run, not just the pool-derivation function in isolation.
+    it('Phase 24.4c: if any of these cards appears via production floor generation, it is a plain GroundItem with no equipment/instance state attached (cards were unreachable in production before Phase 24.4c connected the loot routes — see docs/history/phase-24-4c-card-supply.md — so this now checks that reachability didn\'t leak any equipment-instance machinery into cards, rather than checking they never appear at all)', () => {
+      let sawAny = false;
       for (let seed = 1; seed <= 100; seed++) {
         const state = createInitialState(seed);
         for (const item of state.groundItems) {
-          expect(
-            ['high_priestess', 'empress', 'chariot', 'strength', 'wheel_of_fortune'].includes(item.itemId),
-          ).toBe(false);
+          if (['high_priestess', 'empress', 'chariot', 'strength', 'wheel_of_fortune'].includes(item.itemId)) {
+            sawAny = true;
+            expect(item.equipmentInstanceId).toBeUndefined();
+          }
         }
       }
+      expect(sawAny).toBe(true);
     });
 
     it('existing ability point allocation (non-card) is unaffected by card growth', () => {

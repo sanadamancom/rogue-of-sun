@@ -55,7 +55,23 @@ export type GameEvent =
   // only when `itemId` resolved to a weapon/armor species. See
   // turn.ts's defeatEnemyIfNeeded (the single terminal-defeat choke
   // point) and enemy-drop.ts.
-  | { type: 'enemy_drop_spawned'; enemyId: number; enemyType: EnemyType; itemId: ItemId; pos: Vec2; equipmentInstanceId?: string }
+  | {
+      type: 'enemy_drop_spawned';
+      enemyId: number;
+      enemyType: EnemyType;
+      itemId: ItemId;
+      pos: Vec2;
+      equipmentInstanceId?: string;
+      /**
+       * Phase 24.4c: identical purpose/contract to 'item_picked_up's
+       * own unidentifiedCard field above — true when itemId is a
+       * not-yet-identified card, baked in at push time (turn.ts) so
+       * message-log.ts's formatEvent stays state-independent. Absent/
+       * false for every non-card item and for an already-identified
+       * card.
+       */
+      unidentifiedCard?: boolean;
+    }
   // Phase 23.1 skeleton revival: pushed instead of 'enemy_defeated' when
   // a body-form skeleton's HP reaches 0 from an attack that did not
   // activate any element — the skeleton stays on the board as a head

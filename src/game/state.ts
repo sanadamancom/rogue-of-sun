@@ -42,6 +42,7 @@ import {
   resetPerFloorEquipmentEffectState,
 } from './equipment-instance';
 import { floorProgressRatio, isNormalEquipmentSlot, selectNormalEquipmentDefinition } from './equipment-loot';
+import { substituteCardSlots } from './card-loot';
 import { generateSunlightLayer } from './sunlight';
 import { HUNGER_MAX } from './hunger';
 import {
@@ -339,7 +340,26 @@ function buildFloorState(
   const alreadyUnlocked = getAlreadyUnlockedEnchantmentItemIds(carry);
   const weightedFloorItemPool = getWeightedGroundItemPoolForFloor(floor, alreadyUnlocked);
   const itemSelectionRng = createRng(floorSeed ^ 0x5c2e91d3);
-  const selectedItemIds = drawWeightedGroundItemSelection(itemCount, weightedFloorItemPool, itemSelectionRng);
+  const drawnItemIds = drawWeightedGroundItemSelection(itemCount, weightedFloorItemPool, itemSelectionRng);
+
+  // Phase 24.4c: card-supply connection. Every one of the itemCount
+  // slots just drawn above (unchanged: same weighted non-card pool, same
+  // itemSelectionRng stream, same consumption count) independently gets
+  // a 10% chance (card-loot.ts's CARD_ROUTE_WEIGHT_PROVISIONAL) of being
+  // replaced by a card instead — via 3 brand-new, dedicated RNG streams
+  // (own XOR constants, never touching itemCountRng/itemSelectionRng/
+  // itemPlacementRng/equipmentCurseRng/equipmentDefinitionRng's own
+  // consumption order/count). Placed *before* the floor-1 chocolate
+  // guarantee below so that guarantee's own "is chocolate present"
+  // check/substitution — an existing, out-of-scope-for-this-Phase
+  // balance rule — keeps taking priority exactly as before: if the
+  // guarantee's target slot happens to have just become a card, the
+  // guarantee still overwrites it with chocolate, unchanged from every
+  // prior Phase's behavior for that slot.
+  const cardCategoryRng = createRng(floorSeed ^ 0x2f7b91d4);
+  const cardRarityRng = createRng(floorSeed ^ 0x6c1e83fa);
+  const cardBodyRng = createRng(floorSeed ^ 0x94b2d1c7);
+  const selectedItemIds = substituteCardSlots(drawnItemIds, cardCategoryRng, cardRarityRng, cardBodyRng);
 
   // Phase 16.1 early-resource-and-combat-pressure rebalance: floor 1's
   // ground-item pool has 11 candidate ids but 'chocolate' (the only
@@ -505,7 +525,13 @@ function buildFloorState(
       const alreadySelectedEnchantments = selectedItemIds.filter((id) => ENCHANTMENT_ITEM_IDS.includes(id));
       const rewardExcludedIds = new Set([...alreadyUnlocked, ...alreadySelectedEnchantments]);
       const rewardPool = getWeightedGroundItemPoolForFloor(floor, rewardExcludedIds);
-      const rewardItemIds = drawWeightedGroundItemSelection(rewardPositions.length, rewardPool, rewardSelectionRng);
+      const drawnRewardItemIds = drawWeightedGroundItemSelection(rewardPositions.length, rewardPool, rewardSelectionRng);
+      // Phase 24.4c: same card-substitution pass as normal generation
+      // above, continuing the same 3 dedicated card-selection streams
+      // (cardCategoryRng/cardRarityRng/cardBodyRng) in their existing
+      // consumption order — mirroring how equipmentDefinitionRng/
+      // equipmentCurseRng already continue across both loops.
+      const rewardItemIds = substituteCardSlots(drawnRewardItemIds, cardCategoryRng, cardRarityRng, cardBodyRng);
       for (let i = 0; i < rewardPositions.length; i++) {
         const rewardItemId = rewardItemIds[i];
         const rewardPos = rewardPositions[i];

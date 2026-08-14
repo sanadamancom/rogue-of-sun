@@ -441,7 +441,9 @@ export function formatEvent(event: GameEvent): string {
       return `${enemyName}に${event.damage}のダメージを反射した。`;
     }
     case 'enemy_drop_spawned': {
-      const itemName = ITEM_DEFINITIONS[event.itemId].displayName;
+      const itemName = event.unidentifiedCard
+        ? CARD_DEFINITIONS[event.itemId as import('./types').CardId].unidentifiedDisplayName
+        : ITEM_DEFINITIONS[event.itemId].displayName;
       return `「${itemName}」を落とした。`;
     }
     default: {

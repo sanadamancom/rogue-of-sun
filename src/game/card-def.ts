@@ -87,6 +87,17 @@ export type CardTelemetryCategory = 'card';
 export type CardConsumeCondition = 'effect_succeeded' | 'trigger_succeeded';
 
 /**
+ * Phase 24.4c: provisional rarity classification for the 3 production
+ * loot routes' card-rarity-weight stage (see card-loot.ts). Every one of
+ * the 17 cards has exactly one rarity; none is gated by floor — see this
+ * file's CARD_DEFINITIONS doc comment below and card-loot.ts's own
+ * module doc comment for the full route/rarity weight scheme. Not a
+ * final balance value — Phase 24.6/27 owns retuning both the
+ * assignment and the per-rarity weights.
+ */
+export type CardRarity = 'C' | 'B' | 'A' | 'S';
+
+/**
  * A single card's full data-only definition. No field here implies any
  * behavior by itself — see this file's module doc comment for what is and
  * isn't wired up in Phase 20.0a.
@@ -118,6 +129,19 @@ export interface CardDefinition {
   enemyDropEnabled: boolean;
   /** Placeholder telemetry grouping id, shared by all 17 cards. No telemetry event actually reads this yet (see module doc comment). */
   telemetryCategory: CardTelemetryCategory;
+  /**
+   * Phase 24.4c: this card's rarity for the production loot routes'
+   * card-rarity-weight selection stage (card-loot.ts) — see CardRarity's
+   * own doc comment above. Every one of the 17 cards has exactly one
+   * value; unlike lootWeight/floorDropEnabled/enemyDropEnabled (Phase
+   * 20.0a placeholders left at their neutral 0/false), this field is
+   * populated with real provisional values from this phase onward, since
+   * card-loot.ts reads it directly rather than through the older
+   * lootWeight/floorDropEnabled mechanism (which stays untouched and
+   * inert — see card-loot.ts's module doc comment for why the two
+   * mechanisms coexist without conflicting).
+   */
+  rarity: CardRarity;
 }
 
 /**
@@ -209,6 +233,7 @@ export const CARD_DEFINITIONS: Record<CardId, CardDefinition> = {
     floorDropEnabled: false,
     enemyDropEnabled: false,
     telemetryCategory: CARD_TELEMETRY_CATEGORY,
+    rarity: 'B',
   },
   empress: {
     id: 'empress',
@@ -224,6 +249,7 @@ export const CARD_DEFINITIONS: Record<CardId, CardDefinition> = {
     floorDropEnabled: false,
     enemyDropEnabled: false,
     telemetryCategory: CARD_TELEMETRY_CATEGORY,
+    rarity: 'B',
   },
   emperor: {
     id: 'emperor',
@@ -239,6 +265,7 @@ export const CARD_DEFINITIONS: Record<CardId, CardDefinition> = {
     floorDropEnabled: false,
     enemyDropEnabled: false,
     telemetryCategory: CARD_TELEMETRY_CATEGORY,
+    rarity: 'C',
   },
   lovers: {
     id: 'lovers',
@@ -254,6 +281,7 @@ export const CARD_DEFINITIONS: Record<CardId, CardDefinition> = {
     floorDropEnabled: false,
     enemyDropEnabled: false,
     telemetryCategory: CARD_TELEMETRY_CATEGORY,
+    rarity: 'C',
   },
   chariot: {
     id: 'chariot',
@@ -269,6 +297,7 @@ export const CARD_DEFINITIONS: Record<CardId, CardDefinition> = {
     floorDropEnabled: false,
     enemyDropEnabled: false,
     telemetryCategory: CARD_TELEMETRY_CATEGORY,
+    rarity: 'B',
   },
   strength: {
     id: 'strength',
@@ -284,6 +313,7 @@ export const CARD_DEFINITIONS: Record<CardId, CardDefinition> = {
     floorDropEnabled: false,
     enemyDropEnabled: false,
     telemetryCategory: CARD_TELEMETRY_CATEGORY,
+    rarity: 'B',
   },
   wheel_of_fortune: {
     id: 'wheel_of_fortune',
@@ -299,6 +329,7 @@ export const CARD_DEFINITIONS: Record<CardId, CardDefinition> = {
     floorDropEnabled: false,
     enemyDropEnabled: false,
     telemetryCategory: CARD_TELEMETRY_CATEGORY,
+    rarity: 'A',
   },
   justice: {
     id: 'justice',
@@ -314,6 +345,7 @@ export const CARD_DEFINITIONS: Record<CardId, CardDefinition> = {
     floorDropEnabled: false,
     enemyDropEnabled: false,
     telemetryCategory: CARD_TELEMETRY_CATEGORY,
+    rarity: 'C',
   },
   hanged_man: {
     id: 'hanged_man',
@@ -329,6 +361,7 @@ export const CARD_DEFINITIONS: Record<CardId, CardDefinition> = {
     floorDropEnabled: false,
     enemyDropEnabled: false,
     telemetryCategory: CARD_TELEMETRY_CATEGORY,
+    rarity: 'C',
   },
   death: {
     id: 'death',
@@ -344,6 +377,7 @@ export const CARD_DEFINITIONS: Record<CardId, CardDefinition> = {
     floorDropEnabled: false,
     enemyDropEnabled: false,
     telemetryCategory: CARD_TELEMETRY_CATEGORY,
+    rarity: 'A',
   },
   temperance: {
     id: 'temperance',
@@ -359,6 +393,7 @@ export const CARD_DEFINITIONS: Record<CardId, CardDefinition> = {
     floorDropEnabled: false,
     enemyDropEnabled: false,
     telemetryCategory: CARD_TELEMETRY_CATEGORY,
+    rarity: 'B',
   },
   devil: {
     id: 'devil',
@@ -374,6 +409,7 @@ export const CARD_DEFINITIONS: Record<CardId, CardDefinition> = {
     floorDropEnabled: false,
     enemyDropEnabled: false,
     telemetryCategory: CARD_TELEMETRY_CATEGORY,
+    rarity: 'C',
   },
   tower: {
     id: 'tower',
@@ -389,6 +425,7 @@ export const CARD_DEFINITIONS: Record<CardId, CardDefinition> = {
     floorDropEnabled: false,
     enemyDropEnabled: false,
     telemetryCategory: CARD_TELEMETRY_CATEGORY,
+    rarity: 'C',
   },
   star: {
     id: 'star',
@@ -404,6 +441,7 @@ export const CARD_DEFINITIONS: Record<CardId, CardDefinition> = {
     floorDropEnabled: false,
     enemyDropEnabled: false,
     telemetryCategory: CARD_TELEMETRY_CATEGORY,
+    rarity: 'A',
   },
   moon: {
     id: 'moon',
@@ -419,6 +457,7 @@ export const CARD_DEFINITIONS: Record<CardId, CardDefinition> = {
     floorDropEnabled: false,
     enemyDropEnabled: false,
     telemetryCategory: CARD_TELEMETRY_CATEGORY,
+    rarity: 'A',
   },
   sun: {
     id: 'sun',
@@ -434,6 +473,7 @@ export const CARD_DEFINITIONS: Record<CardId, CardDefinition> = {
     floorDropEnabled: false,
     enemyDropEnabled: false,
     telemetryCategory: CARD_TELEMETRY_CATEGORY,
+    rarity: 'A',
   },
   judgement: {
     id: 'judgement',
@@ -449,6 +489,7 @@ export const CARD_DEFINITIONS: Record<CardId, CardDefinition> = {
     floorDropEnabled: false,
     enemyDropEnabled: false,
     telemetryCategory: CARD_TELEMETRY_CATEGORY,
+    rarity: 'S',
   },
 };
 

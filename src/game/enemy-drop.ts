@@ -3,6 +3,7 @@ import { isWalkable } from './map';
 import { getGroundItemPoolForFloor } from './item-def';
 import { FLOOR_EQUIPMENT_CURSE_CHANCE } from './equipment-instance';
 import { floorProgressRatio, isNormalEquipmentSlot, selectNormalEquipmentDefinition } from './equipment-loot';
+import { resolveCardSlot } from './card-loot';
 import { ALL_DIRECTIONS, ArmorId, DIRECTION_VECTORS, GameMap, ItemId, Vec2, WeaponId } from './types';
 
 /**
@@ -40,6 +41,15 @@ const SALT_DROP_OCCURS = 0x5e2f8b41;
 const SALT_ITEM_SELECTION = 0x8b1c4f6d;
 const SALT_EQUIPMENT_DEFINITION = 0xa47d2c19;
 const SALT_EQUIPMENT_CURSE = 0xd1e9736c;
+// Phase 24.4c: 3 further independent salts for the card-vs-noncard
+// category roll, card rarity roll, and card body roll — applied only
+// *after* rollEnemyDropOccurs already succeeded (producer_decisions'
+// "enemy_dropではドロップ成立後の候補選択だけにカード10%を適用する"),
+// so a failed drop-occurrence roll never consumes any of these 3
+// streams at all.
+const SALT_CARD_CATEGORY = 0x2f7b91d4;
+const SALT_CARD_RARITY = 0x6c1e83fa;
+const SALT_CARD_BODY = 0x94b2d1c7;
 
 /**
  * Combines `floorSeed` (already unique per run+floor — GameState.seed,
@@ -89,6 +99,28 @@ export function selectEnemyDropItemId(floor: number, floorSeed: number, enemyId:
   const rng = createEnemyDropRng(floorSeed, enemyId, SALT_ITEM_SELECTION);
   const index = Math.min(pool.length - 1, Math.floor(rng() * pool.length));
   return pool[index];
+}
+
+/**
+ * Phase 24.4c: the enemy-drop route's card-supply connection point.
+ * Only ever called after rollEnemyDropOccurs already succeeded — this
+ * function itself resolves what that successful drop's contents are.
+ * First tries card-loot.ts's shared resolveCardSlot (3 dedicated
+ * streams, own salts, consumed only when this function runs at all —
+ * so a failed drop-occurrence roll costs nothing here); if that
+ * resolves to null (the 90% non-card branch), falls back to
+ * selectEnemyDropItemId's existing non-card draw unchanged (same pool,
+ * same SALT_ITEM_SELECTION stream, same 1-rng()-call contract). Never
+ * duplicates the card candidate table or weighting logic — both live
+ * solely in card-loot.ts.
+ */
+export function selectEnemyDropItemIdWithCards(floor: number, floorSeed: number, enemyId: number): ItemId {
+  const categoryRng = createEnemyDropRng(floorSeed, enemyId, SALT_CARD_CATEGORY);
+  const rarityRng = createEnemyDropRng(floorSeed, enemyId, SALT_CARD_RARITY);
+  const bodyRng = createEnemyDropRng(floorSeed, enemyId, SALT_CARD_BODY);
+  const card = resolveCardSlot(categoryRng, rarityRng, bodyRng);
+  if (card) return card;
+  return selectEnemyDropItemId(floor, floorSeed, enemyId);
 }
 
 /**

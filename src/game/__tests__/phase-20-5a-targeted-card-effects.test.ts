@@ -336,13 +336,18 @@ describe('Phase 20.5a: temperance and star', () => {
       }
     });
 
-    it('no card appears across 100 seeds of real floor generation', () => {
+    it('Phase 24.4c: if any of these cards appears via production floor generation, it is a plain GroundItem with no equipment/instance state attached (cards were unreachable in production before Phase 24.4c connected the loot routes — see docs/history/phase-24-4c-card-supply.md)', () => {
+      let sawAny = false;
       for (let seed = 1; seed <= 100; seed++) {
         const state = createInitialState(seed);
         for (const item of state.groundItems) {
-          expect(['temperance', 'star'].includes(item.itemId)).toBe(false);
+          if (['temperance', 'star'].includes(item.itemId)) {
+            sawAny = true;
+            expect(item.equipmentInstanceId).toBeUndefined();
+          }
         }
       }
+      expect(sawAny).toBe(true);
     });
 
     it('a solved individual persists across a floor transition', () => {

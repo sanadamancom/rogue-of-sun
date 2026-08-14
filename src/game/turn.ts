@@ -58,7 +58,7 @@ import {
   resolveEnemyDropEquipmentDefinition,
   rollEnemyDropCurse,
   rollEnemyDropOccurs,
-  selectEnemyDropItemId,
+  selectEnemyDropItemIdWithCards,
 } from './enemy-drop';
 import { TOTAL_FLOORS } from './floor';
 import { validateForgeMaterialsWithLineage } from './solar-forge';
@@ -468,7 +468,7 @@ function spawnEnemyDropIfAny(state: GameState, target: EnemyActor, events: GameE
   const enemyId = target.id ?? 0;
   if (!rollEnemyDropOccurs(floorSeed, enemyId)) return;
 
-  const drawnItemId = selectEnemyDropItemId(state.floor, floorSeed, enemyId);
+  const drawnItemId = selectEnemyDropItemIdWithCards(state.floor, floorSeed, enemyId);
   let finalItemId: ItemId = drawnItemId;
   let resolvedDefinitionId: WeaponId | ArmorId | undefined;
   let cursed = false;
@@ -521,6 +521,15 @@ function spawnEnemyDropIfAny(state: GameState, target: EnemyActor, events: GameE
     itemId: finalItemId,
     pos: dropPos,
     ...(equipmentInstanceId ? { equipmentInstanceId } : {}),
+    // Phase 24.4c: identical rule to item_picked_up's own
+    // unidentifiedCard — a dropped card is not identified by dropping/
+    // landing alone; the event carries whether it's still unidentified
+    // so message-log.ts shows the placeholder name instead of leaking
+    // the real one.
+    ...((CARD_IDS_IN_ORDER as readonly string[]).includes(finalItemId) &&
+    !isCardIdentified(state, finalItemId as import('./types').CardId)
+      ? { unidentifiedCard: true }
+      : {}),
   });
 }
 
