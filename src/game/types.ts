@@ -1194,4 +1194,13 @@ export type PlayerAction =
   | { type: 'unequip_armor'; equipmentInstanceId: string }
   | { type: 'toggle_enchantment' }
   | { type: 'place_item'; itemId: ItemId; equipmentInstanceId?: string }
-  | { type: 'discard_item'; itemId: ItemId; equipmentInstanceId?: string };
+  | { type: 'discard_item'; itemId: ItemId; equipmentInstanceId?: string }
+  // Phase 24.2: 太陽鍛冶コア. `materialInstanceIds` names exactly the 2
+  // held weapon EquipmentInstances to consume (order-independent — see
+  // solar-forge.ts's buildForgeRecipeKey). Never an ItemId-only shape:
+  // the whole point of this action is identity-precise material
+  // selection (development_plan's action_boundary "素材instanceIdを2つ
+  // 保持する"). turn.ts's applySolarForge re-validates ownership,
+  // curse-lock, and recipe existence itself before applying anything —
+  // never trusts a stale caller-side selection.
+  | { type: 'solar_forge'; materialInstanceIds: [string, string] };

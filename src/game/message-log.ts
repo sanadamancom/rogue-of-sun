@@ -426,6 +426,12 @@ export function formatEvent(event: GameEvent): string {
         ? `${cardName}の効果で装備の輝きが増した。（+${event.refineLevelAfter}）`
         : `${cardName}を使ったが、これ以上輝きは増さなかった。`;
     }
+    case 'solar_forge_completed': {
+      const name = ITEM_DEFINITIONS[event.outputDefinitionId].displayName;
+      return `太陽鍛冶で${name}が完成した。`;
+    }
+    case 'solar_forge_failed':
+      return '太陽鍛冶に失敗した。';
     case 'monster_house_revealed':
       return 'モンスターハウスだ！';
     default: {

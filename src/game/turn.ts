@@ -37,6 +37,7 @@ import {
 } from './card-target-selection';
 import {
   createEquipmentInstance,
+  createEquipmentInstanceWithRank,
   ensureAvailableInstanceForEquip,
   EQUIPMENT_REFINE_LEVEL_CAP,
   findHeldInstanceById,
@@ -50,6 +51,8 @@ import {
   normalizeEquipmentInstances,
   removeInstanceById,
 } from './equipment-instance';
+import { validateForgeMaterials } from './solar-forge';
+import { SOLAR_FORGE_RECIPES } from './solar-forge-recipes';
 import {
   AbilityId,
   Actor,
@@ -805,6 +808,10 @@ function applyPlayerAction(
 
   if (action.type === 'discard_item') {
     return applyDiscardItem(state, action.itemId, events, action.equipmentInstanceId);
+  }
+
+  if (action.type === 'solar_forge') {
+    return applySolarForge(state, action.materialInstanceIds, events);
   }
 
   // Enchantment toggle (Phase 10.1, 'f' key; Phase 14.2 extends the
@@ -2707,6 +2714,70 @@ function applyDiscardItem(
 }
 
 /**
+ * Resolves a 'solar_forge' action (Phase 24.2): validates
+ * `materialInstanceIds` via solar-forge.ts's validateForgeMaterials (the
+ * exact same check getSolarForgeCandidates uses for enumeration), and on
+ * success atomically consumes both materials and mints exactly 1 new
+ * output instance. `registry` defaults to production's SOLAR_FORGE_RECIPES
+ * (empty this phase — production_sanity's "production registryでは候補
+ * 0件として安全に終了することを確認") but accepts an injected fixture
+ * registry so tests can exercise the success path without any real
+ * B/A/S/R weapon existing yet (final_instruction's "fixture catalog/
+ * recipeを注入可能な純関数と production action境界のテストで証明する").
+ *
+ * Nothing is mutated until validation fully succeeds (core_api's
+ * "validation完了前にinventory、equipmentInstances、
+ * equippedWeaponInstanceIdを変更しない" / "途中失敗して素材片方だけ消える
+ * 状態を作らず、変換をatomicに適用する"): both materials are removed and
+ * the output is minted within this single call, with no early return in
+ * between that could leave state half-updated.
+ */
+export function applySolarForge(
+  state: GameState,
+  materialInstanceIds: readonly [string, string],
+  events: GameEvent[],
+  registry: readonly import('./solar-forge').SolarForgeRecipe[] = SOLAR_FORGE_RECIPES,
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  normalizeEquipmentInstances(state);
+  const [idA, idB] = materialInstanceIds;
+  const result = validateForgeMaterials(state, registry, idA, idB);
+  if (!result.ok) {
+    events.push({ type: 'solar_forge_failed', reason: result.reason });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  const { recipe, instanceA, instanceB } = result;
+  // Whether either consumed material is the currently-equipped weapon —
+  // validateForgeMaterials already guarantees at most one of the two can
+  // be (output_rules's "weapon装備枠は1つ" invariant) — decides whether
+  // the freshly-minted output auto-equips into that same slot.
+  const materialWasEquipped =
+    instanceA.instanceId === state.equippedWeaponInstanceId || instanceB.instanceId === state.equippedWeaponInstanceId;
+
+  state.inventory[instanceA.definitionId] = Math.max(0, (state.inventory[instanceA.definitionId] ?? 0) - 1);
+  state.inventory[instanceB.definitionId] = Math.max(0, (state.inventory[instanceB.definitionId] ?? 0) - 1);
+  removeInstanceById(state, instanceA.instanceId);
+  removeInstanceById(state, instanceB.instanceId);
+
+  const output = createEquipmentInstanceWithRank(state, recipe.outputDefinitionId, recipe.outputRank);
+  state.inventory[recipe.outputDefinitionId] = (state.inventory[recipe.outputDefinitionId] ?? 0) + 1;
+
+  if (materialWasEquipped) {
+    state.equippedWeaponId = recipe.outputDefinitionId;
+    state.equippedWeaponInstanceId = output.instanceId;
+  }
+
+  events.push({
+    type: 'solar_forge_completed',
+    materialInstanceIds: [instanceA.instanceId, instanceB.instanceId],
+    outputDefinitionId: recipe.outputDefinitionId,
+    outputInstanceId: output.instanceId,
+  });
+  state.inventoryOpen = false;
+  return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
  * Resolves an attack against the player if `enemy` is adjacent to them
  * (8-direction adjacency), updating facing and (on a hit) player
  * HP/alive. Returns whether an attack was attempted at all (true
@@ -4271,7 +4342,8 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
     action.type !== 'unequip_weapon' &&
     action.type !== 'unequip_armor' &&
     action.type !== 'place_item' &&
-    action.type !== 'discard_item'
+    action.type !== 'discard_item' &&
+    action.type !== 'solar_forge'
   ) {
     return {
       consumed: false,

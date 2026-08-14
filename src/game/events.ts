@@ -443,4 +443,22 @@ export type GameEvent =
   // no unseen information (no room coordinates, enemy count, or reward
   // count) — see message-log.ts's formatEvent for the fixed notification
   // text this maps to.
-  | { type: 'monster_house_revealed' };
+  | { type: 'monster_house_revealed' }
+  // Phase 24.2 太陽鍛冶コア: pushed exactly once on a successful forge —
+  // event_and_log's "素材2個と完成品を識別できる情報を保持する". The 2
+  // material instanceIds are always the exact ids the action named
+  // (never re-derived), `outputInstanceId` is the freshly-minted
+  // instance's id (never reused). Never pushed on failure/cancel/stale
+  // selection — see 'solar_forge_failed' below for that case.
+  | {
+      type: 'solar_forge_completed';
+      materialInstanceIds: [string, string];
+      outputDefinitionId: WeaponId;
+      outputInstanceId: string;
+    }
+  // Phase 24.2: pushed instead of 'solar_forge_completed' whenever the
+  // action is rejected outright (no recipe, invalid/duplicate/cursed
+  // material, unsafe equipped state) — never distinguishes curse from
+  // any other rejection at the event/message level (curse_rules's
+  // "失敗ログは呪いを断定しない汎用文言にする").
+  | { type: 'solar_forge_failed'; reason: 'duplicate_instance' | 'invalid_instance' | 'not_weapon' | 'cursed' | 'no_recipe' | 'unsafe_equipped_state' };

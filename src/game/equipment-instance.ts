@@ -243,6 +243,48 @@ export function createEquipmentInstance(state: GameState, definitionId: WeaponId
 }
 
 /**
+ * Phase 24.2 太陽鍛冶コア: like createEquipmentInstance above, but takes
+ * an explicit `rank` instead of deriving it from `definitionId`'s
+ * species-default table entry — the only creation path whose rank can
+ * legitimately differ from its own species' WEAPON_DEFINITIONS/
+ * ARMOR_DEFINITIONS entry (a forged output's rank comes from the recipe,
+ * not the input species' table row — output_rules's "definitionIdと
+ * rankはレシピの出力定義に従う"). Every other attribute is identical to
+ * a freshly-minted default instance (refineLevel 0, cursed false,
+ * curseRevealed false — output_rules's "素材の個体状態を完成品へ暗黙継承
+ * しない"). Uses the same deterministic, RNG-free
+ * state.nextEquipmentInstanceId counter as createEquipmentInstance, so
+ * instance ids never collide between the two creation paths.
+ */
+export function createEquipmentInstanceWithRank(
+  state: GameState,
+  definitionId: WeaponId | ArmorId,
+  rank: EquipmentRank,
+): EquipmentInstance {
+  const next = state.nextEquipmentInstanceId ?? 0;
+  // Deliberately does not call mintEquipmentInstance: that helper derives
+  // rank from WEAPON_DEFINITIONS/ARMOR_DEFINITIONS via definitionRankFor,
+  // which would throw for a fixture-only definitionId that has no
+  // production catalog entry (exactly the shape solar-forge.ts's test
+  // fixtures use) and would ignore the caller's explicit `rank` even for
+  // a real one — the whole point of this function.
+  const instance: EquipmentInstance = {
+    instanceId: `eq-${next}`,
+    definitionId,
+    refineLevel: 0,
+    cursed: false,
+    curseRevealed: false,
+    rank,
+  };
+  state.nextEquipmentInstanceId = next + 1;
+  if (!state.equipmentInstances) {
+    state.equipmentInstances = [];
+  }
+  state.equipmentInstances.push(instance);
+  return instance;
+}
+
+/**
  * Returns one currently-unequipped instance of `definitionId` if one
  * exists among `state.equipmentInstances` (never the instance referenced
  * by `equippedInstanceId`), or undefined if none is available. Does not
