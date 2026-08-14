@@ -22,7 +22,9 @@ import {
   INVENTORY_CAPACITY,
   moveInventorySelection,
   toggleInventory,
+  selectedEquipmentInstanceId,
   selectedInventoryAction,
+  selectedInventoryEntry,
   selectedItemId,
   totalInventoryCount,
   useSelectedInventoryItem,
@@ -1664,14 +1666,18 @@ class MainScene extends Phaser.Scene {
 
   /** Available actions for the currently-selected item in the 道具 list (spec 9.3). */
   private currentItemActions(): string[] {
-    const itemId = selectedItemId(this.state);
-    if (!itemId) return [];
-    const def = ITEM_DEFINITIONS[itemId];
+    const entry = selectedInventoryEntry(this.state);
+    if (!entry) return [];
+    const def = ITEM_DEFINITIONS[entry.itemId];
     const actions: string[] = [];
-    if (def.category === 'weapon') {
-      actions.push(this.state.equippedWeaponId === itemId ? '外す' : '装備する');
-    } else if (def.category === 'armor') {
-      actions.push(this.state.equippedArmorId === itemId ? '外す' : '装備する');
+    if (def.category === 'weapon' || def.category === 'armor') {
+      // Phase 24.1: the label reflects this specific entry's equipped
+      // state (never the species'), so two held individuals of the same
+      // species can show different labels ('装備する' for one, '外す' for
+      // the other) — see selectedInventoryAction's identical per-entry
+      // routing in inventory.ts.
+      const equipped = entry.kind === 'equipment_instance' && entry.equipped;
+      actions.push(equipped ? '外す' : '装備する');
     } else if (def.consumable) {
       actions.push('食べる／使う');
     }
@@ -1821,8 +1827,10 @@ class MainScene extends Phaser.Scene {
   private handleMenuConfirm(): void {
     if (this.state.discardConfirmItemId) {
       const itemId = this.state.discardConfirmItemId;
+      const equipmentInstanceId = this.state.discardConfirmEquipmentInstanceId ?? undefined;
       this.state.discardConfirmItemId = null;
-      this.dispatchGameAction({ type: 'discard_item', itemId });
+      this.state.discardConfirmEquipmentInstanceId = null;
+      this.dispatchGameAction({ type: 'discard_item', itemId, ...(equipmentInstanceId ? { equipmentInstanceId } : {}) });
       this.state.inventoryOpen = true;
       this.menuScreen = 'items';
       this.refreshMenuOverlay();
@@ -1878,12 +1886,19 @@ class MainScene extends Phaser.Scene {
         const action = actions[this.itemActionIndex];
         if (action === '捨てる') {
           const itemId = selectedItemId(this.state);
-          if (itemId) this.state.discardConfirmItemId = itemId;
+          const equipmentInstanceId = selectedEquipmentInstanceId(this.state);
+          if (itemId) {
+            this.state.discardConfirmItemId = itemId;
+            this.state.discardConfirmEquipmentInstanceId = equipmentInstanceId;
+          }
           break;
         }
         if (action === '置く') {
           const itemId = selectedItemId(this.state);
-          if (itemId) this.dispatchGameAction({ type: 'place_item', itemId });
+          const equipmentInstanceId = selectedEquipmentInstanceId(this.state);
+          if (itemId) {
+            this.dispatchGameAction({ type: 'place_item', itemId, ...(equipmentInstanceId ? { equipmentInstanceId } : {}) });
+          }
           this.state.inventoryOpen = true;
           this.menuScreen = 'items';
           break;
@@ -2012,6 +2027,7 @@ class MainScene extends Phaser.Scene {
   private handleMenuBack(): void {
     if (this.state.discardConfirmItemId) {
       this.state.discardConfirmItemId = null;
+      this.state.discardConfirmEquipmentInstanceId = null;
       this.refreshMenuOverlay();
       return;
     }
@@ -2107,24 +2123,44 @@ class MainScene extends Phaser.Scene {
           entries.forEach((entry, i) => {
             const def = ITEM_DEFINITIONS[entry.itemId];
             const marker = i === this.state.selectedItemIndex ? '> ' : '  ';
-            const equipMark = entry.itemId === this.state.equippedWeaponId || entry.itemId === this.state.equippedArmorId ? 'E ' : '  ';
-            const count = def.category === 'consumable' ? `x${entry.count}` : '';
             const displayName = this.displayedItemName(entry.itemId);
-            listLines.push(`${marker}${equipMark}${def.glyph}${displayName} ${count}`);
+            if (entry.kind === 'equipment_instance') {
+              // Phase 24.1: per-individual display — equipped marker,
+              // rank, +refineLevel, and a discovered-cursed marker are
+              // all per-entry now (never per-species), so two held
+              // individuals of the same species can show different
+              // details on the same screen (inventory_entry_design's
+              // display rules in docs/history/phase-24-1-equipment-
+              // instance-actions.md). An undiscovered curse is never
+              // shown or hinted at here.
+              const equipMark = entry.equipped ? 'E ' : '  ';
+              const refineSuffix = entry.refineLevel > 0 ? `+${entry.refineLevel}` : '';
+              const curseMark = entry.curseRevealed ? '（呪）' : '';
+              listLines.push(`${marker}${equipMark}${def.glyph}${displayName}${refineSuffix} [${entry.rank}]${curseMark}`);
+            } else {
+              const equipMark = '  ';
+              const count = def.category === 'consumable' ? `x${entry.count}` : '';
+              listLines.push(`${marker}${equipMark}${def.glyph}${displayName} ${count}`);
+            }
           });
         }
+        const selectedEntry = selectedInventoryEntry(this.state);
         const selected = selectedItemId(this.state);
-        if (selected) {
+        if (selected && selectedEntry) {
           const def = ITEM_DEFINITIONS[selected];
           detailLines.push(this.displayedItemName(selected));
           if (def.category === 'weapon') {
             const w = WEAPON_DEFINITIONS[selected as 'sword' | 'spear' | 'hammer'];
             detailLines.push(`攻撃${w.attackPower}・射程${w.reach}`);
-            detailLines.push(this.state.equippedWeaponId === selected ? '装備中' : '未装備');
+            detailLines.push(
+              selectedEntry.kind === 'equipment_instance' && selectedEntry.equipped ? '装備中' : '未装備',
+            );
           } else if (def.category === 'armor') {
             const a = ARMOR_DEFINITIONS[selected as 'armor'];
             detailLines.push(`防御${a.armorValue}`);
-            detailLines.push(this.state.equippedArmorId === selected ? '装備中' : '未装備');
+            detailLines.push(
+              selectedEntry.kind === 'equipment_instance' && selectedEntry.equipped ? '装備中' : '未装備',
+            );
           }
           detailLines.push('', 'J/Enter：行動を選ぶ　K/Esc：戻る');
         } else {

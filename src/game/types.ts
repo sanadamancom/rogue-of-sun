@@ -570,6 +570,22 @@ export interface GameState {
    */
   discardConfirmItemId?: ItemId | null;
   /**
+   * Phase 24.1: which specific EquipmentInstance a pending discard
+   * confirmation targets, when discardConfirmItemId is a weapon/armor
+   * itemId and the player selected a particular individual (docs/
+   * history/phase-24-0-equipment-readiness-audit.md's known_problem —
+   * discardConfirmItemId alone can't distinguish two held individuals of
+   * the same species). Undefined/null for a consumable confirmation
+   * (itemId alone is unambiguous there) or for a legacy caller that never
+   * set it. Cleared together with discardConfirmItemId on cancel, on a
+   * successful discard, and whenever the inventory overlay closes — never
+   * survives independently of it. handleMenuConfirm's discard branch
+   * re-validates this instanceId against live state (still owned, still
+   * matching the same definitionId, not the equipped one) before
+   * dispatching, exactly like every other Phase 24.1 instance reference.
+   */
+  discardConfirmEquipmentInstanceId?: string | null;
+  /**
    * Phase 11.3 hunger: current hunger (0..HUNGER_MAX, default HUNGER_MAX
    * when absent — see hunger.ts's getHunger). Run-wide state, persists
    * across floor transitions (carried by advanceToNextFloor's
@@ -1049,6 +1065,22 @@ export type WeaponId = 'sword' | 'spear' | 'hammer' | 'solar_gun';
 export type ArmorId = 'armor';
 
 /**
+ * Phase 24.1 equipment rank data foundation (rogue-of-sun-development-
+ * plan_.md Phase 24.1's "equipment rankとDPをどの段階で追加するか" ->
+ * rank only, data-plumbing scope). Fixed order C < B < A < S < R,
+ * mirroring official_phase_24_sequence's normal_floor_drop/excluded_
+ * from_normal_floor_drop sets (docs/history/phase-24-0-equipment-
+ * readiness-audit.md). Every currently-registered weapon/armor
+ * (sword/spear/hammer/solar_gun/armor) is 'C' this phase — no rank
+ * selection/weighting/combat/generation logic reads this value yet (that
+ * is Phase 24.2+'s job); this phase only establishes the type, per-
+ * species default, per-individual field, and normalize/carry-over
+ * contract so later phases have a real field to build on instead of
+ * inventing one under time pressure.
+ */
+export type EquipmentRank = 'C' | 'B' | 'A' | 'S' | 'R';
+
+/**
  * Phase 20.0c equipment-instance foundation: one individual weapon or
  * armor's persistent identity and per-copy attributes, distinct from the
  * species-level WEAPON_DEFINITIONS/ARMOR_DEFINITIONS tables (which stay
@@ -1073,6 +1105,15 @@ export interface EquipmentInstance {
   cursed: boolean;
   /** Whether this individual's curse status has been discovered (equipping a cursed instance sets this true — see turn.ts's applyWeaponEquip/applyArmorEquip). Never true while cursed is false (normalizeEquipmentInstances corrects that combination if ever encountered — see its own doc comment). */
   curseRevealed: boolean;
+  /**
+   * Phase 24.1 equipment rank data foundation: this individual's rank,
+   * set from its species' WEAPON_DEFINITIONS/ARMOR_DEFINITIONS `rank` at
+   * mint time and never re-rolled afterward (equipment-instance.ts's
+   * mintEquipmentInstance/normalizeEquipmentInstances). Not applied to
+   * combat, generation weight, or AI — display/data only this phase. See
+   * EquipmentRank's own doc comment for the full scope note.
+   */
+  rank: EquipmentRank;
 }
 
 /** Stacked item counts held by the player; never negative, absent/0 entries are not shown in UI. */
@@ -1129,8 +1170,28 @@ export type PlayerAction =
   // last returned; processTurn re-validates it again itself (never
   // trusts the caller) before applying any effect.
   | { type: 'use_targeted_card'; cardId: 'temperance' | 'star'; target: import('./card-target-selection').CardTargetRef }
-  | { type: 'equip_weapon'; weaponId: WeaponId }
-  | { type: 'equip_armor'; armorId: ArmorId }
+  // Phase 24.1: an optional equipmentInstanceId lets the caller pin down
+  // exactly which held individual to act on (docs/history/phase-24-0-
+  // equipment-readiness-audit.md's D1/D2/D3, resolved by phase-24-1-
+  // equipment-instance-actions.md) — production UI always supplies it for
+  // weapon/armor items; the plain weaponId/armorId/itemId-only shape
+  // remains valid for legacy callers/fixtures and falls back to the
+  // pre-24.1 "first available individual" selection in equipment-
+  // instance.ts. A present-but-invalid/unowned/wrong-definition
+  // equipmentInstanceId is rejected outright — turn.ts never silently
+  // falls back to a different individual once one was explicitly named.
+  | { type: 'equip_weapon'; weaponId: WeaponId; equipmentInstanceId?: string }
+  | { type: 'equip_armor'; armorId: ArmorId; equipmentInstanceId?: string }
+  // Phase 24.1: no such action existed before this phase — equipping a
+  // different weapon/armor was the only way to change equippedWeaponId/
+  // equippedArmorId. equipmentInstanceId is required (not optional) here:
+  // an unequip always targets a specific already-equipped individual,
+  // never "whichever is equipped" implicitly, so a stale UI selection
+  // (the player switched floors/items between opening the menu and
+  // confirming) is rejected rather than silently unequipping whatever
+  // happens to be equipped now.
+  | { type: 'unequip_weapon'; equipmentInstanceId: string }
+  | { type: 'unequip_armor'; equipmentInstanceId: string }
   | { type: 'toggle_enchantment' }
-  | { type: 'place_item'; itemId: ItemId }
-  | { type: 'discard_item'; itemId: ItemId };
+  | { type: 'place_item'; itemId: ItemId; equipmentInstanceId?: string }
+  | { type: 'discard_item'; itemId: ItemId; equipmentInstanceId?: string };

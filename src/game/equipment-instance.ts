@@ -1,4 +1,6 @@
-import { ArmorId, EquipmentInstance, GameState, WeaponId } from './types';
+import { ArmorId, EquipmentInstance, EquipmentRank, GameState, WeaponId } from './types';
+import { WEAPON_DEFINITIONS } from './weapon-def';
+import { ARMOR_DEFINITIONS } from './armor-def';
 
 /**
  * Phase 20.0c equipment-instance foundation. This module is the single
@@ -20,6 +22,23 @@ import { ArmorId, EquipmentInstance, GameState, WeaponId } from './types';
 
 export function isWeaponOrArmorId(id: string): id is WeaponId | ArmorId {
   return id === 'sword' || id === 'spear' || id === 'hammer' || id === 'solar_gun' || id === 'armor';
+}
+
+const VALID_RANKS: readonly EquipmentRank[] = ['C', 'B', 'A', 'S', 'R'];
+
+/**
+ * Phase 24.1: this species' default rank from WEAPON_DEFINITIONS/
+ * ARMOR_DEFINITIONS — the single lookup point mintEquipmentInstance and
+ * normalizeEquipmentInstances both use so a species' definition table
+ * stays the one source of truth for rank, never duplicated inline.
+ */
+function definitionRankFor(definitionId: WeaponId | ArmorId): EquipmentRank {
+  return definitionId === 'armor' ? ARMOR_DEFINITIONS.armor.rank : WEAPON_DEFINITIONS[definitionId].rank;
+}
+
+/** Whether `value` is one of the 5 valid EquipmentRank strings. */
+function isValidRank(value: unknown): value is EquipmentRank {
+  return typeof value === 'string' && (VALID_RANKS as readonly string[]).includes(value);
 }
 
 /**
@@ -80,6 +99,7 @@ export function mintEquipmentInstance(
     refineLevel: 0,
     cursed,
     curseRevealed: false,
+    rank: definitionRankFor(definitionId),
   };
 }
 
@@ -157,6 +177,45 @@ export function getHeldEquipmentInstances(state: GameState): EquipmentInstance[]
     result.push(...selected.slice(0, owned));
   }
   return result;
+}
+
+/**
+ * Phase 24.1: the held instance matching `equipmentInstanceId` exactly,
+ * if it exists, is currently held (getHeldEquipmentInstances — never a
+ * floor-only or orphaned instance), and its definitionId matches
+ * `definitionId`. Returns undefined for any mismatch (wrong species,
+ * unowned, floor-only, unknown id) — callers (turn.ts's instance-aware
+ * equip/place/discard branches) treat undefined as "reject the action
+ * outright", never as "fall back to a different individual" (per
+ * docs/history/phase-24-1-equipment-instance-actions.md's stale-action
+ * contract: an explicitly-named instanceId is never silently
+ * substituted).
+ */
+export function findHeldInstanceById(
+  state: GameState,
+  definitionId: WeaponId | ArmorId,
+  equipmentInstanceId: string,
+): EquipmentInstance | undefined {
+  return getHeldEquipmentInstances(state).find(
+    (i) => i.instanceId === equipmentInstanceId && i.definitionId === definitionId,
+  );
+}
+
+/**
+ * Phase 24.1: like findHeldInstanceById, but additionally rejects the
+ * currently-equipped instance for this slot (place_item/discard_item's
+ * "the equipped individual can never be placed/discarded" rule — see
+ * isLastEquippedCopy's pre-24.1 species-level version in turn.ts, now
+ * enforced at the individual level here).
+ */
+export function findHeldUnequippedInstanceById(
+  state: GameState,
+  definitionId: WeaponId | ArmorId,
+  equipmentInstanceId: string,
+  equippedInstanceId: string | null | undefined,
+): EquipmentInstance | undefined {
+  if (equipmentInstanceId === equippedInstanceId) return undefined;
+  return findHeldInstanceById(state, definitionId, equipmentInstanceId);
 }
 
 /**
@@ -254,6 +313,14 @@ export function normalizeEquipmentInstances(state: GameState): void {
     if (!instance.cursed && instance.curseRevealed) {
       instance.curseRevealed = false;
     }
+    // Phase 24.1: a missing/invalid rank (legacy fixtures predating this
+    // phase, or a hand-built malformed state) normalizes to its species'
+    // current definition rank — never re-derived from anything else, and
+    // never touched again once valid (mirrors refineLevel/cursed's own
+    // correction-only-when-malformed treatment above).
+    if (!isValidRank(instance.rank)) {
+      instance.rank = definitionRankFor(instance.definitionId);
+    }
   }
 
   const inventory = state.inventory ?? {};
@@ -261,9 +328,57 @@ export function normalizeEquipmentInstances(state: GameState): void {
     if (!isWeaponOrArmorId(definitionId)) continue;
     const owned = inventory[definitionId] ?? 0;
     if (owned <= 0) continue;
-    const currentCount = getEquipmentInstances(state).filter((i) => i.definitionId === definitionId).length;
-    for (let i = currentCount; i < owned; i++) {
+    // Phase 24.1 correction: count only *held* instances (never a
+    // floor-only instance still referenced by a GroundItem) against
+    // `owned` — the pre-24.1 version counted every instance of this
+    // definitionId regardless of floor status, which could under-mint
+    // held individuals whenever a same-species item also happened to be
+    // sitting unpicked on the current floor (e.g. a floor-generated
+    // ground item not yet collected while the player already carries
+    // one from a previous floor). getHeldEquipmentInstances/
+    // inventoryEntries both depend on `owned` held instances actually
+    // existing, so this keeps that invariant true in every case, not
+    // just the common one.
+    const currentHeldCount = getEquipmentInstances(state).filter(
+      (i) => i.definitionId === definitionId && !isEquipmentInstanceOnFloor(state, i.instanceId),
+    ).length;
+    for (let i = currentHeldCount; i < owned; i++) {
       createEquipmentInstance(state, definitionId);
+    }
+  }
+
+  // Phase 24.1: backfill equippedWeaponInstanceId/equippedArmorInstanceId
+  // when equippedWeaponId/equippedArmorId is set but the paired instance
+  // pointer is missing or stale (doesn't resolve to an instance of that
+  // exact species) — this was always the documented contract (see
+  // types.ts's equippedWeaponInstanceId doc comment: "this should be
+  // non-null whenever equippedWeaponId is non-null in practice") but
+  // was never actually enforced here before Phase 24.1, which now
+  // depends on it for entry.equipped display/unequip-routing correctness
+  // (inventory.ts's inventoryEntries). Picks the species' first instance
+  // in existing stable array order — RNG-free, deterministic, and a
+  // no-op once already valid (idempotent, like every other correction in
+  // this function).
+  if (state.equippedWeaponId) {
+    const current = state.equippedWeaponInstanceId
+      ? getEquipmentInstances(state).find(
+          (i) => i.instanceId === state.equippedWeaponInstanceId && i.definitionId === state.equippedWeaponId,
+        )
+      : undefined;
+    if (!current) {
+      const fallback = getEquipmentInstances(state).find((i) => i.definitionId === state.equippedWeaponId);
+      state.equippedWeaponInstanceId = fallback ? fallback.instanceId : null;
+    }
+  }
+  if (state.equippedArmorId) {
+    const current = state.equippedArmorInstanceId
+      ? getEquipmentInstances(state).find(
+          (i) => i.instanceId === state.equippedArmorInstanceId && i.definitionId === state.equippedArmorId,
+        )
+      : undefined;
+    if (!current) {
+      const fallback = getEquipmentInstances(state).find((i) => i.definitionId === state.equippedArmorId);
+      state.equippedArmorInstanceId = fallback ? fallback.instanceId : null;
     }
   }
 }
@@ -285,6 +400,22 @@ export function findUnequippedInstanceId(
 ): string | undefined {
   return getEquipmentInstances(state).find((i) => i.definitionId === definitionId && i.instanceId !== equippedInstanceId)
     ?.instanceId;
+}
+
+/**
+ * Removes exactly the instance matching `instanceId` from
+ * `state.equipmentInstances`, if present — used by discard_item's
+ * Phase 24.1 instance-aware path (the caller, turn.ts's
+ * resolveEquipmentTargetForRemoval, has already verified this instance
+ * is held and unequipped before calling). A no-op if the id isn't found
+ * (defensive; should not happen given the caller's prior validation).
+ */
+export function removeInstanceById(state: GameState, instanceId: string): void {
+  const instances = getEquipmentInstances(state);
+  const index = instances.findIndex((i) => i.instanceId === instanceId);
+  if (index >= 0) {
+    instances.splice(index, 1);
+  }
 }
 
 /**

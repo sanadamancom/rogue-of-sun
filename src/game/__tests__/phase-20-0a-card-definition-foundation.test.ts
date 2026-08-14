@@ -298,7 +298,7 @@ describe('Phase 20.0a: card definition foundation', () => {
       const inv = createEmptyInventory();
       inv.high_priestess = 1;
       const entries = inventoryEntries({ inventory: inv } as unknown as Parameters<typeof inventoryEntries>[0]);
-      expect(entries.some((e) => e.itemId === 'high_priestess' && e.count === 1)).toBe(true);
+      expect(entries.some((e) => e.itemId === 'high_priestess' && e.kind === 'inventory_item' && e.count === 1)).toBe(true);
     });
 
     it('does not change existing ground-item draw results for a fixed seed (floor 1, count 4)', () => {

@@ -1,4 +1,4 @@
-import { WeaponId } from './types';
+import { EquipmentRank, WeaponId } from './types';
 
 /**
  * A single weapon species' fixed combat data (Phase 08.3 weapon/equipment
@@ -55,6 +55,14 @@ export interface WeaponDefinition {
    * weapon concept).
    */
   hitModifier: number;
+  /**
+   * Phase 24.1 equipment rank data foundation: this species' default rank,
+   * copied onto every newly-minted EquipmentInstance of this species (see
+   * equipment-instance.ts's mintEquipmentInstance). Every weapon
+   * registered before Phase 24.3's expanded roster is 'C' — see
+   * EquipmentRank's own doc comment in types.ts for the full scope note.
+   */
+  rank: EquipmentRank;
 }
 
 // Single source of truth for every registered weapon's combat stats.
@@ -70,6 +78,7 @@ export const WEAPON_DEFINITIONS: Record<WeaponId, WeaponDefinition> = {
     knockbackDistance: 0,
     hasRecoil: false,
     hitModifier: 5,
+    rank: 'C',
   },
   spear: {
     id: 'spear',
@@ -78,6 +87,7 @@ export const WEAPON_DEFINITIONS: Record<WeaponId, WeaponDefinition> = {
     knockbackDistance: 0,
     hasRecoil: false,
     hitModifier: 5,
+    rank: 'C',
   },
   hammer: {
     id: 'hammer',
@@ -86,6 +96,7 @@ export const WEAPON_DEFINITIONS: Record<WeaponId, WeaponDefinition> = {
     knockbackDistance: 1,
     hasRecoil: true,
     hitModifier: -5,
+    rank: 'C',
   },
   solar_gun: {
     id: 'solar_gun',
@@ -114,6 +125,7 @@ export const WEAPON_DEFINITIONS: Record<WeaponId, WeaponDefinition> = {
     // never touches this constant. attackPower and reach are unchanged.
     solarCost: 3,
     hitModifier: 5,
+    rank: 'C',
   },
 };
 

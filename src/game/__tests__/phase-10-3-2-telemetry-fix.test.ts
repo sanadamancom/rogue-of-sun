@@ -237,7 +237,7 @@ describe('equipment change tracking (Phase 10.3.2, known_failure missing_equipme
   it('selectedInventoryAction correctly identifies an equip_weapon action for a weapon entry', () => {
     const state = freshState({ enemies: [], inventory: { ...createEmptyInventory(), sword: 1 } });
     const action = selectedInventoryAction(state);
-    expect(action).toEqual({ type: 'equip_weapon', weaponId: 'sword' });
+    expect(action).toEqual({ type: 'equip_weapon', weaponId: 'sword', equipmentInstanceId: 'eq-0' });
   });
 
   it('the inventory Enter-equip path (main.ts simulation) records equipment_changed exactly once', () => {

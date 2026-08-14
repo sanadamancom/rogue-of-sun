@@ -287,10 +287,10 @@ describe('equipping the spear', () => {
   it('inventoryEntries lists spear alongside apple/sword/armor when owned', () => {
     const state = freshState({ inventory: { apple: 1, sword: 1, armor: 1, spear: 1, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, flame_enchantment: 0, frost_enchantment: 0, cloud_enchantment: 0, earth_enchantment: 0, chocolate: 0, banana: 0, antidote: 0, panacea: 0, clairvoyance_fruit: 0, high_priestess: 0, empress: 0, emperor: 0, lovers: 0, chariot: 0, strength: 0, wheel_of_fortune: 0, justice: 0, hanged_man: 0, death: 0, temperance: 0, devil: 0, tower: 0, star: 0, moon: 0, sun: 0, judgement: 0 } });
     expect(inventoryEntries(state)).toEqual([
-      { itemId: 'apple', count: 1 },
-      { itemId: 'sword', count: 1 },
-      { itemId: 'armor', count: 1 },
-      { itemId: 'spear', count: 1 },
+      { kind: 'inventory_item', itemId: 'apple', count: 1 },
+      { kind: 'equipment_instance', itemId: 'sword', instanceId: 'eq-0', refineLevel: 0, rank: 'C', cursed: false, curseRevealed: false, equipped: false },
+      { kind: 'equipment_instance', itemId: 'armor', instanceId: 'eq-1', refineLevel: 0, rank: 'C', cursed: false, curseRevealed: false, equipped: false },
+      { kind: 'equipment_instance', itemId: 'spear', instanceId: 'eq-2', refineLevel: 0, rank: 'C', cursed: false, curseRevealed: false, equipped: false },
     ]);
   });
 });

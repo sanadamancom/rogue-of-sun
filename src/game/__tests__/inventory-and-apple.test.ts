@@ -295,7 +295,7 @@ describe('inventory overlay controls (Tab/Escape/Arrow/Enter)', () => {
 
   it('inventory display includes positive-count items', () => {
     const state = freshState({ inventory: { apple: 2, sword: 0, armor: 0, spear: 0, hammer: 0, sun_fruit: 0, solar_gun: 0, sol_enchantment: 0, flame_enchantment: 0, frost_enchantment: 0, cloud_enchantment: 0, earth_enchantment: 0, chocolate: 0, banana: 0, antidote: 0, panacea: 0, clairvoyance_fruit: 0, high_priestess: 0, empress: 0, emperor: 0, lovers: 0, chariot: 0, strength: 0, wheel_of_fortune: 0, justice: 0, hanged_man: 0, death: 0, temperance: 0, devil: 0, tower: 0, star: 0, moon: 0, sun: 0, judgement: 0 } });
-    expect(inventoryEntries(state)).toEqual([{ itemId: 'apple', count: 2 }]);
+    expect(inventoryEntries(state)).toEqual([{ kind: 'inventory_item', itemId: 'apple', count: 2 }]);
   });
 
   it('while the overlay is open, move/wait input is rejected (no turn consumed, no effect)', () => {

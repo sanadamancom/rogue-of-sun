@@ -39,13 +39,16 @@ import {
   createEquipmentInstance,
   ensureAvailableInstanceForEquip,
   EQUIPMENT_REFINE_LEVEL_CAP,
+  findHeldInstanceById,
+  findHeldUnequippedInstanceById,
   findUnequippedInstanceId,
   getEquipmentInstanceById,
   getEquipmentInstances,
   isEquippedArmorCurseLocked,
   isEquippedWeaponCurseLocked,
+  isWeaponOrArmorId,
   normalizeEquipmentInstances,
-  removeUnequippedInstance,
+  removeInstanceById,
 } from './equipment-instance';
 import {
   AbilityId,
@@ -773,11 +776,22 @@ function applyPlayerAction(
   }
 
   if (action.type === 'equip_weapon') {
-    return applyWeaponEquip(state, action.weaponId, events);
+    return applyWeaponEquip(state, action.weaponId, events, action.equipmentInstanceId);
   }
 
   if (action.type === 'equip_armor') {
-    return applyArmorEquip(state, action.armorId, events);
+    return applyArmorEquip(state, action.armorId, events, action.equipmentInstanceId);
+  }
+
+  // Phase 24.1: dedicated unequip actions (previously the only way to
+  // change equippedWeaponId/equippedArmorId was equipping something
+  // else). Resolved the same way equip_weapon/equip_armor are.
+  if (action.type === 'unequip_weapon') {
+    return applyWeaponUnequip(state, action.equipmentInstanceId, events);
+  }
+
+  if (action.type === 'unequip_armor') {
+    return applyArmorUnequip(state, action.equipmentInstanceId, events);
   }
 
   // Phase 11.2: place selected item at the player's feet / discard it
@@ -786,11 +800,11 @@ function applyPlayerAction(
   // rejection in processTurn — so a success runs the normal post-action
   // pipeline (enemy actions, regen, floor check, turn increment).
   if (action.type === 'place_item') {
-    return applyPlaceItem(state, action.itemId, events);
+    return applyPlaceItem(state, action.itemId, events, action.equipmentInstanceId);
   }
 
   if (action.type === 'discard_item') {
-    return applyDiscardItem(state, action.itemId, events);
+    return applyDiscardItem(state, action.itemId, events, action.equipmentInstanceId);
   }
 
   // Enchantment toggle (Phase 10.1, 'f' key; Phase 14.2 extends the
@@ -2346,31 +2360,43 @@ function applyWeaponEquip(
   state: GameState,
   weaponId: import('./types').WeaponId,
   events: GameEvent[],
+  equipmentInstanceId?: string,
 ): { consumed: boolean; attacked: boolean; defeated: boolean } {
   const owned = state.inventory[weaponId] ?? 0;
   if (owned <= 0) {
     return { consumed: false, attacked: false, defeated: false };
   }
 
-  if (state.equippedWeaponId === weaponId) {
+  normalizeEquipmentInstances(state);
+
+  // Phase 24.1: an explicitly-named instanceId must resolve to an owned
+  // individual of this exact species — a stale/unowned/wrong-species id
+  // is rejected outright rather than silently falling back to a
+  // different individual (docs/history/phase-24-1-equipment-instance-
+  // actions.md's stale-action contract).
+  if (equipmentInstanceId !== undefined && !findHeldInstanceById(state, weaponId, equipmentInstanceId)) {
+    events.push({ type: 'weapon_equip_blocked', weaponId, reason: 'invalid_instance' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  if (state.equippedWeaponId === weaponId && (equipmentInstanceId === undefined || equipmentInstanceId === state.equippedWeaponInstanceId)) {
     events.push({ type: 'weapon_already_equipped', weaponId });
     return { consumed: false, attacked: false, defeated: false };
   }
 
   // Phase 20.0c: a discovered-cursed currently-equipped weapon cannot be
   // swapped away via normal equip (rogue-of-sun-development-plan.md
-  // 20.0c's "判明済みの呪い装備を通常操作では装備解除できない" — there is
-  // no separate 'unequip' action in this game; equipping a different
-  // weapon is the only way to change equippedWeaponId, so blocking the
-  // swap here is the complete implementation of that rule). Rejected
-  // before touching inventory/equipment state or consuming a turn.
-  normalizeEquipmentInstances(state);
+  // 20.0c's "判明済みの呪い装備を通常操作では装備解除できない"). Phase
+  // 24.1 adds a dedicated unequip_weapon action (see applyWeaponUnequip
+  // below), which is blocked by the exact same curse-lock rule.
   if (isEquippedWeaponCurseLocked(state)) {
     events.push({ type: 'weapon_equip_blocked', weaponId, reason: 'cursed' });
     return { consumed: false, attacked: false, defeated: false };
   }
 
-  const instance = ensureAvailableInstanceForEquip(state, weaponId, state.equippedWeaponInstanceId);
+  const instance = equipmentInstanceId
+    ? findHeldInstanceById(state, weaponId, equipmentInstanceId)!
+    : ensureAvailableInstanceForEquip(state, weaponId, state.equippedWeaponInstanceId);
   state.equippedWeaponId = weaponId;
   state.equippedWeaponInstanceId = instance.instanceId;
   if (instance.cursed) {
@@ -2386,6 +2412,40 @@ function applyWeaponEquip(
 }
 
 /**
+ * Resolves an 'unequip_weapon' action (Phase 24.1): returns to bare
+ * hands. Requires equipmentInstanceId to match the currently-equipped
+ * individual exactly (a stale selection — e.g. the player re-equipped a
+ * different weapon between opening the menu and confirming — is rejected
+ * rather than unequipping whatever happens to be equipped now). Blocked
+ * (no state change, no turn) when the equipped individual is a
+ * discovered curse. Never touches inventory or equipmentInstances (the
+ * individual stays held, just no longer equipped) and, like
+ * applyWeaponEquip, never touches hammerRecovery — equip-switching
+ * (equip or unequip alike) leaves that flag exactly as it was.
+ */
+function applyWeaponUnequip(
+  state: GameState,
+  equipmentInstanceId: string,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  normalizeEquipmentInstances(state);
+  const weaponId = state.equippedWeaponId;
+  if (!weaponId || state.equippedWeaponInstanceId !== equipmentInstanceId) {
+    events.push({ type: 'weapon_unequip_blocked', reason: 'stale' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+  if (isEquippedWeaponCurseLocked(state)) {
+    events.push({ type: 'weapon_unequip_blocked', reason: 'cursed' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+  state.equippedWeaponId = null;
+  state.equippedWeaponInstanceId = null;
+  events.push({ type: 'weapon_unequipped', weaponId });
+  state.inventoryOpen = false;
+  return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
  * Resolves an 'equip_armor' action (Phase 08.4). Equipping never removes
  * the armor from the inventory and never touches player.maxHp/hp, and is
  * fully independent of equippedWeaponId (equipping armor never changes
@@ -2396,31 +2456,69 @@ function applyArmorEquip(
   state: GameState,
   armorId: import('./types').ArmorId,
   events: GameEvent[],
+  equipmentInstanceId?: string,
 ): { consumed: boolean; attacked: boolean; defeated: boolean } {
   const owned = state.inventory[armorId] ?? 0;
   if (owned <= 0) {
     return { consumed: false, attacked: false, defeated: false };
   }
 
-  if (state.equippedArmorId === armorId) {
+  normalizeEquipmentInstances(state);
+
+  // Phase 24.1: see applyWeaponEquip's identical doc comment above.
+  if (equipmentInstanceId !== undefined && !findHeldInstanceById(state, armorId, equipmentInstanceId)) {
+    events.push({ type: 'armor_equip_blocked', armorId, reason: 'invalid_instance' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  if (state.equippedArmorId === armorId && (equipmentInstanceId === undefined || equipmentInstanceId === state.equippedArmorInstanceId)) {
     events.push({ type: 'armor_already_equipped', armorId });
     return { consumed: false, attacked: false, defeated: false };
   }
 
   // Phase 20.0c: see applyWeaponEquip's identical doc comment above.
-  normalizeEquipmentInstances(state);
   if (isEquippedArmorCurseLocked(state)) {
     events.push({ type: 'armor_equip_blocked', armorId, reason: 'cursed' });
     return { consumed: false, attacked: false, defeated: false };
   }
 
-  const instance = ensureAvailableInstanceForEquip(state, armorId, state.equippedArmorInstanceId);
+  const instance = equipmentInstanceId
+    ? findHeldInstanceById(state, armorId, equipmentInstanceId)!
+    : ensureAvailableInstanceForEquip(state, armorId, state.equippedArmorInstanceId);
   state.equippedArmorId = armorId;
   state.equippedArmorInstanceId = instance.instanceId;
   if (instance.cursed) {
     instance.curseRevealed = true;
   }
   events.push({ type: 'armor_equipped', armorId });
+  state.inventoryOpen = false;
+  return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
+ * Resolves an 'unequip_armor' action (Phase 24.1) — see
+ * applyWeaponUnequip's identical doc comment above for the full contract
+ * (stale-selection rejection, curse lock, no inventory/equipmentInstances
+ * change, 1-turn consumption on success only).
+ */
+function applyArmorUnequip(
+  state: GameState,
+  equipmentInstanceId: string,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  normalizeEquipmentInstances(state);
+  const armorId = state.equippedArmorId;
+  if (!armorId || state.equippedArmorInstanceId !== equipmentInstanceId) {
+    events.push({ type: 'armor_unequip_blocked', reason: 'stale' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+  if (isEquippedArmorCurseLocked(state)) {
+    events.push({ type: 'armor_unequip_blocked', reason: 'cursed' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+  state.equippedArmorId = null;
+  state.equippedArmorInstanceId = null;
+  events.push({ type: 'armor_unequipped', armorId });
   state.inventoryOpen = false;
   return { consumed: true, attacked: false, defeated: false };
 }
@@ -2456,20 +2554,76 @@ function clampSelectedItemIndex(state: GameState): void {
 }
 
 /**
- * Resolves a 'place_item' action (Phase 11.2): moves one copy of itemId
- * from the inventory onto the ground at the player's current position.
- * Blocked (no state change, no turn) when the item isn't owned, is the
- * last copy of a currently-equipped weapon/armor, or the player's current
- * tile already holds a ground item (GroundItem's one-per-tile
- * construction invariant — see types.ts's GameState.groundItems doc
- * comment). Never uses RNG; the new GroundItem's id comes from the
- * existing monotonically-increasing nextGroundItemId counter (same
- * pattern as web.ts's placeWeb).
+ * Phase 24.1: resolves which specific EquipmentInstance (if any)
+ * place_item/discard_item should act on for `itemId`, given an optional
+ * explicit `equipmentInstanceId`. Returns `{ ok: false, reason }` when
+ * the action must be rejected outright (the named individual is
+ * currently equipped, or doesn't resolve to a held individual of this
+ * species at all — never silently substituted for a different one), or
+ * `{ ok: true, instanceId }` when the action may proceed (`instanceId`
+ * is `undefined` for a non-equipment itemId, where no individual concept
+ * applies). With no explicit `equipmentInstanceId`, reproduces the
+ * pre-24.1 behavior exactly: reject when `itemId` is the last (owned
+ * === 1) copy of the currently-equipped species, otherwise pick one
+ * unequipped instance in existing stable order (findUnequippedInstanceId)
+ * — and, per legacy_fallback's "装備中個体しか存在しない場合は拒否する",
+ * also reject if that stable-order search finds no unequipped
+ * individual at all (every held individual of this species happens to
+ * be the equipped one, even though owned > 1).
+ */
+function resolveEquipmentTargetForRemoval(
+  state: GameState,
+  itemId: import('./types').ItemId,
+  equipmentInstanceId: string | undefined,
+): { ok: true; instanceId: string | undefined } | { ok: false; reason: 'equipped' | 'invalid_instance' } {
+  if (!isWeaponOrArmorId(itemId)) {
+    return { ok: true, instanceId: undefined };
+  }
+  const equippedInstanceIdForDefinition =
+    itemId === state.equippedWeaponId
+      ? state.equippedWeaponInstanceId
+      : itemId === state.equippedArmorId
+        ? state.equippedArmorInstanceId
+        : null;
+
+  if (equipmentInstanceId !== undefined) {
+    if (equippedInstanceIdForDefinition && equipmentInstanceId === equippedInstanceIdForDefinition) {
+      return { ok: false, reason: 'equipped' };
+    }
+    const instance = findHeldUnequippedInstanceById(state, itemId, equipmentInstanceId, equippedInstanceIdForDefinition);
+    if (!instance) {
+      return { ok: false, reason: 'invalid_instance' };
+    }
+    return { ok: true, instanceId: instance.instanceId };
+  }
+
+  if (isLastEquippedCopy(state, itemId)) {
+    return { ok: false, reason: 'equipped' };
+  }
+  const fallbackId = findUnequippedInstanceId(state, itemId, equippedInstanceIdForDefinition);
+  if (fallbackId === undefined && equippedInstanceIdForDefinition) {
+    return { ok: false, reason: 'equipped' };
+  }
+  return { ok: true, instanceId: fallbackId };
+}
+
+/**
+ * Resolves a 'place_item' action (Phase 11.2; Phase 24.1 adds
+ * instance-awareness): moves one copy of itemId from the inventory onto
+ * the ground at the player's current position. Blocked (no state change,
+ * no turn) when the item isn't owned, the resolved individual (explicit
+ * or fallback) is currently equipped or doesn't resolve to a held
+ * individual, or the player's current tile already holds a ground item
+ * (GroundItem's one-per-tile construction invariant — see types.ts's
+ * GameState.groundItems doc comment). Never uses RNG; the new
+ * GroundItem's id comes from the existing monotonically-increasing
+ * nextGroundItemId counter (same pattern as web.ts's placeWeb).
  */
 function applyPlaceItem(
   state: GameState,
   itemId: import('./types').ItemId,
   events: GameEvent[],
+  equipmentInstanceId?: string,
 ): { consumed: boolean; attacked: boolean; defeated: boolean } {
   const owned = state.inventory[itemId] ?? 0;
   if (owned <= 0) {
@@ -2477,8 +2631,10 @@ function applyPlaceItem(
     return { consumed: false, attacked: false, defeated: false };
   }
 
-  if (isLastEquippedCopy(state, itemId)) {
-    events.push({ type: 'item_place_failed', itemId, reason: 'equipped' });
+  normalizeEquipmentInstances(state);
+  const target = resolveEquipmentTargetForRemoval(state, itemId, equipmentInstanceId);
+  if (!target.ok) {
+    events.push({ type: 'item_place_failed', itemId, reason: target.reason });
     return { consumed: false, attacked: false, defeated: false };
   }
 
@@ -2497,20 +2653,15 @@ function applyPlaceItem(
   // same equipmentInstanceId — so re-picking it up later resolves back
   // to this exact individual instead of minting a fresh one
   // (rogue-of-sun-development-plan.md 20.0c's "placeした装備を床へ戻した
-  // 場合も同一個体を維持する"). isLastEquippedCopy above already rejects
-  // placing the equipped individual outright, so any id found here is
-  // necessarily an unequipped one.
-  let placedEquipmentInstanceId: string | undefined;
-  if (itemId === 'sword' || itemId === 'spear' || itemId === 'hammer' || itemId === 'solar_gun') {
-    placedEquipmentInstanceId = findUnequippedInstanceId(state, itemId, state.equippedWeaponInstanceId);
-  } else if (itemId === 'armor') {
-    placedEquipmentInstanceId = findUnequippedInstanceId(state, itemId, state.equippedArmorInstanceId);
-  }
+  // 場合も同一個体を維持する"). resolveEquipmentTargetForRemoval above
+  // already rejects placing the equipped individual outright, so
+  // target.instanceId here is necessarily an unequipped one (or
+  // undefined for a non-equipment itemId).
   state.groundItems.push({
     id: state.nextGroundItemId,
     itemId,
     pos: { ...state.player.pos },
-    ...(placedEquipmentInstanceId ? { equipmentInstanceId: placedEquipmentInstanceId } : {}),
+    ...(target.instanceId ? { equipmentInstanceId: target.instanceId } : {}),
   });
   state.nextGroundItemId += 1;
   events.push({ type: 'item_placed', itemId });
@@ -2519,18 +2670,19 @@ function applyPlaceItem(
 }
 
 /**
- * Resolves a 'discard_item' action (Phase 11.2): removes one copy of
- * itemId from the inventory entirely (no GroundItem is created). The
- * confirmation step itself lives in the UI layer (src/main.ts) — by the
- * time this action reaches processTurn, the player has already confirmed,
- * so this only re-validates the same ownership/equipped guards
- * place_item uses (defense in depth against a stale selection). Never
- * uses RNG.
+ * Resolves a 'discard_item' action (Phase 11.2; Phase 24.1 adds
+ * instance-awareness): removes one copy of itemId from the inventory
+ * entirely (no GroundItem is created). The confirmation step itself
+ * lives in the UI layer (src/main.ts) — by the time this action reaches
+ * processTurn, the player has already confirmed, so this only
+ * re-validates the same ownership/equipped/instance guards place_item
+ * uses (defense in depth against a stale selection). Never uses RNG.
  */
 function applyDiscardItem(
   state: GameState,
   itemId: import('./types').ItemId,
   events: GameEvent[],
+  equipmentInstanceId?: string,
 ): { consumed: boolean; attacked: boolean; defeated: boolean } {
   const owned = state.inventory[itemId] ?? 0;
   if (owned <= 0) {
@@ -2538,17 +2690,16 @@ function applyDiscardItem(
     return { consumed: false, attacked: false, defeated: false };
   }
 
-  if (isLastEquippedCopy(state, itemId)) {
-    events.push({ type: 'item_discard_failed', itemId, reason: 'equipped' });
+  normalizeEquipmentInstances(state);
+  const target = resolveEquipmentTargetForRemoval(state, itemId, equipmentInstanceId);
+  if (!target.ok) {
+    events.push({ type: 'item_discard_failed', itemId, reason: target.reason });
     return { consumed: false, attacked: false, defeated: false };
   }
 
   state.inventory[itemId] = owned - 1;
-  // Phase 20.0c: see applyPlaceItem's identical doc comment above.
-  if (itemId === 'sword' || itemId === 'spear' || itemId === 'hammer' || itemId === 'solar_gun') {
-    removeUnequippedInstance(state, itemId, state.equippedWeaponInstanceId);
-  } else if (itemId === 'armor') {
-    removeUnequippedInstance(state, itemId, state.equippedArmorInstanceId);
+  if (target.instanceId) {
+    removeInstanceById(state, target.instanceId);
   }
   events.push({ type: 'item_discarded', itemId });
   clampSelectedItemIndex(state);
@@ -4117,6 +4268,8 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
     action.type !== 'use_item' &&
     action.type !== 'equip_weapon' &&
     action.type !== 'equip_armor' &&
+    action.type !== 'unequip_weapon' &&
+    action.type !== 'unequip_armor' &&
     action.type !== 'place_item' &&
     action.type !== 'discard_item'
   ) {

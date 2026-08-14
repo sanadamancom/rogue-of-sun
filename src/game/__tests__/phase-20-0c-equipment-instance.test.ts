@@ -5,6 +5,7 @@ import {
   FLOOR_EQUIPMENT_CURSE_CHANCE,
   getEquipmentInstanceById,
   getEquipmentInstances,
+  getHeldEquipmentInstances,
   isValidRefineLevel,
   normalizeEquipmentInstances,
 } from '../equipment-instance';
@@ -238,7 +239,16 @@ describe('Phase 20.0c: equipment instance foundation', () => {
       const state = createInitialState(1);
       state.inventory.armor = 3;
       normalizeEquipmentInstances(state);
-      const instances = getEquipmentInstances(state).filter((i) => i.definitionId === 'armor');
+      // Phase 24.1 correction: normalizeEquipmentInstances now counts
+      // only *held* instances against `owned` (never a floor-only
+      // instance a same-species floor-generated ground item may have
+      // separately minted for this seed's floor 1) — see equipment-
+      // instance.ts's normalizeEquipmentInstances doc comment and
+      // docs/history/phase-24-1-equipment-instance-actions.md. The
+      // held-instance count is therefore the correct invariant to check
+      // here, not the raw total (which may legitimately include extra
+      // floor-only individuals of the same species).
+      const instances = getHeldEquipmentInstances(state).filter((i) => i.definitionId === 'armor');
       expect(instances.length).toBe(3);
       const ids = new Set(instances.map((i) => i.instanceId));
       expect(ids.size).toBe(3);

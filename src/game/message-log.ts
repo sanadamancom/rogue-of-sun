@@ -213,11 +213,37 @@ export function formatEvent(event: GameEvent): string {
     }
     case 'weapon_equip_blocked': {
       const name = ITEM_DEFINITIONS[event.weaponId].displayName;
+      if (event.reason === 'invalid_instance') {
+        return `${name}を装備できなかった。`;
+      }
       return `装備中の武器が呪われていて、${name}に持ち替えられない。`;
     }
     case 'armor_equip_blocked': {
       const name = ITEM_DEFINITIONS[event.armorId].displayName;
+      if (event.reason === 'invalid_instance') {
+        return `${name}を装備できなかった。`;
+      }
       return `装備中の防具が呪われていて、${name}に着替えられない。`;
+    }
+    case 'weapon_unequipped': {
+      const name = ITEM_DEFINITIONS[event.weaponId].displayName;
+      return `${name}を外した。`;
+    }
+    case 'armor_unequipped': {
+      const name = ITEM_DEFINITIONS[event.armorId].displayName;
+      return `${name}を外した。`;
+    }
+    case 'weapon_unequip_blocked': {
+      if (event.reason === 'cursed') {
+        return '装備中の武器が呪われていて、外せない。';
+      }
+      return '武器を外せなかった。';
+    }
+    case 'armor_unequip_blocked': {
+      if (event.reason === 'cursed') {
+        return '装備中の防具が呪われていて、外せない。';
+      }
+      return '防具を外せなかった。';
     }
     case 'player_whiff':
       return '空振りした。';

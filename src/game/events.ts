@@ -148,9 +148,9 @@ export type GameEvent =
   // set (ground_occupied only applies to place; equipped/item_unavailable
   // apply to both).
   | { type: 'item_placed'; itemId: ItemId }
-  | { type: 'item_place_failed'; itemId: ItemId; reason: 'ground_occupied' | 'equipped' | 'item_unavailable' }
+  | { type: 'item_place_failed'; itemId: ItemId; reason: 'ground_occupied' | 'equipped' | 'item_unavailable' | 'invalid_instance' }
   | { type: 'item_discarded'; itemId: ItemId }
-  | { type: 'item_discard_failed'; itemId: ItemId; reason: 'equipped' | 'item_unavailable' }
+  | { type: 'item_discard_failed'; itemId: ItemId; reason: 'equipped' | 'item_unavailable' | 'invalid_instance' }
   | { type: 'sun_fruit_used'; itemId: ItemId; recovered: number }
   // Phase 20.2 zero-effect-success contract: lovers always succeeds
   // (consume/identify/turn), even at full SOL — this event reports the
@@ -194,8 +194,24 @@ export type GameEvent =
   // individual is a discovered curse (cursed && curseRevealed) and the
   // player tried to equip a different weapon/armor. No inventory,
   // equipment, or turn change accompanies this event.
-  | { type: 'weapon_equip_blocked'; weaponId: WeaponId; reason: 'cursed' }
-  | { type: 'armor_equip_blocked'; armorId: ArmorId; reason: 'cursed' }
+  // Phase 24.1: 'invalid_instance' covers an explicitly-named
+  // equipmentInstanceId that doesn't resolve to a currently-held
+  // individual of the requested species (stale selection, unowned,
+  // wrong species) — see turn.ts's applyWeaponEquip/applyArmorEquip.
+  | { type: 'weapon_equip_blocked'; weaponId: WeaponId; reason: 'cursed' | 'invalid_instance' }
+  | { type: 'armor_equip_blocked'; armorId: ArmorId; reason: 'cursed' | 'invalid_instance' }
+  // Phase 24.1: successful return to bare hands / no armor via the new
+  // unequip_weapon/unequip_armor actions (turn.ts's applyWeaponUnequip/
+  // applyArmorUnequip). weaponId/armorId is the species that was equipped
+  // just before this unequip.
+  | { type: 'weapon_unequipped'; weaponId: WeaponId }
+  | { type: 'armor_unequipped'; armorId: ArmorId }
+  // Phase 24.1: 'stale' means the given equipmentInstanceId no longer
+  // matches the currently-equipped individual (or nothing is equipped);
+  // 'cursed' means the currently-equipped individual is a discovered
+  // curse. Neither ever changes equipment/inventory/turn state.
+  | { type: 'weapon_unequip_blocked'; reason: 'stale' | 'cursed' }
+  | { type: 'armor_unequip_blocked'; reason: 'stale' | 'cursed' }
   | { type: 'player_whiff'; weaponId?: WeaponId }
   | { type: 'enemy_knocked_back'; enemyType: EnemyType }
   | { type: 'hammer_recover' }
