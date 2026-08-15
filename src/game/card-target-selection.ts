@@ -1,7 +1,15 @@
 import { CARD_IDS_IN_ORDER } from './card-def';
-import { getEquipmentInstances, getHeldEquipmentInstances } from './equipment-instance';
-import { ITEM_DEFINITIONS, ITEM_IDS_IN_ORDER } from './item-def';
+import {
+  getEquipmentInstances,
+  getHeldEquipmentInstances,
+  isEquippedArmorCurseLocked,
+  isEquippedWeaponCurseLocked,
+} from './equipment-instance';
+import { ENCHANTMENT_ITEM_IDS, ITEM_DEFINITIONS, ITEM_IDS_IN_ORDER } from './item-def';
 import { getDisplayedItemName, isGeneralItemIdentified } from './item-identification';
+import { NORMAL_RANKS } from './equipment-loot';
+import { WEAPON_DEFINITIONS } from './weapon-def';
+import { ARMOR_DEFINITIONS } from './armor-def';
 import { CardId, EquipmentInstance, GameState, ItemId } from './types';
 
 /**
@@ -64,16 +72,45 @@ export function isTargetSelectableItemId(itemId: ItemId): itemId is TargetSelect
 const CARD_ID_SET: ReadonlySet<string> = new Set(CARD_IDS_IN_ORDER);
 
 /**
- * Phase 20.0d has no actual "進行用item/固定品/対象外品" in the current
- * item roster (rogue-of-sun-card-effects-spec.md's exclusion list names
- * these as forward-looking categories, not any item that exists in
- * production today — see item-def.ts's ITEM_DEFINITIONS, none of which
- * carries such a flag). Kept as an explicit, empty-for-now set — rather
- * than skipping the exclusion entirely — so a future item flagged this
- * way has a single place to be added without touching the eligibility
- * functions below.
+ * Phase 24.4d2 star-transformation alignment: the actual "進行用item/
+ * 固定品/対象外品" ids that exist in the current item roster and must
+ * never be a star target or a star transform result —
+ * ENCHANTMENT_ITEM_IDS's 5 one-time unlock pickups (item-def.ts;
+ * category 'consumable' so they would otherwise pass the plain
+ * category filter below), plus 'solar_gun' (the unique fixed weapon,
+ * always-identified per item-identification.ts's
+ * ALWAYS_IDENTIFIED_EQUIPMENT_IDS) and 'black_armor' (structurally
+ * excluded from every other normal/reward equipment path — see
+ * equipment-loot.ts's weightedArmorCandidates). Phase 20.0d originally
+ * left this set empty since none of the roster carried such a flag yet
+ * at that phase; Phase 24.3's catalog expansion and Phase 24.4a's
+ * equipment-loot exclusions since then are what make this non-empty
+ * now.
  */
-const STAR_INELIGIBLE_ITEM_IDS: ReadonlySet<ItemId> = new Set();
+const STAR_INELIGIBLE_ITEM_IDS: ReadonlySet<ItemId> = new Set<ItemId>([
+  ...ENCHANTMENT_ITEM_IDS,
+  'solar_gun',
+  'black_armor',
+]);
+
+/**
+ * Whether `itemId` is a weapon/armor species whose rank is eligible for
+ * star's transform result (C/B/A only — never S/R), reusing
+ * equipment-loot.ts's own NORMAL_RANKS single source of truth (Phase
+ * 24.4a's "S/Rは通常生成・報酬から除外する" rule) rather than
+ * duplicating a second rank-tier list. Always true for a non-equipment
+ * (consumable) itemId, since rank is meaningless there.
+ */
+function isStarEligibleRank(itemId: ItemId): boolean {
+  const def = ITEM_DEFINITIONS[itemId];
+  if (def.category === 'weapon') {
+    return (NORMAL_RANKS as readonly string[]).includes(WEAPON_DEFINITIONS[itemId as import('./types').WeaponId].rank);
+  }
+  if (def.category === 'armor') {
+    return (NORMAL_RANKS as readonly string[]).includes(ARMOR_DEFINITIONS[itemId as import('./types').ArmorId].rank);
+  }
+  return true;
+}
 
 /**
  * Whether `cursed && curseRevealed` — temperance's core eligibility test,
@@ -116,7 +153,8 @@ export function getTransformCandidatesForItem(itemId: ItemId): ItemId[] {
       candidateId !== itemId &&
       !CARD_ID_SET.has(candidateId) &&
       !STAR_INELIGIBLE_ITEM_IDS.has(candidateId) &&
-      ITEM_DEFINITIONS[candidateId].category === category,
+      ITEM_DEFINITIONS[candidateId].category === category &&
+      isStarEligibleRank(candidateId),
   );
 }
 
@@ -156,8 +194,19 @@ export function getStarCandidates(state: GameState): CardTargetRef[] {
     candidates.push({ kind: 'inventory_item', itemId });
   }
 
+  const weaponBound = isEquippedWeaponCurseLocked(state);
+  const armorBound = isEquippedArmorCurseLocked(state);
   for (const instance of getHeldEquipmentInstances(state)) {
+    if (STAR_INELIGIBLE_ITEM_IDS.has(instance.definitionId)) continue;
+    if (!isStarEligibleRank(instance.definitionId)) continue;
     if (!hasAlternateTransformCategory(instance.definitionId)) continue;
+    // Phase 24.4d2: a currently-equipped instance whose discovered curse
+    // locks it against ordinary equip-swap/discard/place (Phase 20.0c's
+    // isEquippedWeaponCurseLocked/isEquippedArmorCurseLocked) must be
+    // just as immune to star's transform — the same "この束縛は通常の
+    // 解除・交換操作を拒否する" contract star must not bypass.
+    if (state.equippedWeaponInstanceId === instance.instanceId && weaponBound) continue;
+    if (state.equippedArmorInstanceId === instance.instanceId && armorBound) continue;
     candidates.push({ kind: 'equipment_instance', instanceId: instance.instanceId });
   }
 

@@ -40,6 +40,7 @@ import {
   createEquipmentInstance,
   createEquipmentInstanceWithCurse,
   createEquipmentInstanceWithRank,
+  FLOOR_EQUIPMENT_CURSE_CHANCE,
   ensureAvailableInstanceForEquip,
   EQUIPMENT_REFINE_LEVEL_CAP,
   findHeldInstanceById,
@@ -2192,15 +2193,38 @@ function resolveStarEffect(workingState: GameState, target: import('./card-targe
   instances.splice(index, 1);
   const ownedOriginal = workingState.inventory[originalItemId] ?? 0;
   workingState.inventory[originalItemId] = Math.max(0, ownedOriginal - 1);
-  const newInstance = createEquipmentInstance(workingState, chosen as import('./types').WeaponId | import('./types').ArmorId);
+  // Phase 24.4d2: a freshly-minted transform result is a brand-new
+  // individual, not a copy — it gets its own ordinary fresh curse roll,
+  // via the same FLOOR_EQUIPMENT_CURSE_CHANCE threshold and
+  // createEquipmentInstanceWithCurse helper every other equipment-minting
+  // path already uses (equipment-instance.ts/enemy-drop.ts), rather than
+  // always minting uncursed. Drawn from this resolver's own already-used
+  // workingState.combatRngState/rollPercent stream (the same card-effect
+  // stream the candidate-selection roll above uses) — never a new,
+  // separately-designed RNG stream.
+  const curseRoll = rollPercent(workingState.combatRngState);
+  workingState.combatRngState = curseRoll.nextState;
+  const cursed = curseRoll.roll / 100 < FLOOR_EQUIPMENT_CURSE_CHANCE;
+  const newInstance = createEquipmentInstanceWithCurse(
+    workingState,
+    chosen as import('./types').WeaponId | import('./types').ArmorId,
+    cursed,
+  );
   workingState.inventory[chosen] = (workingState.inventory[chosen] ?? 0) + 1;
   if (wasEquippedWeapon) {
     workingState.equippedWeaponId = chosen as import('./types').WeaponId;
     workingState.equippedWeaponInstanceId = newInstance.instanceId;
+    // Auto-reequip is not a manual equip action and never identifies the
+    // body itself, but a fresh curse landing in an equipped slot must
+    // still surface via curseRevealed=true — exactly like any other
+    // equipped-cursed-individual case — never conflated with body
+    // identification (item-identification.ts's separate contract).
+    if (cursed) newInstance.curseRevealed = true;
   }
   if (wasEquippedArmor) {
     workingState.equippedArmorId = chosen as import('./types').ArmorId;
     workingState.equippedArmorInstanceId = newInstance.instanceId;
+    if (cursed) newInstance.curseRevealed = true;
   }
   return { success: true };
 }

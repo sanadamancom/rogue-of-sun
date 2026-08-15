@@ -62,7 +62,7 @@ function rankWeight(rank: 'C' | 'B' | 'A', ratio: number): number {
 }
 
 /** The 3 ranks normal floor generation and monsterHouse rewards ever draw from — S/R are structurally excluded (never appear in this array), per producer_decisions' rank_supply. */
-const NORMAL_RANKS: readonly ('C' | 'B' | 'A')[] = ['C', 'B', 'A'];
+export const NORMAL_RANKS: readonly ('C' | 'B' | 'A')[] = ['C', 'B', 'A'];
 
 interface WeightedCandidate<T extends string> {
   definitionId: T;
