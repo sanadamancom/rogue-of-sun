@@ -207,3 +207,155 @@ stop condition: 敵/罠の具体的発動対象・確率が確定するまでPha
 ## baseline validation結果
 
 - full suite（123/3094）はbaseline時点で確認済みのため、history作成後の再実行は不要（validation_after_audit要件どおり）
+
+---
+
+# Phase 24.4e0a 補完監査（追記）
+
+24.4e0で「未確認」「hook未発見の報告のみ」だった2項目を、現在HEAD（`7634031`起点、production code/test無変更）のcode/testを直接確認して補完する。
+
+## precheck（24.4e0a）
+
+- baseline branch: `phase-24-4e0-curse-integration-audit`
+- expected_head_prefix: `7634031` — 実際のHEAD `7634031bc50a2003c240316592d7bee87b558580`と一致
+- local/remote SHA一致、working tree clean、同名work branch不存在（新規作成）
+- main（`80596cd`）は監査中未変更
+- 前工程でfull suite 123/3094・typecheck・build成功済みのため再実行せず
+
+## 1. Star経路 — 確定結果（未確認から置換）
+
+現在HEADの`src/game/turn.ts`（`resolveStarEffect`, `deriveStarTransformSeed`, `createStarTransformRng`）と`src/game/card-target-selection.ts`（`getStarCandidates`, `getTransformCandidatesForItem`, `STAR_INELIGIBLE_ITEM_IDS`, `isStarEligibleRank`）を直接確認し、`phase-24-4d2-star-transformation-alignment.test.ts`・`phase-24-4d2a-star-curse-rng-isolation.test.ts`の該当テストと突き合わせた。**24.4d2/d2aの完了報告と矛盾なし。**
+
+| 検証項目 | 結果 | 根拠 |
+|---|---|---|
+| S装備がtarget候補から除外されるか | 除外される | `getStarCandidates`が`isStarEligibleRank`でNORMAL_RANKS（C/B/A）のみ許可（card-target-selection.ts:201） |
+| S装備がresult候補から除外されるか | 除外される | `getTransformCandidatesForItem`が同じ`isStarEligibleRank`フィルタを適用（同ファイル:157） |
+| R装備がtarget/result候補から除外されるか | 除外される | 同上（NORMAL_RANKSはC/B/Aのみ、S/Rを含まない） |
+| solar_gunがtarget/result候補から除外されるか | 除外される | `STAR_INELIGIBLE_ITEM_IDS`に明示登録（card-target-selection.ts:90-94） |
+| black_armorがtarget/result候補から除外されるか | 除外される | 同上 |
+| enchantment系5種がresult候補から除外されるか | 除外される | `STAR_INELIGIBLE_ITEM_IDS`が`ENCHANTMENT_ITEM_IDS`をspread |
+| curse-locked装備中instanceがtargetから除外されるか | 除外される | `getStarCandidates`が`isEquippedWeaponCurseLocked`/`isEquippedArmorCurseLocked`を個別チェックし、該当instanceのみ除外（未装備の同種cursed個体は候補に残る） |
+| 変換結果equipmentが正規helperで新規curse判定されるか | される | `createEquipmentInstanceWithCurse`（通常床/敵ドロップと同じmint helper）を使用、`FLOOR_EQUIPMENT_CURSE_CHANCE`と同じ閾値 |
+| 旧curse/curseRevealed/refineLevelが引き継がれないか | 引き継がれない | 元instanceを`splice`で削除後、`createEquipmentInstanceWithCurse`で完全新規mint（refineLevel/cursed/curseRevealedは常にデフォルト値からスタート） |
+| 自動再装備時のみ新curseが判明するか | その通り | `wasEquippedWeapon`/`wasEquippedArmor`の場合のみ`if (cursed) newInstance.curseRevealed = true`（turn.ts:2298, 2303）。未装備結果は`curseRevealed`が常にfalseのまま |
+| 本体鑑定とcurseRevealedが独立するか | 独立している | 自動再装備は「本体を鑑定する」行為とは別（doc comment: "never conflated with body identification"）、item-identification.tsは触れない |
+| combatRngStateおよび他RNGへ干渉しないか | 非干渉 | `createStarTransformRng`は`state.seed`/`floor`/`turn`/`targetIdentity`/`salt`から都度導出する使い捨てstream。`combatRngState`は一切読み書きしない（Phase 24.4d2aで確認済みの契約を現行codeで再確認） |
+
+focused test対応: `phase-24-4d2-star-transformation-alignment.test.ts`の8 describe blockが上記の候補除外・curse-lock除外を、`phase-24-4d2a-star-curse-rng-isolation.test.ts`がRNG分離・fresh curse roll・curseRevealed付与条件をそれぞれ検証しており、production codeの挙動と一致。
+
+**結論: Star経路はRESOLVED_EXISTING。設計判断不要、Phase 24.4e1で新規に触れる必要なし。**
+
+## 2. 敵経路 — 全route一覧と最小hook候補
+
+production入口は共通して`resolveOneEnemy`（turn.ts:4250）から種族別resolverへディスパッチされ、ダメージはすべて`resolveEnemyAttackHit`（唯一の共通ダメージ確定点）を経由する。
+
+| EnemyId | route種別 | production関数 | RNG source | player到達判定 | 装備instanceアクセス可否 |
+|---|---|---|---|---|---|
+| bok | 通常8方向近接 | `resolveBokEnemy` → `tryMeleeAttack` → `resolveEnemyAttackHit` | `state.combatRngState`（命中判定のみ） | 隣接判定 | 可能（`resolveEnemyAttackHit`はstate全体を受け取るため`getHeldEquipmentInstances(state)`呼び出し可） |
+| sword | 通常8方向近接 | `resolveSwordEnemy` → `tryMeleeAttack` | 同上 | 同上 | 可能 |
+| axe | 通常8方向近接 | `resolveAxeEnemy` → `tryMeleeAttack` | 同上 | 同上 | 可能 |
+| golem | 突進+近接 | `resolveGolemChargeEnemy` → `executeGolemCharge`/`tryMeleeAttack` | `combatRngState`（命中）、突進判定自体はRNG不使用（`isGolemChargeLineClear`は幾何判定） | 直線ライン走査 or 隣接 | 可能 |
+| spider | 近接+web設置+コーナー横断 | `resolveSpiderEnemy` → `resolveEnemyAttackHit`（隣接時）、`placeWeb`（web設置は別経路、プレイヤーへの直接効果はslow付与のみでcurse対象外） | `combatRngState`（命中）。web設置自体はRNG不使用（`canPlaceWebNow`は幾何判定） | 直交隣接 or web接触 | 隣接攻撃時は可能 |
+| bat | 近接+退避 | `resolveBatEnemy` → `tryMeleeAttack` | `combatRngState`（命中） | 隣接 | 可能 |
+| mummy | 移動+休止サイクルを伴う近接 | `resolveMummyEnemy` → `tryMeleeAttack` → `resolveEnemyAttackHit` | `combatRngState`（命中） | 隣接 | 可能 |
+| cockatrice | 視線攻撃（petrify付与）+近接 | `resolveCockatriceEnemy` | `castGazeRay`はRNG不使用（幾何判定）。視線ヒット時は`state.player.petrified = true`を直接設定、RNG不使用 | 直線視線到達 | 視線ヒットはRNG不使用の確定効果 — 装備instanceには未アクセス（petrifyはplayer状態のみ変更） |
+| kraken | 遠距離触手（テレグラフ+十字範囲） | `resolveKrakenEnemy` | `combatRngState`（命中、`resolveEnemyAttackHit`を経由と推定されるがdoc comment上は「the exact same hit check below」という自前ロジックの可能性あり — 完全な行単位確認は未実施） | `tentacleCrossCells`によるクロス範囲判定 | ダメージ確定箇所は`resolveEnemyAttackHit`を再利用しているかは要再確認（テレグラフ+プル効果を持つため専用ロジックの可能性） — **要追加確認** |
+| ghost | 壁抜け移動+近接 | `resolveGhostEnemy` → `tryMeleeAttack` | `combatRngState`（命中） | 隣接 | 可能 |
+| steps | 隠密/テレグラフ/露出3状態サイクルの範囲攻撃+近接 | `resolveStepsEnemy` → `resolveEnemyAttackHit`（テレグラフ発動時の範囲ヒット）/`tryMeleeAttack`（露出中） | `combatRngState`（`resolveEnemyAttackHit`経由の命中判定） | `getStepsSpikeCells`による3x3範囲判定（テレグラフ時）、隣接（露出時） | 可能（`resolveEnemyAttackHit`経由のため） |
+| skeleton | 頭部分離を伴う近接、専用resolver関数は存在せず`resolveOneEnemy`のbehaviorType分岐で`generic_melee`系（bokと同系統）として扱われる | `resolveOneEnemy` → `tryMeleeAttack`（推定） | `combatRngState`（推定、bokと同一経路） | 隣接（推定） | 可能（推定） — skeletonForm='head'時の特殊挙動（131/178/4270/4641行）は死亡・攻撃可否判定に関わる別軸の分岐であり、curse付与hookとは無関係 |
+
+**最小hook候補（全種共通）**: `resolveEnemyAttackHit`はダメージ確定と同じ関数内でstateにアクセスできるため、ここに「一定条件でプレイヤーの装備instanceへcurseを付与する」呼び出しを追加するのが構造上最小の接続点になりうる。ただし対象は「常に発動」ではなく特定EnemyIdからの呼び出し時のみに限定する設計が必要（現在`resolveEnemyAttackHit`はenemy.typeを引数に保持しているため、呼び出し元で種族別分岐は可能）。
+
+再利用可能helper: `getHeldEquipmentInstances(state)`（temperance/starが実際に使う候補列挙関数、装備中+所持中を返す）。curse roll自体は`enemy-drop.ts`の`deriveEnemyDropSeed`パターン（floorSeed + 個体固有ID + salt）がそのまま流用できる独立RNG stream設計の前例。
+
+turn二重消費の危険: `resolveEnemyAttackHit`は1攻撃につき1回のみ呼ばれる設計のため、この関数内に追加ロジックを置く限りturn消費の二重化リスクは低い。ただしcockatriceの視線攻撃・krakenの触手は`resolveEnemyAttackHit`を経由しない別経路のため、同じ効果を全種で統一するには複数箇所への接続が必要になる点に注意。
+
+combat RNGとの分離方法: `enemy-drop.ts`と同様、`combatRngState`とは独立したsalt付きstreamを`(floorSeed, enemyId, 専用salt)`から都度生成する設計が、既存の非干渉契約と整合する。
+
+**required_conclusion:**
+- 現在curse付与敵は **0件**（全種族について、cursedフィールドへの書き込みを行うコードパスは本監査で発見されなかった）
+- 既存仕様上、curse付与担当として確定済みのEnemyIdは **存在しない**（`rogue-of-sun-curse-system-spec.md`等の仕様案ファイルはproject knowledge側にあるが、これらは「古い仕様案」として現行production/testとの照合が必要であり、本監査のsource_priority規則（production code > test > 仕様案）に従い、production/testに実装がない以上、担当EnemyIdは未確定として扱う)
+- 分類: 「実装不能」ではなく **「接続境界は存在するが、担当EnemyIdと発動条件が未決定」**
+
+## 3. 罠経路 — 全route一覧と最小hook候補
+
+| TrapId | 発見route | 発動route | production入口 | RNG source | 装備instanceアクセス可否 |
+|---|---|---|---|---|---|
+| slow_trap | `revealTrap`（踏む時 or clairvoyance時） | プレイヤーが該当tileへ移動した瞬間、`applyPlayerAction`内のtrap loop | turn.ts:1164-1195 | RNG不使用（one_shot、確率判定なし） | 可能（同じ関数スコープでstateにフルアクセス） |
+| poison_trap | 同上 | 同上（同一loop内、`effectId`分岐のみ異なる） | 同上 | RNG不使用 | 可能 |
+
+- 無効化・回避規則: `isPlayerPoisonImmune`（poison_guard装備時）がpoison_trapの効果付与のみをブロック（trap自体のtriggered化・reveal化は妨げない）。slow_trapには同等の無効化規則は本監査で未発見。
+- 再発動規則: `triggered`フラグにより一度発動した罠は恒久的にinert（one_shot、再発動なし）。
+- 候補装備0件時の既存失敗契約: 罠自体には装備を対象とする既存契約がないため、この観点でのNOT_APPLICABLE。curse付与を追加する場合は、既存のtemperance/starパターン（候補0件なら不成立として扱う）を踏襲するのが自然だが、これは新規設計であり本監査では決定しない。
+- turn二重消費の危険: 現在の罠発動はプレイヤーの移動アクション内で1回のみ処理されるため、同じloop内に追加ロジックを置く限り二重消費のリスクは低い。
+- trap RNGとの分離方法: 現在slow_trap/poison_trapはどちらもRNG不使用（確定効果）。curse付与を追加する場合、新たな確率判定が必要になるため、`(floorSeed, trapId or trap.pos, 専用salt)`から独立streamを導出する設計が、他経路の非干渉契約と整合的（trapには現状固有IDフィールドがあるかは`types.ts`の`TrapTile`定義の追加確認が必要 — 本監査では未検証）。
+
+**required_conclusion:**
+- 現在curse付与trapは **0件**
+- 既存仕様上、curse付与担当として確定済みのTrapIdは **存在しない**
+- 担当TrapId・発動率・対象範囲は **NEEDS_DESIGN_DECISION**
+
+## 4. target selection方式の比較（敵・罠共通）
+
+| 方式 | 実装できる既存helper | helper不存在時の最小追加境界 |
+|---|---|---|
+| 装備中weaponのみ | `state.equippedWeaponInstanceId` → `getEquipmentInstanceById` | 既存helperで完結 |
+| 装備中armorのみ | `state.equippedArmorInstanceId` → `getEquipmentInstanceById` | 既存helperで完結 |
+| 装備中2slotから選択 | 上記2つを配列化するだけ（専用helperなし） | 数行のラッパー関数で足りる、新規モジュール不要 |
+| inventory内の全equipment instance | `getHeldEquipmentInstances(state)`（temperance/starと同一） | 既存helperで完結 |
+
+- 対象0件: 既存にtemperance/starの前例（不成立として扱う）があるが、敵・罠での対応方針は本監査では決定しない。
+- 既にcursedな対象: 二重curse付与を許容するか拒否するかは未決定（cursedはbooleanのため、現行スキーマでは「既にcursed」の個体へ再度curse roll をかけても意味が変わらない — この点はスキーマがbooleanのままなら自然にNOT_APPLICABLEになりうるが、複数系統を導入する場合は再考が必要）。
+- 未鑑定対象: 現行のcurseRevealed機構は「装備した瞬間に判明」という単一契機のみを持つため、敵/罠経由の新規付与でcurseRevealedをどう扱うかは1節のNEEDS_DESIGN_DECISIONと同一の論点。
+- RNG選択が必要になる条件: 複数候補から1つを選ぶ場合（例: 装備中2slotから選択）は既存のenemy-drop.ts/star変換と同じ「独立salt付きRNG stream」パターンが必要になる。単一候補（装備中weaponのみ等）ならRNG不要。
+
+本節では方式を決定・実装していない。
+
+## 5. DP最終結論
+
+- `EquipmentInstance`にDP fieldは存在しない（24.4e0の1節で確認済み、24.4e0aで再確認・矛盾なし）
+- `WEAPON_DEFINITIONS`/`ARMOR_DEFINITIONS`（definition側）にも最大DP相当の定義は存在しない（`grep -rn "DP" src/game/weapon-def.ts src/game/armor-def.ts`で本文一致なし、確認済み）
+- DP減少・破損・回復処理: 存在しない
+- 月・太陽がDPを変更しないという契約: 月・太陽（Moon/Sun）自体がPhase 20.5b時点で未実装のカード効果であり、DPとの接続を論じる対象コードが存在しない（NOT_APPLICABLE、契約自体が形成されていない）
+
+**分類: 単なるfield追加では成立しない。** 装備definition側の最大DP値、DP減少trigger（どの操作で減るか）、DP0時の挙動（装備不能化か、効果喪失か、破壊か）の3点が未確定のため、これらが決まらない限りfield追加だけでは意味のある機能にならない。
+
+**required_conclusion:**
+- 数値と寿命規則が未定のため、**DPをPhase 24.4e1へ便乗実装しない**
+- DPは独立設計・実装単位が必要と明記する（Phase番号は本監査では指定しない — 呪い統合とは別スコープ）
+- 呪いとの接続はDP本体成立後に行う
+- rank fieldは既にdefinition側（`WEAPON_DEFINITIONS`/`ARMOR_DEFINITIONS`の`rank`プロパティ）およびinstance側（Phase 24.1）の両方で成立済み — 再実装しない
+
+## 24.4e1 ready / blocked_by_design / defer（最終分割）
+
+**phase_24_4e1_ready（設計判断なしで着手可能）:**
+- 現在存在する4生成経路（通常床/MH報酬/敵ドロップ/Star変換）間のcurse契約はすでに統一されている（`FLOOR_EQUIPMENT_CURSE_CHANCE`単一定数・共通mint helper再利用）ため、**契約統一という作業自体は既に完了しており、Phase 24.4e1で新規に行う統一作業はない**
+- 明白なoperation restriction欠陥: 本監査では未発見（place/discard/equip/unequip/solar forge/star いずれもcurse-lock契約が一貫）
+- identification/curseRevealed漏洩修正: card-target-selectionの表示漏れは24.4d1で既に修正済み（再修正不要）
+- 既存仕様だけで確定可能なtelemetry: 現状ABSENT。既存仕様（curse generated等のイベント名）がtelemetry.tsのschemaVersion規約と矛盾なく追加できるかは設計判断を要さない純粋な実装作業だが、優先度・スコープはPhase 24.4e1発行者の判断に委ねる
+
+**blocked_by_design（設計判断待ち）:**
+- curseを付与する具体的EnemyId
+- curseを付与する具体的TrapId
+- 発動率
+- 対象選択範囲（装備中のみ/2slot/所持全体）
+- 劣化・災厄の具体的効果
+- DP全体（独立設計単位）
+- rank別curse率
+
+**defer:**
+- 数値バランス調整はPhase 24.6または27
+- 完成UI（装備前警告等）はPhase 25
+- save migrationはPhase 26
+
+## production code/test無変更確認（24.4e0a）
+
+- `git diff main...HEAD -- 'src/**/*.ts'`: 差分なし
+- test file差分なし
+- 変更は`docs/history/phase-24-4e0-curse-integration-audit.md`（既存ファイルへの追記）のみ
+- 一時スクリプトなし
+
+## 指示逸脱の有無
+
+- mummy/steps/skeleton/kraken各resolverの詳細な内部実装（RNG消費箇所の完全な行単位確認）は時間制約により部分確認にとどまり、上表で「要追加確認」と明記した。担当EnemyIdの独断選定は行っていない（指示の"敵・罠については担当種類を独断で選ばない"を遵守）。
+- Star経路については24.4d2/d2aの完了報告と現行codeが一致することを確認し、設計判断を新たに求めず確定結果として記録した（指示どおり）。
