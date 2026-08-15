@@ -26,7 +26,7 @@ import { canPlaceWebNow, expireWebs, placeWeb } from './web';
 import { isSunlitAt } from './sunlight';
 import { GameEvent } from './events';
 import { applyExperienceGain, getLevel } from './progression';
-import { roomIndexContaining } from './mapgen';
+import { roomIndexContaining, createRng } from './mapgen';
 import { getPowerDamageBonus, getPlayerSpeed, getElementalMindBonus, getAbilities, BODY_MAX_HP_PER_RANK, MIND_MAX_SOL_PER_RANK } from './ability';
 import { markGeneralItemIdentified, getDisplayedItemName } from './item-identification';
 import { CARD_DEFINITIONS, CARD_IDS_IN_ORDER } from './card-def';
@@ -2129,40 +2129,115 @@ function resolveTemperanceEffect(workingState: GameState, target: import('./card
 }
 
 /**
- * star's registered CardTargetEffectResolver (Phase 20.5a): transforms
- * the targeted item/equipment individual into a different ItemId of the
- * same category, drawn from getTransformCandidatesForItem's roster-wide
- * candidate list (never from what the player currently owns, and never
- * including any card). 0 candidates -> failure (no RNG consumed on this
- * working-state clone, so the caller's real combatRngState is
- * unaffected either since the whole clone is discarded on failure). 1
- * candidate -> deterministic, no RNG. 2+ candidates -> exactly one
- * rollPercent draw against workingState.combatRngState, canonical order
- * fixed by ITEM_IDS_IN_ORDER (via getTransformCandidatesForItem).
+ * Phase 24.4d2a: star transformation's own purpose-specific disposable
+ * RNG streams — replaces Phase 24.4d2's workingState.combatRngState
+ * reuse for both the transform-target selection roll and the
+ * transform-result curse roll, since combatRngState is a *persisted*
+ * GameState field that a successful card-target effect's
+ * Object.assign(state, transaction.nextState) commit (applyTargetedCardUse)
+ * actually carries back into the live, real combat RNG stream — so
+ * consuming it here was a genuine leak into unrelated combat rolls, not
+ * merely an isolated-clone concern. Modeled directly on enemy-drop.ts's
+ * createEnemyDropRng/deriveEnemyDropSeed pattern (per-purpose salt +
+ * stable identity, no persisted RNG state, a fresh single-use stream per
+ * call) rather than duplicating that logic — the only difference is the
+ * stable identity inputs available here (state.seed/floor/turn plus the
+ * target's own identity string) versus that module's (floorSeed,
+ * enemyId). wheel_of_fortune and every other card's own combatRngState
+ * usage is completely untouched by this change — only star's own 2 rolls
+ * move off of it.
+ */
+const STAR_TRANSFORM_SELECTION_SALT = 0xb3d8f27a;
+const STAR_TRANSFORM_CURSE_SALT = 0xe15c4930;
+
+/**
+ * FNV-1a string hash (32-bit), used only to fold a target's string
+ * identity (an EquipmentInstance.instanceId like "eq-3", or an ItemId
+ * like "apple") into deriveStarTransformSeed's numeric mix. Pure, no
+ * RNG consumed.
+ */
+function hashStarTargetIdentity(value: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return hash >>> 0;
+}
+
+/**
+ * Combines state.seed (already floor-scoped — see floor.ts's
+ * deriveFloorSeed, the source of GameState.seed) with the current
+ * state.floor and state.turn (so the same target identity on a
+ * different floor or a different turn never collides with a prior
+ * draw), the target's own stable identity string, and a purpose-specific
+ * `salt` (STAR_TRANSFORM_SELECTION_SALT or STAR_TRANSFORM_CURSE_SALT),
+ * into a single uint32 seed. Pure arithmetic — no RNG consumed by this
+ * function itself, and no new mutable field is added to GameState (the
+ * stream is derived fresh on every call, never stored).
+ */
+function deriveStarTransformSeed(state: GameState, targetIdentity: string, salt: number): number {
+  const base =
+    ((state.seed >>> 0) ^ Math.imul(state.floor + 1, 0x9e3779b1) ^ Math.imul(state.turn + 1, 0x85ebca6b)) >>> 0;
+  return ((base ^ hashStarTargetIdentity(targetIdentity)) ^ salt) >>> 0;
+}
+
+/** A fresh, single-use RNG stream for one (state, targetIdentity, salt) triple — never stored, so calling this never adds a new persisted RNG field to GameState. */
+function createStarTransformRng(state: GameState, targetIdentity: string, salt: number): () => number {
+  return createRng(deriveStarTransformSeed(state, targetIdentity, salt));
+}
+
+/**
+ * star's registered CardTargetEffectResolver (Phase 20.5a, RNG isolated
+ * in Phase 24.4d2a): transforms the targeted item/equipment individual
+ * into a different ItemId of the same category, drawn from
+ * getTransformCandidatesForItem's roster-wide candidate list (never from
+ * what the player currently owns, and never including any card). 0
+ * candidates -> failure (no RNG stream is even constructed, so nothing
+ * is consumed). 1 candidate -> deterministic, no RNG. 2+ candidates ->
+ * exactly one draw from createStarTransformRng's own
+ * STAR_TRANSFORM_SELECTION_SALT stream (never workingState.combatRngState
+ * — Phase 24.4d2a's fix), canonical order fixed by ITEM_IDS_IN_ORDER (via
+ * getTransformCandidatesForItem). The target's own stable identity
+ * (instanceId for equipment, ItemId for a stacked consumable) is part of
+ * this stream's seed, so two different targets in the same turn never
+ * draw the same sequence.
  *
  * inventory_item target: decrements the original stack by 1 (removing
  * the key entirely is unnecessary — Inventory tolerates 0 — matching
  * every other card's existing consume pattern) and increments the
- * transformed ItemId's stack by 1.
+ * transformed ItemId's stack by 1. No curse stream exists for this
+ * branch (consumables have no cursed field).
  *
  * equipment_instance target: the original instance is removed from
  * equipmentInstances outright (never reused — a fresh instance is
- * always minted via createEquipmentInstance, so refineLevel/cursed/
- * curseRevealed never carry over, per rogue-of-sun-card-effects-spec.md's
- * "refineLevelを引き継がず...curse状態を引き継がない"), inventory counts
- * for both the original and new ItemId are adjusted, and — if the
- * original was currently equipped — the new instance is auto-equipped
- * into the exact same slot, so no intermediate unequipped state is ever
- * observable outside this resolver.
+ * always minted via createEquipmentInstanceWithCurse, so refineLevel/
+ * cursed/curseRevealed never carry over, per
+ * rogue-of-sun-card-effects-spec.md's "refineLevelを引き継がず...curse状態
+ * を引き継がない"), inventory counts for both the original and new
+ * ItemId are adjusted, a fresh curse roll is drawn from
+ * createStarTransformRng's own STAR_TRANSFORM_CURSE_SALT stream (never
+ * combatRngState, and never the same stream/draw as the selection roll
+ * above — independent salts, independent seeds since the curse stream's
+ * identity input is the target's original instanceId plus the *chosen*
+ * result ItemId) against the same FLOOR_EQUIPMENT_CURSE_CHANCE threshold
+ * every other equipment-minting path already uses, and — if the original
+ * was currently equipped — the new instance is auto-equipped into the
+ * exact same slot (curseRevealed set only if the fresh roll landed
+ * cursed), so no intermediate unequipped state is ever observable
+ * outside this resolver.
  */
 function resolveStarEffect(workingState: GameState, target: import('./card-target-selection').CardTargetRef): import('./card-target-selection').CardTargetEffectOutcome {
   let originalItemId: ItemId;
+  let targetIdentity: string;
   if (target.kind === 'inventory_item') {
     originalItemId = target.itemId;
+    targetIdentity = target.itemId;
   } else {
     const instance = getEquipmentInstances(workingState).find((i) => i.instanceId === target.instanceId);
     if (!instance) return { success: false };
     originalItemId = instance.definitionId;
+    targetIdentity = target.instanceId;
   }
 
   const candidates = getTransformCandidatesForItem(originalItemId);
@@ -2172,9 +2247,9 @@ function resolveStarEffect(workingState: GameState, target: import('./card-targe
   if (candidates.length === 1) {
     chosen = candidates[0];
   } else {
-    const { roll, nextState } = rollPercent(workingState.combatRngState);
-    workingState.combatRngState = nextState;
-    const index = Math.min(candidates.length - 1, Math.floor((roll / 100) * candidates.length));
+    const selectionRng = createStarTransformRng(workingState, targetIdentity, STAR_TRANSFORM_SELECTION_SALT);
+    const roll = selectionRng();
+    const index = Math.min(candidates.length - 1, Math.floor(roll * candidates.length));
     chosen = candidates[index];
   }
 
@@ -2193,18 +2268,19 @@ function resolveStarEffect(workingState: GameState, target: import('./card-targe
   instances.splice(index, 1);
   const ownedOriginal = workingState.inventory[originalItemId] ?? 0;
   workingState.inventory[originalItemId] = Math.max(0, ownedOriginal - 1);
-  // Phase 24.4d2: a freshly-minted transform result is a brand-new
+  // Phase 24.4d2a: a freshly-minted transform result is a brand-new
   // individual, not a copy — it gets its own ordinary fresh curse roll,
   // via the same FLOOR_EQUIPMENT_CURSE_CHANCE threshold and
   // createEquipmentInstanceWithCurse helper every other equipment-minting
   // path already uses (equipment-instance.ts/enemy-drop.ts), rather than
-  // always minting uncursed. Drawn from this resolver's own already-used
-  // workingState.combatRngState/rollPercent stream (the same card-effect
-  // stream the candidate-selection roll above uses) — never a new,
-  // separately-designed RNG stream.
-  const curseRoll = rollPercent(workingState.combatRngState);
-  workingState.combatRngState = curseRoll.nextState;
-  const cursed = curseRoll.roll / 100 < FLOOR_EQUIPMENT_CURSE_CHANCE;
+  // always minting uncursed. Drawn from this resolver's own
+  // STAR_TRANSFORM_CURSE_SALT stream — never combatRngState, and never
+  // the selection roll's own stream/draw (independent salt, and the
+  // identity input includes the *chosen* result ItemId so a different
+  // result never reuses the same curse draw as another).
+  const curseIdentity = `${targetIdentity}:${chosen}`;
+  const curseRng = createStarTransformRng(workingState, curseIdentity, STAR_TRANSFORM_CURSE_SALT);
+  const cursed = curseRng() < FLOOR_EQUIPMENT_CURSE_CHANCE;
   const newInstance = createEquipmentInstanceWithCurse(
     workingState,
     chosen as import('./types').WeaponId | import('./types').ArmorId,
