@@ -124,10 +124,12 @@ describe('Phase 23.7: generated floor structure', () => {
         }
 
         const traps = state.traps ?? [];
-        const slowTraps = traps.filter((t) => t.trapType === 'slow_trap');
-        const poisonTraps = traps.filter((t) => t.trapType === 'poison_trap');
-        expect(slowTraps.length).toBeLessThanOrEqual(1);
-        expect(poisonTraps.length).toBeLessThanOrEqual(1);
+        // Phase 24.4e1: each of the 2 trap slots now draws its trapType
+        // independently (45/45/10 weighted) instead of a hardcoded
+        // per-slot literal, so a per-type "at most 1" bound no longer
+        // holds — only the slot-count bound does (see
+        // docs/history/phase-24-4e1-active-curse-routes.md).
+        expect(traps.length).toBeLessThanOrEqual(2);
 
         // No coordinate collisions among start, exit, enemies, items, traps.
         const occupied = new Map<string, string[]>();

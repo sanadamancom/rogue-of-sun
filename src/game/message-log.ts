@@ -341,7 +341,21 @@ export function formatEvent(event: GameEvent): string {
     case 'banana_use_failed':
       return '攻撃力上昇はすでに最大時間有効で、バナナは使えない。';
     case 'trap_triggered':
-      return event.trapType === 'poison_trap' ? '毒の罠を踏んだ！' : '鈍足の罠を踏んだ！';
+      return event.trapType === 'poison_trap'
+        ? '毒の罠を踏んだ！'
+        : event.trapType === 'curse_trap'
+          ? '禍々しい罠を踏んだ！'
+          : '鈍足の罠を踏んだ！';
+    // Phase 24.4e1: internal telemetry only (see events.ts's own doc
+    // comment on 'equipment_cursed') — never player-visible. formatEvents
+    // filters out this empty string before returning, same as
+    // 'trap_revealed' above.
+    case 'equipment_cursed':
+      return '';
+    case 'curse_trap_result':
+      if (event.outcome === 'no_target') return '何も起こらなかった。';
+      if (event.outcome === 'equipped') return `${event.displayName}が呪われていることに気づいた！`;
+      return '持ち物に不吉な気配が宿った。';
     // Phase 18.1/18.2: trap_revealed has no dedicated user-facing line of
     // its own — the player-move ('step') case is always immediately
     // followed by 'trap_triggered' in the same turn's event list, whose

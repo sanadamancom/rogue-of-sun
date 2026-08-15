@@ -10,6 +10,7 @@ import {
   ENEMY_COUNT_PER_FLOOR,
 } from './mapgen';
 import { createInitialActor, createInitialEnemy } from './turn';
+import { selectTrapType } from './curse-active';
 import { chooseDarkRoomIndex } from './dark-rooms';
 import { buildMonsterHouseFloorState, createMonsterHouseRng } from './monster-house';
 import {
@@ -283,8 +284,18 @@ function buildFloorState(
   const slowTrapExclusions = [placement.start, placement.exit, ...placement.enemies];
   const slowTrapRng = createRng(floorSeed ^ 0x1a6f83c5);
   const slowTrapPos = chooseTrapPosition(map, map.rooms, placement.start, placement.exit, slowTrapExclusions, slowTrapRng);
+  // Phase 24.4e1: this slot's *position* selection above is completely
+  // unchanged from Phase 12.2 (same RNG stream, same exclusions, same
+  // consumption count) — only its *type* is now a weighted draw
+  // (curse-active.ts's selectTrapType, 45/45/10) from its own
+  // independent RNG stream, instead of the previous hardcoded
+  // 'slow_trap' literal. Consumed only when this slot actually produces
+  // a position (mirrors the existing `if (slowTrapPos)` gate), so a
+  // floor whose slot 1 placement fails never perturbs this stream's
+  // future consumption either.
+  const trapTypeSlot1Rng = createRng(floorSeed ^ 0x6a3fc19d);
   if (slowTrapPos) {
-    traps.push({ id: traps.length, pos: slowTrapPos, revealed: false, triggered: false, trapType: 'slow_trap' });
+    traps.push({ id: traps.length, pos: slowTrapPos, revealed: false, triggered: false, trapType: selectTrapType(trapTypeSlot1Rng) });
   }
 
   // Poison trap placement (Phase 12.3): prefers a different room from
@@ -314,8 +325,13 @@ function buildFloorState(
       { pos: slowTrapPos, distance: 3 },
     );
   }
+  // Phase 24.4e1: same treatment as slot 1 above — position RNG/logic
+  // unchanged, only the type is now a weighted draw from its own
+  // independent stream in place of the previous hardcoded 'poison_trap'
+  // literal.
+  const trapTypeSlot2Rng = createRng(floorSeed ^ 0x9b1ea472);
   if (poisonTrapPos) {
-    traps.push({ id: traps.length, pos: poisonTrapPos, revealed: false, triggered: false, trapType: 'poison_trap' });
+    traps.push({ id: traps.length, pos: poisonTrapPos, revealed: false, triggered: false, trapType: selectTrapType(trapTypeSlot2Rng) });
   }
 
   // Ground item count (Phase 15.4b): drawn once from item-def.ts's

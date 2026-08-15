@@ -146,15 +146,22 @@ describe('chooseTrapPosition (Phase 12.2)', () => {
 });
 
 describe('trap placement via createInitialState (Phase 12.2)', () => {
-  it('places at most one slow_trap per floor across several seeds', () => {
-    // Phase 12.3 adds poison_trap into this same array, so the overall
-    // traps array can now hold up to 2 entries — this assertion is
-    // narrowed to slow_trap specifically, which is what Phase 12.2
-    // originally guaranteed and still does.
+  it('places at most 2 traps total per floor across several seeds', () => {
+    // Phase 12.3 adds poison_trap into this same array (up to 2 slots
+    // total). Phase 24.4e1 replaces each slot's previously-hardcoded
+    // trapType with an independent weighted draw (slow_trap/poison_trap/
+    // curse_trap, 45/45/10) — so a per-type "at most 1" bound (this
+    // test's original Phase 12.2 assertion) is no longer guaranteed:
+    // both slots can independently land on the same type (e.g. 2x
+    // slow_trap). What Phase 12.2 actually guaranteed and still holds
+    // is the *slot count* bound — at most 2 traps total, regardless of
+    // which type(s) they resolve to (existing_test_policy permits
+    // updating this trap-type-distribution assertion; slot count/
+    // position/RNG-consumption invariants are otherwise unchanged — see
+    // docs/history/phase-24-4e1-active-curse-routes.md).
     for (const seed of [1, 7, 42, 2024]) {
       const state = createInitialState(seed);
-      const slowTraps = (state.traps ?? []).filter((t) => t.trapType === 'slow_trap');
-      expect(slowTraps.length).toBeLessThanOrEqual(1);
+      expect((state.traps ?? []).length).toBeLessThanOrEqual(2);
     }
   });
 

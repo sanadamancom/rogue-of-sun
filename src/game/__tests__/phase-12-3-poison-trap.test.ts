@@ -121,14 +121,17 @@ describe('slow_trap backward compatibility (Phase 12.3)', () => {
 });
 
 describe('poison_trap placement (Phase 12.3)', () => {
-  it('placement produces at most one slow_trap and one poison_trap per floor across several seeds', () => {
+  it('placement produces at most 2 traps total per floor across several seeds', () => {
+    // Phase 24.4e1: each of the 2 trap slots now draws its trapType
+    // independently (45/45/10 weighted, see curse-active.ts), so a
+    // per-type "at most 1" bound no longer holds (both slots can
+    // independently land on the same type) — only the slot-count bound
+    // does. See phase-12-2-slow-trap.test.ts's own updated test and
+    // docs/history/phase-24-4e1-active-curse-routes.md for the same
+    // change and rationale.
     for (const seed of [1, 7, 42, 2024]) {
       const state = createInitialState(seed);
-      const traps = state.traps ?? [];
-      const slowTraps = traps.filter((t) => t.trapType === 'slow_trap');
-      const poisonTraps = traps.filter((t) => t.trapType === 'poison_trap');
-      expect(slowTraps.length).toBeLessThanOrEqual(1);
-      expect(poisonTraps.length).toBeLessThanOrEqual(1);
+      expect((state.traps ?? []).length).toBeLessThanOrEqual(2);
     }
   });
 

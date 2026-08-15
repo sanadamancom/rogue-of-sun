@@ -522,4 +522,33 @@ export type GameEvent =
   // material, unsafe equipped state) — never distinguishes curse from
   // any other rejection at the event/message level (curse_rules's
   // "失敗ログは呪いを断定しない汎用文言にする").
-  | { type: 'solar_forge_failed'; reason: 'duplicate_instance' | 'invalid_instance' | 'not_weapon' | 'cursed' | 'no_recipe' | 'unsafe_equipped_state' };
+  | { type: 'solar_forge_failed'; reason: 'duplicate_instance' | 'invalid_instance' | 'not_weapon' | 'cursed' | 'no_recipe' | 'unsafe_equipped_state' }
+  // Phase 24.4e1 能動的な呪い付与経路: internal-telemetry-only record of
+  // one successful active curse application (mummy's on-hit curse or
+  // curse_trap's on-trigger curse — never the generation-time curse roll
+  // floor/monsterHouse/enemy-drop/Star already have their own routes
+  // for). `source` distinguishes which route applied it;
+  // `equipmentInstanceId`/`itemId` carry the real, un-obscured identity
+  // (telemetry.rules' "内部telemetryでは真ID保持可") — message-log.ts
+  // never reads this event's payload to build player-visible text
+  // (telemetry.rules' "player-visible message生成にtelemetry payloadを
+  // 直接使わない"; see 'curse_trap_result' below for curse_trap's actual
+  // player-facing event). `equipped`/`revealed` mirror the instance's
+  // resulting cursed/curseRevealed state at the moment this event is
+  // pushed. Never pushed on a failed chance roll or a 0-candidate
+  // scope — only on an actual `cursed = true` write.
+  | { type: 'equipment_cursed'; source: 'mummy_hit' | 'curse_trap'; equipmentInstanceId: string; itemId: WeaponId | ArmorId; equipped: boolean; revealed: boolean }
+  // Phase 24.4e1: curse_trap's player-facing outcome, always pushed
+  // exactly once per curse_trap trigger (never duplicated, never omitted
+  // — turn.ts's trap-trigger loop pushes this immediately after
+  // 'trap_triggered' for a curse_trap specifically). `displayName` is
+  // only ever set for `outcome: 'equipped'` (curse_trap_spec.player_
+  // message.equipped_target's "表示名はPhase 24.4d1のresolverを使う" —
+  // pre-resolved by turn.ts via item-identification.ts's
+  // getDisplayedItemName, so message-log.ts never needs equipment-
+  // instance/identification lookups of its own here); `outcome:
+  // 'unequipped'`/`'no_target'` never carry a displayName, so the real
+  // ItemId/instance/slot can never leak through this event
+  // (player_message.unequipped_target's "真のItemId・名称・対象slotを
+  // 漏らさない").
+  | { type: 'curse_trap_result'; outcome: 'no_target' | 'equipped' | 'unequipped'; displayName?: string };

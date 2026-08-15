@@ -63,6 +63,14 @@ import {
   selectEnemyDropItemIdWithCards,
 } from './enemy-drop';
 import { TOTAL_FLOORS } from './floor';
+import {
+  createMummyCurseChanceRng,
+  createMummyCurseTargetRng,
+  createCurseTrapTargetRng,
+  getActiveCurseEligibleInstances,
+  MUMMY_CURSE_CHANCE_PROVISIONAL,
+  selectActiveCurseTarget,
+} from './curse-active';
 import { validateForgeMaterialsWithLineage } from './solar-forge';
 import {
   getWeaponPreHitDamageBonus,
@@ -1174,6 +1182,14 @@ function applyPlayerAction(
       revealTrap(trap, events, 'step');
       trap.triggered = true;
       events.push({ type: 'trap_triggered', trapType: trap.trapType });
+      // Phase 24.4e1 curse_trap: a completely separate effect branch
+      // (equipment-instance mutation, never an EffectId/status-ailment
+      // grant) from slow_trap/poison_trap's shared movement_slow/poison
+      // path below — never touches grantOrRefreshEffect,
+      // poisonTickProgress, or isPlayerPoisonImmune, and vice versa.
+      if (trap.trapType === 'curse_trap') {
+        applyCurseTrapEffect(state, trap, events);
+      } else {
       const effectId = trap.trapType === 'slow_trap' ? 'movement_slow' : 'poison';
       // Phase 24.3 poison_guard (poison_guard): blocks only a *new*
       // poison application at its single production choke point (the
@@ -1200,6 +1216,7 @@ function applyPlayerAction(
           ? { type: 'effect_granted', effectId, strength: def.strength, remainingTurns: def.duration }
           : { type: 'effect_refreshed', effectId, strength: def.strength, remainingTurns: def.duration },
       );
+      }
       }
     }
     // Auto-pickup (Phase 08.2): stepping onto a ground item tile collects
@@ -3168,7 +3185,104 @@ function resolveEnemyAttackHit(state: GameState, enemy: EnemyActor, events: Game
     }
   }
   if (player.hp === 0) player.alive = false;
+  // Phase 24.4e1 mummy's on-hit curse (mummy_curse): gated strictly to
+  // enemy.type === 'mummy' — every other species reaching this shared
+  // choke point (bok/sword/axe/golem/spider/bat/cockatrice/ghost/
+  // steps/skeleton) is completely unaffected, per
+  // integration.rule's "全敵へ作用する処理にしない". Fires only after a
+  // confirmed hit (never on the miss branch above), as an additional
+  // effect within this same resolve — no extra turn, no extra damage,
+  // no duplicated damage logic.
+  if (enemy.type === 'mummy') {
+    tryApplyMummyCurseOnHit(state, enemy, events);
+  }
   return true;
+}
+
+/**
+ * Phase 24.4e1 mummy_curse: rolls whether this confirmed mummy hit also
+ * curses one of the player's currently-equipped eligible instances.
+ * Scope is equipped-only (mummy_curse.target_scope), narrower than
+ * curse_trap's full-inventory scope below, even though both reuse
+ * getActiveCurseEligibleInstances' shared rank/cursed/id filter
+ * (shared_eligibility.rule). 0 eligible candidates -> no chance stream
+ * is even constructed (rng_design.rules' "候補0件ではchance streamも生
+ * 成しない"); a failed chance roll never constructs the target stream
+ * either. Success sets both `cursed` and `curseRevealed` (an equipped
+ * instance's curse is always immediately discovered, mirroring every
+ * other equip-time curse-discovery path already in this codebase) —
+ * never the general item-identification state (identification.rule's
+ * "呪い付与だけで装備本体を鑑定しない").
+ */
+function tryApplyMummyCurseOnHit(state: GameState, enemy: EnemyActor, events: GameEvent[]): void {
+  const equippedIds = new Set<string>(
+    [state.equippedWeaponInstanceId, state.equippedArmorInstanceId].filter((id): id is string => Boolean(id)),
+  );
+  const eligible = getActiveCurseEligibleInstances(state).filter((instance) => equippedIds.has(instance.instanceId));
+  if (eligible.length === 0) return;
+
+  const enemyId = enemy.id ?? 0;
+  const chanceRng = createMummyCurseChanceRng(state, enemyId);
+  if (!(chanceRng() < MUMMY_CURSE_CHANCE_PROVISIONAL)) return;
+
+  const target =
+    eligible.length === 1 ? eligible[0] : selectActiveCurseTarget(eligible, createMummyCurseTargetRng(state, enemyId));
+
+  target.cursed = true;
+  target.curseRevealed = true;
+  events.push({
+    type: 'equipment_cursed',
+    source: 'mummy_hit',
+    equipmentInstanceId: target.instanceId,
+    itemId: target.definitionId,
+    equipped: true,
+    revealed: true,
+  });
+}
+
+/**
+ * Phase 24.4e1 curse_trap: applies curse_trap's on-trigger effect,
+ * called only for `trap.trapType === 'curse_trap'` immediately after
+ * 'trap_triggered' is pushed for it (curse_trap.trigger's "trap発動自体
+ * は既存move turn内で処理" — no extra turn). Scope is every currently
+ * held instance (equipped or unequipped — curse_trap.target_scope),
+ * wider than mummy's equipped-only scope. Unlike mummy, curse_trap has
+ * no chance roll at all (this Phase's spec never mentions one for
+ * curse_trap — every trigger with 1+ eligible candidates always curses
+ * exactly one). `curseRevealed` is set true only when the chosen target
+ * happens to be currently equipped (identification.rule parity with
+ * every other curse-discovery path); an unequipped target's curse stays
+ * undiscovered, and its real ItemId/name is never included in the
+ * pushed 'curse_trap_result' event (player_message.unequipped_target).
+ */
+function applyCurseTrapEffect(state: GameState, trap: import('./types').TrapTile, events: GameEvent[]): void {
+  const eligible = getActiveCurseEligibleInstances(state);
+  if (eligible.length === 0) {
+    events.push({ type: 'curse_trap_result', outcome: 'no_target' });
+    return;
+  }
+
+  const target =
+    eligible.length === 1 ? eligible[0] : selectActiveCurseTarget(eligible, createCurseTrapTargetRng(state, trap.id));
+
+  const equipped =
+    target.instanceId === state.equippedWeaponInstanceId || target.instanceId === state.equippedArmorInstanceId;
+  target.cursed = true;
+  target.curseRevealed = equipped;
+
+  events.push({
+    type: 'equipment_cursed',
+    source: 'curse_trap',
+    equipmentInstanceId: target.instanceId,
+    itemId: target.definitionId,
+    equipped,
+    revealed: equipped,
+  });
+  events.push({
+    type: 'curse_trap_result',
+    outcome: equipped ? 'equipped' : 'unequipped',
+    displayName: equipped ? getDisplayedItemName(state, target.definitionId) : undefined,
+  });
 }
 
 /**

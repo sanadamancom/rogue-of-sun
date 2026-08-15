@@ -452,7 +452,15 @@ export interface WebTile {
  * site that needs to distinguish trap behavior switches on this field
  * explicitly.
  */
-export type TrapType = 'slow_trap' | 'poison_trap';
+/**
+ * Phase 24.4e1 adds 'curse_trap' as a 3rd TrapType, drawn via a weighted
+ * roll (45/45/10, see curse-active.ts's TRAP_TYPE_WEIGHTS) at each of
+ * the 2 existing trap-generation slots (state.ts) in place of their
+ * previous hardcoded literal — the slot count, position RNG streams,
+ * and position-selection logic are all unchanged; only which TrapType a
+ * slot resolves to is now probabilistic.
+ */
+export type TrapType = 'slow_trap' | 'poison_trap' | 'curse_trap';
 
 /**
  * A hidden floor trap (Phase 12.2 slow trap, extended in Phase 12.3 with
