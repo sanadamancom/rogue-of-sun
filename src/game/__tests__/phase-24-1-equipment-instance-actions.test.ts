@@ -416,7 +416,16 @@ describe('Phase 24.1: floor carry-over and new-run initialization', () => {
   });
 
   it('a brand new run starts with no equipment instances and null equip state', () => {
-    const state = createInitialState(42);
+    // Phase 24.5c: seed changed from 42 to 4 — with accessory now a
+    // possible generation outcome (carved out of the old non-card
+    // space), seed 42's floor-1 draw happens to land an accessory slot,
+    // which legitimately mints an EquipmentInstance (expected new
+    // behavior, not a bug — see docs/history/phase-24-5c-accessory-
+    // generation.md's existing-test-change record). Seed 4 still yields
+    // zero equipment instances under current production code, so this
+    // test's actual intent (a brand new run never inherits stale
+    // equipment state) remains verified.
+    const state = createInitialState(4);
     expect(state.equipmentInstances ?? []).toHaveLength(0);
     expect(state.equippedWeaponInstanceId ?? null).toBeNull();
     expect(state.equippedArmorInstanceId ?? null).toBeNull();

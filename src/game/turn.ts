@@ -50,6 +50,7 @@ import {
   getEquipmentInstances,
   isEquippedArmorCurseLocked,
   isEquippedWeaponCurseLocked,
+  isAccessoryId,
   isEquipmentDefinitionId,
   isWeaponOrArmorId,
   normalizeEquipmentInstances,
@@ -488,6 +489,12 @@ function spawnEnemyDropIfAny(state: GameState, target: EnemyActor, events: GameE
     finalItemId = resolvedDefinitionId;
     cursed = rollEnemyDropCurse(floorSeed, enemyId);
   }
+  // Phase 24.5c: accessory has no slot indirection (unlike weapon/
+  // armor's isNormalEquipmentSlot check above) — selectEnemyDropItemIdWithCards
+  // already resolved a concrete AccessoryId directly, so no definition
+  // resolution and no rollEnemyDropCurse call happen for it (accessory
+  // is curse-excluded this phase — see accessory-def.ts).
+  const isAccessoryDrop = isAccessoryId(drawnItemId);
 
   // producer_decisions' placement rules: floor tile only, never the
   // exit, never a movement-blocking Actor (player or another living
@@ -524,6 +531,14 @@ function spawnEnemyDropIfAny(state: GameState, target: EnemyActor, events: GameE
     if (cursed) {
       events.push({ type: 'equipment_curse_generated', route: 'enemy_drop', equipmentInstanceId, itemId: resolvedDefinitionId });
     }
+  } else if (isAccessoryDrop) {
+    // Phase 24.5c: identical mint-after-position-found pattern as the
+    // weapon/armor branch above, minus curse (accessory is always
+    // uncursed this phase — createEquipmentInstance defaults
+    // cursed:false, never touching equipmentCurseRng/rollEnemyDropCurse
+    // at all for this branch).
+    const instance = createEquipmentInstance(state, drawnItemId);
+    equipmentInstanceId = instance.instanceId;
   }
 
   state.groundItems.push({

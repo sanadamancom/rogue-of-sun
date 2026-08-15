@@ -17,6 +17,7 @@ import {
 } from '../equipment-loot';
 import { WEAPON_DEFINITIONS, WEAPON_IDS_IN_ORDER } from '../weapon-def';
 import { ARMOR_DEFINITIONS, ARMOR_IDS_IN_ORDER } from '../armor-def';
+import { ACCESSORY_DEFINITIONS, ACCESSORY_IDS_IN_ORDER } from '../accessory-def';
 import { createRng, generateMap } from '../mapgen';
 import { createInitialState, advanceToNextFloor } from '../state';
 import { ArmorId, WeaponId } from '../types';
@@ -224,7 +225,7 @@ describe('isNormalEquipmentSlot', () => {
 });
 
 describe('equipment identity: end-to-end through normal floor generation', () => {
-  it('every floor-generated weapon/armor GroundItem has a matching EquipmentInstance with correct definitionId/rank, and no black_armor/S/R ever appears', () => {
+  it('every floor-generated weapon/armor GroundItem has a matching EquipmentInstance with correct definitionId/rank, and no black_armor/S/R ever appears (Phase 24.5c: accessory GroundItems also carry an EquipmentInstance and are checked separately, since accessory legitimately generates at S — see accessory-def.ts)', () => {
     for (const seed of SAMPLE_SEEDS) {
       let state = createInitialState(seed);
       for (let floor = 1; floor <= 3; floor++) {
@@ -234,6 +235,16 @@ describe('equipment identity: end-to-end through normal floor generation', () =>
           const instance = (state.equipmentInstances ?? []).find((i) => i.instanceId === item.equipmentInstanceId);
           expect(instance).toBeDefined();
           expect(instance!.definitionId).toBe(item.itemId);
+          // Phase 24.5c: an accessory GroundItem is checked against its
+          // own catalog (ACCESSORY_DEFINITIONS) — it never has a
+          // WEAPON_DEFINITIONS/ARMOR_DEFINITIONS entry, and its rank IS
+          // allowed to be 'S' (grigri_glasses), unlike weapon/armor
+          // below.
+          if ((ACCESSORY_IDS_IN_ORDER as readonly string[]).includes(item.itemId)) {
+            const accessoryRank = ACCESSORY_DEFINITIONS[item.itemId as (typeof ACCESSORY_IDS_IN_ORDER)[number]].rank;
+            expect(instance!.rank).toBe(accessoryRank);
+            continue;
+          }
           const isWeapon = (WEAPON_IDS_IN_ORDER as readonly string[]).includes(item.itemId);
           const rank = isWeapon
             ? WEAPON_DEFINITIONS[item.itemId as WeaponId].rank
@@ -258,7 +269,7 @@ describe('equipment identity: end-to-end through normal floor generation', () =>
 });
 
 describe('monsterHouse equipment rewards', () => {
-  it('when a monsterHouse floor is found, its equipment reward ground items resolve through a valid catalog definition, never black_armor/S/R', () => {
+  it('when a monsterHouse floor is found, its equipment reward ground items resolve through a valid catalog definition, never black_armor/S/R (Phase 24.5c: accessory rewards checked separately, since accessory legitimately generates at S)', () => {
     let foundMonsterHouseWithEquipmentReward = false;
     for (let seed = 1; seed <= 300; seed++) {
       let state = createInitialState(seed);
@@ -270,6 +281,11 @@ describe('monsterHouse equipment rewards', () => {
         foundMonsterHouseWithEquipmentReward = true;
         for (const item of equipmentGroundItems) {
           expect(item.itemId).not.toBe('black_armor');
+          if ((ACCESSORY_IDS_IN_ORDER as readonly string[]).includes(item.itemId)) {
+            const accessoryRank = ACCESSORY_DEFINITIONS[item.itemId as (typeof ACCESSORY_IDS_IN_ORDER)[number]].rank;
+            expect(accessoryRank).toBeDefined();
+            continue;
+          }
           const isWeapon = (WEAPON_IDS_IN_ORDER as readonly string[]).includes(item.itemId);
           const rank = isWeapon
             ? WEAPON_DEFINITIONS[item.itemId as WeaponId].rank

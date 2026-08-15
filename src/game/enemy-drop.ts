@@ -3,7 +3,7 @@ import { isWalkable } from './map';
 import { getGroundItemPoolForFloor } from './item-def';
 import { FLOOR_EQUIPMENT_CURSE_CHANCE } from './equipment-instance';
 import { floorProgressRatio, isNormalEquipmentSlot, selectNormalEquipmentDefinition } from './equipment-loot';
-import { resolveCardSlot } from './card-loot';
+import { resolveLootSlot } from './accessory-loot';
 import { ALL_DIRECTIONS, ArmorId, DIRECTION_VECTORS, GameMap, ItemId, Vec2, WeaponId } from './types';
 
 /**
@@ -50,6 +50,16 @@ const SALT_EQUIPMENT_CURSE = 0xd1e9736c;
 const SALT_CARD_CATEGORY = 0x2f7b91d4;
 const SALT_CARD_RARITY = 0x6c1e83fa;
 const SALT_CARD_BODY = 0x94b2d1c7;
+// Phase 24.5c: 2 further independent salts for the accessory rank roll
+// and item-within-rank roll — applied only when SALT_CARD_CATEGORY's
+// (now 3-way — see accessory-loot.ts's rollLootCategory) roll actually
+// resolves to 'accessory' for this drop, mirroring how
+// SALT_CARD_RARITY/SALT_CARD_BODY are only consumed for a 'card'
+// result. A failed drop-occurrence roll (rollEnemyDropOccurs) still
+// costs neither of these streams at all — see
+// selectEnemyDropItemIdWithCards's own doc comment.
+const SALT_ACCESSORY_RANK = 0xa39f6e52;
+const SALT_ACCESSORY_ITEM = 0xe61c8b3d;
 
 /**
  * Combines `floorSeed` (already unique per run+floor — GameState.seed,
@@ -114,12 +124,28 @@ export function selectEnemyDropItemId(floor: number, floorSeed: number, enemyId:
  * duplicates the card candidate table or weighting logic — both live
  * solely in card-loot.ts.
  */
+/**
+ * Phase 24.4c: the enemy-drop route's card-supply connection point,
+ * extended in Phase 24.5c to a full 3-way (card/accessory/non_card)
+ * resolution via accessory-loot.ts's shared resolveLootSlot — same
+ * single categoryRng roll as before (still exactly one rng() call, same
+ * card share of that roll, so card's own production rate here is
+ * unaffected by this Phase), now also able to resolve to a concrete
+ * AccessoryId via 2 new dedicated streams. Falls back to
+ * selectEnemyDropItemId's existing non-card draw unchanged (same pool,
+ * same SALT_ITEM_SELECTION stream, same 1-rng()-call contract) only for
+ * the 'non_card' outcome. Never duplicates the card or accessory
+ * candidate tables/weighting logic — both live solely in card-loot.ts/
+ * accessory-loot.ts.
+ */
 export function selectEnemyDropItemIdWithCards(floor: number, floorSeed: number, enemyId: number): ItemId {
   const categoryRng = createEnemyDropRng(floorSeed, enemyId, SALT_CARD_CATEGORY);
   const rarityRng = createEnemyDropRng(floorSeed, enemyId, SALT_CARD_RARITY);
   const bodyRng = createEnemyDropRng(floorSeed, enemyId, SALT_CARD_BODY);
-  const card = resolveCardSlot(categoryRng, rarityRng, bodyRng);
-  if (card) return card;
+  const accessoryRankRng = createEnemyDropRng(floorSeed, enemyId, SALT_ACCESSORY_RANK);
+  const accessoryItemRng = createEnemyDropRng(floorSeed, enemyId, SALT_ACCESSORY_ITEM);
+  const resolved = resolveLootSlot(categoryRng, rarityRng, bodyRng, accessoryRankRng, accessoryItemRng);
+  if (resolved.category !== 'non_card') return resolved.id;
   return selectEnemyDropItemId(floor, floorSeed, enemyId);
 }
 

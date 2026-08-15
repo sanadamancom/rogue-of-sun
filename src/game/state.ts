@@ -37,13 +37,14 @@ import {
 import { CARD_IDS_IN_ORDER } from './card-def';
 import {
   FLOOR_EQUIPMENT_CURSE_CHANCE,
+  isAccessoryId,
   isWeaponOrArmorId,
   mintEquipmentInstance,
   normalizeEquipmentInstances,
   resetPerFloorEquipmentEffectState,
 } from './equipment-instance';
 import { floorProgressRatio, isNormalEquipmentSlot, selectNormalEquipmentDefinition } from './equipment-loot';
-import { substituteCardSlots } from './card-loot';
+import { substituteLootSlots } from './accessory-loot';
 import { generateSunlightLayer } from './sunlight';
 import { HUNGER_MAX } from './hunger';
 import {
@@ -379,10 +380,25 @@ function buildFloorState(
   // guarantee's target slot happens to have just become a card, the
   // guarantee still overwrites it with chocolate, unchanged from every
   // prior Phase's behavior for that slot.
+  // Phase 24.5c: this same categoryRng stream (unchanged salt) now
+  // decides among 3 categories per slot (card/accessory/non_card) via
+  // accessory-loot.ts's rollLootCategory instead of card-loot.ts's old
+  // 2-way rollIsCardSlot — still exactly one rng() call per slot, and
+  // card's own share of that single roll is numerically unchanged (see
+  // rollLootCategory's doc comment), so card's production rate is
+  // unaffected by this Phase. 2 further independent streams
+  // (accessoryRankRng/accessoryItemRng, own XOR constants) back the
+  // accessory rank+body draw, consumed only for a slot this roll
+  // actually resolves to 'accessory' — never touching
+  // itemCountRng/itemSelectionRng/itemPlacementRng/equipmentCurseRng/
+  // equipmentDefinitionRng/cardRarityRng/cardBodyRng's own consumption
+  // order or count.
   const cardCategoryRng = createRng(floorSeed ^ 0x2f7b91d4);
   const cardRarityRng = createRng(floorSeed ^ 0x6c1e83fa);
   const cardBodyRng = createRng(floorSeed ^ 0x94b2d1c7);
-  const selectedItemIds = substituteCardSlots(drawnItemIds, cardCategoryRng, cardRarityRng, cardBodyRng);
+  const accessoryRankRng = createRng(floorSeed ^ 0xa39f6e52);
+  const accessoryItemRng = createRng(floorSeed ^ 0xe61c8b3d);
+  const selectedItemIds = substituteLootSlots(drawnItemIds, cardCategoryRng, cardRarityRng, cardBodyRng, accessoryRankRng, accessoryItemRng);
 
   // Phase 16.1 early-resource-and-combat-pressure rebalance: floor 1's
   // ground-item pool has 11 candidate ids but 'chocolate' (the only
@@ -470,6 +486,22 @@ function buildFloorState(
       nextFloorEquipmentInstanceId += 1;
       floorEquipmentInstances.push(instance);
       groundItems.push({ id: groundItems.length, itemId: resolvedDefinitionId, pos, equipmentInstanceId: instance.instanceId });
+    } else if (isAccessoryId(itemId)) {
+      // Phase 24.5c: accessory has no slot indirection (unlike weapon/
+      // armor's 5-slot pool) — accessory-loot.ts's substituteLootSlots
+      // already resolved this slot to a concrete AccessoryId, so no
+      // definitionId resolution step is needed here. No curse roll
+      // either (accessory-def.ts's 6 initial species are curse-excluded
+      // this phase, per docs/history/phase-24-5a2-accessory-selection-
+      // audit.md's finalized selection) — equipmentCurseRng is never
+      // consumed for an accessory slot, preserving its existing
+      // weapon/armor-only consumption count. Minted only after `pos`
+      // above already succeeded (chooseGroundItemPosition throws
+      // otherwise), so no orphaned instance is ever created.
+      const instance = mintEquipmentInstance(nextFloorEquipmentInstanceId, itemId, false);
+      nextFloorEquipmentInstanceId += 1;
+      floorEquipmentInstances.push(instance);
+      groundItems.push({ id: groundItems.length, itemId, pos, equipmentInstanceId: instance.instanceId });
     } else {
       groundItems.push({ id: groundItems.length, itemId, pos });
     }
@@ -553,8 +585,11 @@ function buildFloorState(
       // above, continuing the same 3 dedicated card-selection streams
       // (cardCategoryRng/cardRarityRng/cardBodyRng) in their existing
       // consumption order — mirroring how equipmentDefinitionRng/
-      // equipmentCurseRng already continue across both loops.
-      const rewardItemIds = substituteCardSlots(drawnRewardItemIds, cardCategoryRng, cardRarityRng, cardBodyRng);
+      // equipmentCurseRng already continue across both loops. Phase
+      // 24.5c: also continues accessoryRankRng/accessoryItemRng in
+      // their existing consumption order, via the same 3-way
+      // substituteLootSlots normal generation above now uses.
+      const rewardItemIds = substituteLootSlots(drawnRewardItemIds, cardCategoryRng, cardRarityRng, cardBodyRng, accessoryRankRng, accessoryItemRng);
       for (let i = 0; i < rewardPositions.length; i++) {
         const rewardItemId = rewardItemIds[i];
         const rewardPos = rewardPositions[i];
@@ -573,6 +608,20 @@ function buildFloorState(
           groundItems.push({
             id: groundItems.length,
             itemId: resolvedRewardDefinitionId,
+            pos: rewardPos,
+            equipmentInstanceId: instance.instanceId,
+            spawnSource: 'monster_house',
+          });
+        } else if (isAccessoryId(rewardItemId)) {
+          // Phase 24.5c: identical accessory branch to normal generation
+          // above — no slot resolution, no curse roll, mint only after
+          // rewardPos is already known-valid.
+          const instance = mintEquipmentInstance(nextFloorEquipmentInstanceId, rewardItemId, false);
+          nextFloorEquipmentInstanceId += 1;
+          floorEquipmentInstances.push(instance);
+          groundItems.push({
+            id: groundItems.length,
+            itemId: rewardItemId,
             pos: rewardPos,
             equipmentInstanceId: instance.instanceId,
             spawnSource: 'monster_house',
