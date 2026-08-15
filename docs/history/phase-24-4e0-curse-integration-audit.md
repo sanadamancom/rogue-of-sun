@@ -245,37 +245,42 @@ focused test対応: `phase-24-4d2-star-transformation-alignment.test.ts`の8 des
 
 **結論: Star経路はRESOLVED_EXISTING。設計判断不要、Phase 24.4e1で新規に触れる必要なし。**
 
-## 2. 敵経路 — 全route一覧と最小hook候補
+## 2. 敵経路 — 全route一覧と最小hook候補（Phase 24.4e0bで確定済み。旧「推定」表現は下記で置換済み）
 
-production入口は共通して`resolveOneEnemy`（turn.ts:4250）から種族別resolverへディスパッチされ、ダメージはすべて`resolveEnemyAttackHit`（唯一の共通ダメージ確定点）を経由する。
+production入口は`resolveOneEnemy`（turn.ts:4250付近）。behaviorTypeは`ENEMY_DEFINITIONS[enemy.type].behaviorType`（enemy-def.ts）で静的に1種族1値へ固定されており、実行時に複数behaviorTypeへ揺れることはない（`switch (behaviorType)`、turn.ts:4308-4335）。
 
-| EnemyId | route種別 | production関数 | RNG source | player到達判定 | 装備instanceアクセス可否 |
-|---|---|---|---|---|---|
-| bok | 通常8方向近接 | `resolveBokEnemy` → `tryMeleeAttack` → `resolveEnemyAttackHit` | `state.combatRngState`（命中判定のみ） | 隣接判定 | 可能（`resolveEnemyAttackHit`はstate全体を受け取るため`getHeldEquipmentInstances(state)`呼び出し可） |
-| sword | 通常8方向近接 | `resolveSwordEnemy` → `tryMeleeAttack` | 同上 | 同上 | 可能 |
-| axe | 通常8方向近接 | `resolveAxeEnemy` → `tryMeleeAttack` | 同上 | 同上 | 可能 |
-| golem | 突進+近接 | `resolveGolemChargeEnemy` → `executeGolemCharge`/`tryMeleeAttack` | `combatRngState`（命中）、突進判定自体はRNG不使用（`isGolemChargeLineClear`は幾何判定） | 直線ライン走査 or 隣接 | 可能 |
-| spider | 近接+web設置+コーナー横断 | `resolveSpiderEnemy` → `resolveEnemyAttackHit`（隣接時）、`placeWeb`（web設置は別経路、プレイヤーへの直接効果はslow付与のみでcurse対象外） | `combatRngState`（命中）。web設置自体はRNG不使用（`canPlaceWebNow`は幾何判定） | 直交隣接 or web接触 | 隣接攻撃時は可能 |
-| bat | 近接+退避 | `resolveBatEnemy` → `tryMeleeAttack` | `combatRngState`（命中） | 隣接 | 可能 |
-| mummy | 移動+休止サイクルを伴う近接 | `resolveMummyEnemy` → `tryMeleeAttack` → `resolveEnemyAttackHit` | `combatRngState`（命中） | 隣接 | 可能 |
-| cockatrice | 視線攻撃（petrify付与）+近接 | `resolveCockatriceEnemy` | `castGazeRay`はRNG不使用（幾何判定）。視線ヒット時は`state.player.petrified = true`を直接設定、RNG不使用 | 直線視線到達 | 視線ヒットはRNG不使用の確定効果 — 装備instanceには未アクセス（petrifyはplayer状態のみ変更） |
-| kraken | 遠距離触手（テレグラフ+十字範囲） | `resolveKrakenEnemy` | `combatRngState`（命中、`resolveEnemyAttackHit`を経由と推定されるがdoc comment上は「the exact same hit check below」という自前ロジックの可能性あり — 完全な行単位確認は未実施） | `tentacleCrossCells`によるクロス範囲判定 | ダメージ確定箇所は`resolveEnemyAttackHit`を再利用しているかは要再確認（テレグラフ+プル効果を持つため専用ロジックの可能性） — **要追加確認** |
-| ghost | 壁抜け移動+近接 | `resolveGhostEnemy` → `tryMeleeAttack` | `combatRngState`（命中） | 隣接 | 可能 |
-| steps | 隠密/テレグラフ/露出3状態サイクルの範囲攻撃+近接 | `resolveStepsEnemy` → `resolveEnemyAttackHit`（テレグラフ発動時の範囲ヒット）/`tryMeleeAttack`（露出中） | `combatRngState`（`resolveEnemyAttackHit`経由の命中判定） | `getStepsSpikeCells`による3x3範囲判定（テレグラフ時）、隣接（露出時） | 可能（`resolveEnemyAttackHit`経由のため） |
-| skeleton | 頭部分離を伴う近接、専用resolver関数は存在せず`resolveOneEnemy`のbehaviorType分岐で`generic_melee`系（bokと同系統）として扱われる | `resolveOneEnemy` → `tryMeleeAttack`（推定） | `combatRngState`（推定、bokと同一経路） | 隣接（推定） | 可能（推定） — skeletonForm='head'時の特殊挙動（131/178/4270/4641行）は死亡・攻撃可否判定に関わる別軸の分岐であり、curse付与hookとは無関係 |
+| EnemyId | behaviorType | 通常攻撃route | 固有能力route | damage/effect成立境界 | RNG source | curse付与の最小hook候補 | target候補取得位置 | 二重turn消費リスク | status |
+|---|---|---|---|---|---|---|---|---|---|
+| bok | `generic_melee` | `resolveBokEnemy`→`tryMeleeAttack`→`resolveEnemyAttackHit` | なし | `resolveEnemyAttackHit`内`player.hp`更新行（turn.ts:3151） | `state.combatRngState`（命中roll、1回） | `resolveEnemyAttackHit`内のhit成立後 | `getHeldEquipmentInstances(state)` | 低（1攻撃1回のみ呼出） | CONFIRMED |
+| sword | `fast_melee` | `resolveSwordEnemy`→`tryMeleeAttack`→`resolveEnemyAttackHit` | なし（最大2歩の移動のみ、攻撃自体はbokと同一） | 同上 | 同上 | 同上 | 同上 | 低 | CONFIRMED |
+| axe | `recovery_melee` | `resolveAxeEnemy`→`tryMeleeAttack`→`resolveEnemyAttackHit` | なし（攻撃後強制待機のみ、攻撃自体はbokと同一） | 同上 | 同上 | 同上 | 同上 | 低 | CONFIRMED |
+| golem | `golem_charge` | `resolveGolemChargeEnemy`（idle時）内`tryMeleeAttack`→`resolveEnemyAttackHit`（隣接時） | `executeGolemCharge`（telegraphed実行時の直線突進）。突進経路上でプレイヤーに到達した瞬間、`executeGolemCharge`内で`resolveEnemyAttackHit(state, enemy, events)`を**共通関数として呼び出す**（turn.ts:3304、golemもstepsと同様に専用ロジックを持たずcommon hookを共有） | 近接・突進ともに`resolveEnemyAttackHit`を経由（同一境界） | `combatRngState`（`resolveEnemyAttackHit`経由、近接・突進とも同一）。移動経路の幾何判定自体はNONE | `resolveEnemyAttackHit`内（近接・突進の両方を単一hookで覆える） | `getHeldEquipmentInstances(state)` | 低（突進は1回のtelegraphed消化につき最大1回の`resolveEnemyAttackHit`呼出） | CONFIRMED |
+| spider | `spider_cardinal` | `resolveSpiderEnemy`内`resolveEnemyAttackHit`（直交隣接時） | `placeWeb`（web設置、RNG不使用、プレイヤーのslowed状態のみ変更・装備instance非接触） | 攻撃時は`resolveEnemyAttackHit`と同一 | `combatRngState`（攻撃時のみ）。web設置はNONE | `resolveEnemyAttackHit`内（攻撃時のみ、web設置はcurse対象外） | `getHeldEquipmentInstances(state)` | 低 | CONFIRMED |
+| bat | `bat_retreat` | `resolveBatEnemy`→`tryMeleeAttack`→`resolveEnemyAttackHit` | なし（攻撃後の退避移動のみ） | `resolveEnemyAttackHit`と同一 | `combatRngState` | `resolveEnemyAttackHit`内 | `getHeldEquipmentInstances(state)` | 低 | CONFIRMED |
+| mummy | `mummy_shamble` | `resolveMummyEnemy`→`tryMeleeAttack`→`resolveEnemyAttackHit` | なし（移動後1ターン休止のみ、`restingAfterMove`フラグでRNG不使用） | `resolveEnemyAttackHit`と同一 | `combatRngState`（攻撃時のみ）。休止判定はNONE | `resolveEnemyAttackHit`内 | `getHeldEquipmentInstances(state)` | 低 | CONFIRMED |
+| cockatrice | `cockatrice_gaze` | `resolveCockatriceEnemy`内`tryMeleeAttack`→`resolveEnemyAttackHit`（隣接時、視線未使用時のみ） | 視線攻撃（aim→fire2段階、`castGazeRay`で直線到達判定・幾何のみ）。ヒット時`state.player.petrified = true`を直接設定 | 近接時は`resolveEnemyAttackHit`、視線時は`resolveCockatriceEnemy`内の直接`petrified`代入（turn.ts:3835付近） | `combatRngState`（近接時のみ）。視線判定はNONE（`castGazeRay`はcanMoveベースの幾何判定でRNG不使用） | 近接時は`resolveEnemyAttackHit`内。視線時は`resolveCockatriceEnemy`内の`hit`成立ブロック内に個別追加が必要（petrifyと同じ箇所） | `getHeldEquipmentInstances(state)` | 低（視線と近接は排他分岐のため二重発火なし） | CONFIRMED |
+| kraken | `kraken_tentacle` | **なし**（krakenは通常近接攻撃を一切持たない。`tryMeleeAttack`/`resolveEnemyAttackHit`を一度も呼ばない） | 触手予告・発動2段階（`tentacleTarget`未設定→予告、設定済み→発動）。発動時は`tentacleCrossCells`（十字5マス、幾何のみ）で対象範囲を求め、`hit`成立時に`player.hp = Math.max(0, player.hp - damage)`を`resolveKrakenEnemy`内で直接実行（turn.ts:3930-3932）。**`resolveEnemyAttackHit`は使用しない**（個別damage適用の専用ロジック） | `resolveKrakenEnemy`内の`if (hit) { player.hp = ... }`ブロック（turn.ts:3930-3932） | `combatRngState`は**不使用**（命中は`area.some(...)`による範囲内判定のみで確率roll自体が存在しない。`getIncomingDamage`はダメージ量計算のみで、命中可否とは無関係） | `resolveKrakenEnemy`内の`if (hit)`成立後、`player.hp`更新の直後（プル処理より前が安全） | `getHeldEquipmentInstances(state)` | 低（1回の`tentacleTarget`消化につき1回のみhit判定） | CONFIRMED |
+| ghost | `ghost_phase` | `resolveGhostEnemy`→`tryMeleeAttack`→`resolveEnemyAttackHit` | 壁抜け移動（BFS経路探索、RNG不使用） | `resolveEnemyAttackHit`と同一 | `combatRngState`（攻撃時のみ）。移動判定はNONE | `resolveEnemyAttackHit`内 | `getHeldEquipmentInstances(state)` | 低 | CONFIRMED |
+| steps | `steps_spike` | `resolveStepsEnemy`内`tryMeleeAttack`→`resolveEnemyAttackHit`（'revealed'状態時） | 3x3範囲spike攻撃（'telegraphed'→'revealed'遷移時、`getStepsSpikeCells`で範囲確定、ヒット時`resolveEnemyAttackHit(state, enemy, events)`を**共通関数として呼び出す**、turn.ts:4189） | 範囲攻撃・通常攻撃とも`resolveEnemyAttackHit`を経由（steps_spikeは両方とも同じ関数を使う点がkrakenと異なる） | `combatRngState`（`resolveEnemyAttackHit`経由、範囲攻撃・通常攻撃どちらも同一） | `resolveEnemyAttackHit`内（範囲・通常とも同一hookで覆える） | `getHeldEquipmentInstances(state)` | 低（'revealed'/'telegraphed'状態遷移が1ターン1回のみ） | CONFIRMED |
+| skeleton | `generic_melee`（enemy-def.ts:385で静的固定、実行時に他behaviorTypeへ揺れることはない） | `resolveOneEnemy`→（`generic_melee`分岐）→`resolveBokEnemy`→`tryMeleeAttack`→`resolveEnemyAttackHit`（body形態のみ。head形態は`resolveOneEnemy`冒頭でskeletonForm==='head'なら即`return`し、一切の行動・RNG消費なし、turn.ts:4270-4272） | head化・復活は`defeatEnemyIfNeeded`（プレイヤーがskeletonを攻撃した際の防御側ロジックであり、skeletonがプレイヤーを攻撃するroute自体には無関係）。head→body復活は`resolveSkeletonRevivals`（世界ターン単位の状態遷移、プレイヤーへの直接効果なし） | body形態時は`resolveEnemyAttackHit`と同一。head形態は行動自体が成立しない（NOT_APPLICABLE） | `combatRngState`（body形態の攻撃時のみ）。head形態はNONE（行動しない） | `resolveEnemyAttackHit`内（bokと共有の共通hookで覆える。head形態は行動しないためhook不要） | `getHeldEquipmentInstances(state)` | 低（head形態は`acted: false`で即return、二重処理の余地なし） | CONFIRMED |
 
-**最小hook候補（全種共通）**: `resolveEnemyAttackHit`はダメージ確定と同じ関数内でstateにアクセスできるため、ここに「一定条件でプレイヤーの装備instanceへcurseを付与する」呼び出しを追加するのが構造上最小の接続点になりうる。ただし対象は「常に発動」ではなく特定EnemyIdからの呼び出し時のみに限定する設計が必要（現在`resolveEnemyAttackHit`はenemy.typeを引数に保持しているため、呼び出し元で種族別分岐は可能）。
+**common hookで覆える敵（`resolveEnemyAttackHit`内への追加で対応可能）:**
+bok, sword, axe, golem（近接・突進の両方）, spider（近接時のみ）, bat, mummy, cockatrice（近接時のみ）, ghost, steps（通常攻撃・範囲攻撃の両方）, skeleton（body形態時のみ）— 12種中11種が最低1つの攻撃routeで`resolveEnemyAttackHit`を共有する
 
-再利用可能helper: `getHeldEquipmentInstances(state)`（temperance/starが実際に使う候補列挙関数、装備中+所持中を返す）。curse roll自体は`enemy-drop.ts`の`deriveEnemyDropSeed`パターン（floorSeed + 個体固有ID + salt）がそのまま流用できる独立RNG stream設計の前例。
+**individual hookが必要な敵（`resolveEnemyAttackHit`を経由しない専用ロジック）:**
+- cockatrice: 視線ヒット時（`resolveCockatriceEnemy`内の`petrified`代入ブロック）— 近接時はcommon hookで覆えるが視線時は個別対応が必要
+- kraken: 触手ヒット時（`resolveKrakenEnemy`内の`player.hp`直接更新ブロック）— **唯一「通常攻撃route自体が存在しない」種族であり、全ての攻撃がindividual hook対応になる**
 
-turn二重消費の危険: `resolveEnemyAttackHit`は1攻撃につき1回のみ呼ばれる設計のため、この関数内に追加ロジックを置く限りturn消費の二重化リスクは低い。ただしcockatriceの視線攻撃・krakenの触手は`resolveEnemyAttackHit`を経由しない別経路のため、同じ効果を全種で統一するには複数箇所への接続が必要になる点に注意。
+**全RNG source一覧（敵経路）:**
+- `state.combatRngState`（`rollPercent`経由）: `resolveEnemyAttackHit`を呼ぶ全種族・全route（bok/sword/axe/golem近接+突進/spider近接/bat/mummy/cockatrice近接/ghost/steps通常+範囲/skeleton body）で消費。消費条件は「`resolveEnemyAttackHit`が呼ばれたとき」の1回のみ。
+- NONE（RNG不使用）: golem突進経路の到達判定自体（幾何のみ、到達後の命中roll自体は上記combatRngStateに含まれる）、spider web設置、cockatrice視線判定（`petrified`は範囲到達で確定、roll不使用）、kraken触手命中判定（範囲内判定のみ）、ghost移動経路、steps状態遷移、skeleton head形態の行動不成立。
 
-combat RNGとの分離方法: `enemy-drop.ts`と同様、`combatRngState`とは独立したsalt付きstreamを`(floorSeed, enemyId, 専用salt)`から都度生成する設計が、既存の非干渉契約と整合する。
+呪いを将来敵経路へ追加する場合、`combatRngState`は既存の命中判定専用ストリームであり、これを流用するとcurse roll自体が命中結果と相関してしまう（例: 同じrollPercent呼び出し回数を共有すると、命中したターンのみcurse判定が走る設計は可能だが、判定確率自体を独立させるには別ストリームが必要）。`enemy-drop.ts`の`deriveEnemyDropSeed`パターン（floorSeed + enemyId + 専用salt、都度使い捨てstream）が、combatRngStateと非干渉な設計の直接の前例として再利用可能。
 
 **required_conclusion:**
-- 現在curse付与敵は **0件**（全種族について、cursedフィールドへの書き込みを行うコードパスは本監査で発見されなかった）
-- 既存仕様上、curse付与担当として確定済みのEnemyIdは **存在しない**（`rogue-of-sun-curse-system-spec.md`等の仕様案ファイルはproject knowledge側にあるが、これらは「古い仕様案」として現行production/testとの照合が必要であり、本監査のsource_priority規則（production code > test > 仕様案）に従い、production/testに実装がない以上、担当EnemyIdは未確定として扱う)
-- 分類: 「実装不能」ではなく **「接続境界は存在するが、担当EnemyIdと発動条件が未決定」**
+- 現在curse付与敵は **0件**（全12種についてcursedフィールドへの書き込みを行うコードパスは本監査で確認されなかった。推定・未確認は残っていない）
+- 既存仕様上、curse付与担当として確定済みのEnemyIdは **存在しない**（production/testに実装がない以上、担当EnemyIdは未確定として扱う。これはコード監査不足ではなく、ゲームデザイン未決定に分類する）
+- 分類: 「実装不能」ではなく **「接続境界は全12種について特定済みだが、担当EnemyIdと発動条件が未決定」**
 
 ## 3. 罠経路 — 全route一覧と最小hook候補
 
@@ -359,3 +364,74 @@ combat RNGとの分離方法: `enemy-drop.ts`と同様、`combatRngState`とは�
 
 - mummy/steps/skeleton/kraken各resolverの詳細な内部実装（RNG消費箇所の完全な行単位確認）は時間制約により部分確認にとどまり、上表で「要追加確認」と明記した。担当EnemyIdの独断選定は行っていない（指示の"敵・罠については担当種類を独断で選ばない"を遵守）。
 - Star経路については24.4d2/d2aの完了報告と現行codeが一致することを確認し、設計判断を新たに求めず確定結果として記録した（指示どおり）。
+
+---
+
+# Phase 24.4e0b 最終確定監査（追記）
+
+24.4e0aで「推定」「要追加確認」と残っていたmummy/steps/skeleton/kraken各routeを、現在HEAD（`0109c8f`起点、production code/test無変更）のcodeを行単位で直接確認し確定した。Star・trap・DPは24.4e0/24.4e0aで既に確定済みのためやり直していない。
+
+## precheck（24.4e0b）
+
+- baseline branch: `phase-24-4e0a-curse-audit-completion`
+- expected_head_prefix: `0109c8f` — 実際のHEAD `0109c8f95ef9a9cd9d9d485b6ac2777dba41bda1`と一致
+- local/remote SHA一致、working tree clean、同名work branch不存在（新規作成）
+- main（`80596cd`）は監査中未変更
+- 前工程でfull suite 123/3094・typecheck・build成功済みのため再実行せず
+
+## mummy/steps/skeleton/kraken 確定結果
+
+**mummy**: `resolveMummyEnemy`は`restingAfterMove`フラグによる移動後1ターン休止のみが固有挙動で、攻撃自体は`tryMeleeAttack`→`resolveEnemyAttackHit`を経由する（bokと同一のダメージ確定境界）。RNGは`resolveEnemyAttackHit`内の`combatRngState`命中rollのみ。休止判定自体はRNG不使用。CONFIRMED。
+
+**steps**: hidden→telegraphed→revealed の3状態サイクルを持つが、telegraphed→revealed遷移時の3x3範囲spike攻撃も、revealed中の通常近接攻撃も、**どちらも`resolveEnemyAttackHit`を共通関数として呼び出す**（turn.ts:4189付近、範囲攻撃時は`playerWasInArea`判定後に`resolveEnemyAttackHit`を呼び、通常攻撃時は`tryMeleeAttack`経由で同じ関数へ到達）。RNGは両ルートとも`resolveEnemyAttackHit`内の`combatRngState`のみ。状態遷移自体（hidden/telegraphed/revealedのカウントダウン）はRNG不使用。CONFIRMED。
+
+**skeleton**: `ENEMY_DEFINITIONS.skeleton.behaviorType`は`'generic_melee'`に静的固定（enemy-def.ts:385）。`resolveOneEnemy`のswitch文は`ENEMY_DEFINITIONS[enemy.type].behaviorType`という1回の同期的プロパティアクセスで分岐するため、同一EnemyIdが実行時条件によって複数behaviorTypeへ割り当てられる余地はない（stop_conditionの「静的確認不能」ケースには該当しない）。body形態はbokと同じ`resolveBokEnemy`→`tryMeleeAttack`→`resolveEnemyAttackHit`経路で攻撃する。head形態は`resolveOneEnemy`冒頭の`if (enemy.type === 'skeleton' && enemy.skeletonForm === 'head') return { acted: false, attacked: false };`（turn.ts:4270-4272）により、行動判定・RNG消費・攻撃のいずれも一切発生しない（NOT_APPLICABLE）。head化・body復活（`defeatEnemyIfNeeded`内のskeleton分岐、`resolveSkeletonRevivals`）はプレイヤーがskeletonを攻撃した結果、またはターン経過による状態遷移であり、「skeletonがプレイヤーを攻撃するroute」とは無関係な別軸。CONFIRMED。
+
+**kraken**: `resolveKrakenEnemy`は`tryMeleeAttack`・`resolveEnemyAttackHit`のどちらも一度も呼ばない。触手予告（`tentacleTarget`未設定時、Chebyshev距離1-5かつ視線不要で予告)→発動（`tentacleTarget`設定済み時、`tentacleCrossCells`で十字5マスを計算し`area.some(...)`で命中判定)の2段階で完結し、命中時は`resolveKrakenEnemy`内で`player.hp = Math.max(0, player.hp - damage)`を直接実行する（turn.ts:3930-3932）。命中判定自体に確率roll・RNGは一切使われない（範囲内に居るか否かの幾何判定のみ）。**krakenは12種中唯一「通常攻撃route」を持たない種族**であり、curse付与hookを追加する場合は個別対応が必須。CONFIRMED。
+
+## 全12種matrix完成確認
+
+上記「## 2. 敵経路」の表を本工程で更新し、12種すべてを`CONFIRMED`または`NOT_APPLICABLE`のみで記載した。「推定」「要確認」「未確認」「おそらく」「likely」「unknown」に該当する表現は表中に残っていない。
+
+## common hook対象（最終）
+
+bok, sword, axe, golem（近接・突進とも）, spider（近接時）, bat, mummy, cockatrice（近接時）, ghost, steps（通常・範囲とも）, skeleton（body形態時）— 12種中11種が`resolveEnemyAttackHit`という単一の共通関数で最低1つの攻撃routeを覆える。
+
+## individual hook対象（最終）
+
+- cockatrice: 視線ヒット時（近接時は共通hookで足りるが、視線発動時は`resolveCockatriceEnemy`内の`petrified`代入ブロックへの個別追加が必要）
+- kraken: 全攻撃（`resolveKrakenEnemy`内の`player.hp`直接更新ブロックへの個別追加が必要。共通hookでは一切カバーできない）
+
+## 全RNG source（敵経路、最終）
+
+- `state.combatRngState`（`rollPercent`経由）: `resolveEnemyAttackHit`が呼ばれた時点で必ず1回消費。11種の攻撃ルート（golem突進含む、steps範囲含む、skeleton body含む）がここに集約される。
+- NONE: golem突進の到達判定、spider web設置、cockatrice視線の到達判定、kraken触手の範囲内判定、ghost移動経路、steps状態遷移カウントダウン、skeleton head形態の行動不成立。
+
+呪いを敵経路へ将来追加する場合、`combatRngState`は命中判定専用ストリームとして既に共有されているため、curse roll確率を命中確率と独立させたいなら`enemy-drop.ts`の`deriveEnemyDropSeed`パターン（floorSeed + enemyId + 専用salt、都度使い捨てstream）を新設する必要がある。これは24.4e0の時点で既に記録済みの結論であり、本工程で変更はない。
+
+## 技術的未確認事項
+
+**0件。** mummy/steps/skeleton/kraken全4種について、production入口・RNG消費箇所・damage/effect成立境界・target候補取得位置を現在HEADのcodeを直接読んで確定した。golemについても24.4e0aの時点で「近接時は`resolveEnemyAttackHit`」とのみ記載され突進側が未確認だったため、本工程で`executeGolemCharge`内部を確認し、突進命中も`resolveEnemyAttackHit`を共有することを確定した（表を訂正済み）。
+
+## 残るゲームデザイン判断（コード監査不足と混在させない）
+
+以下はコードから確認可能な技術事実ではなく、ゲームデザインとして未決定のまま残す事項:
+- curseを付与する具体的EnemyId（接続境界は全12種について特定済みだが、どの種族が担当するかは未決定）
+- curseを付与する具体的TrapId
+- 発動率・対象選択範囲（装備中のみ/2slot/所持全体）
+- curseRevealedを敵/罠付与時にも即時成立させるか
+- 二重curse付与（既にcursedな対象への再付与）の扱い
+
+## production code/test無変更確認（24.4e0b）
+
+- `git diff main...HEAD -- 'src/**/*.ts'`: 差分なし
+- test file差分なし
+- 変更は`docs/history/phase-24-4e0-curse-integration-audit.md`（既存ファイルへの追記・訂正）のみ
+- 一時スクリプトなし
+
+## 指示逸脱の有無
+
+- 担当EnemyId/TrapIdの独断選定は行っていない
+- 同一EnemyIdが実行時条件によって複数behaviorTypeへ割り当てられるケース（stop_condition該当）は発見されなかった（`ENEMY_DEFINITIONS[enemy.type].behaviorType`は静的1対1マッピング）
+- production/testと既存testの矛盾は発見されなかった
+- 新しい設計提案・production実装は行っていない
