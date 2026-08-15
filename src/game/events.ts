@@ -391,13 +391,18 @@ export type GameEvent =
   // — clairvoyance never sets `triggered`). Never fired for a trap that
   // was already revealed (see turn.ts's revealTrap, the single shared
   // entry point for both sources).
-  | { type: 'trap_revealed'; trapType: TrapType; source: 'step' | 'clairvoyance' }
+  | { type: 'trap_revealed'; trapType: TrapType; source: 'step' | 'clairvoyance' | 'grigri_glasses' }
   // Phase 18.2 clairvoyance fruit: fired once per use, regardless of how
   // many traps existed or were newly revealed (revealedCount can be 0 —
   // see turn.ts's applyClairvoyanceUse, which always succeeds once
   // ownership is confirmed). message-log.ts branches its wording on
   // whether revealedCount > 0.
   | { type: 'clairvoyance_used'; itemId: ItemId; revealedCount: number }
+  // Phase 24.5d grigri_glasses: pushed once per activation (equip-time,
+  // and once per floor transition while still equipped) — see turn.ts's
+  // revealAllCurrentFloorTraps doc comment. revealedCount mirrors
+  // clairvoyance_used's own semantics (0 is a valid, expected value).
+  | { type: 'grigri_glasses_activated'; revealedCount: number }
   // Phase 12.3 poison trap: fired once per successful player turn while
   // poison is active (after the turn the trap that granted it was
   // triggered), applying poison's fixed per-tick damage. `actualDamage`
@@ -424,7 +429,7 @@ export type GameEvent =
   // (never granted/refreshed) because the player currently has
   // poison_guard equipped — distinct from effect_removed (nothing was
   // active to remove; the grant itself never happened).
-  | { type: 'effect_blocked'; effectId: 'poison'; reason: 'poison_guard' }
+  | { type: 'effect_blocked'; effectId: 'poison'; reason: 'poison_guard' | 'earth_guard' }
   // Phase 24.3 spike_mail: 1 reflect damage dealt back to an adjacent
   // enemy that just dealt positive damage to the player.
   | { type: 'spike_mail_reflected'; enemyType: EnemyType; targetId: number; damage: number }

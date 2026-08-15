@@ -400,6 +400,12 @@ export function formatEvent(event: GameEvent): string {
       return '';
     case 'clairvoyance_used':
       return event.revealedCount > 0 ? 'フロアの罠が見えるようになった。' : '罠は見つからなかった。';
+    // Phase 24.5d grigri_glasses: single summary line per activation,
+    // same pattern as clairvoyance_used above — the per-trap
+    // 'trap_revealed' events stay silent (see that case's own doc
+    // comment) so this is the only user-visible line for this effect.
+    case 'grigri_glasses_activated':
+      return event.revealedCount > 0 ? 'フロアの罠が見えるようになった。' : '罠は見つからなかった。';
     case 'poison_damage':
       return `毒で${event.actualDamage}ダメージを受けた。`;
     case 'antidote_used':

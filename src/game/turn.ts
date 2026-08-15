@@ -88,6 +88,15 @@ import {
   isSpikeMailEquipped,
   SPIKE_MAIL_REFLECT_DAMAGE,
   tickBlackArmorEquippedTurn,
+  isHotBloodedHeadbandEquipped,
+  HOT_BLOODED_HEADBAND_CHARGE_BONUS_PROVISIONAL,
+  isEarthGuardEquipped,
+  isBucklerEquipped,
+  BUCKLER_DAMAGE_MULTIPLIER_PROVISIONAL,
+  isAdventurerBootsEquipped,
+  ADVENTURER_BOOTS_SUN_FRUIT_MULTIPLIER_PROVISIONAL,
+  isCircletEquipped,
+  CIRCLET_ENEMY_DROP_MULTIPLIER_PROVISIONAL,
 } from './equipment-effects';
 import { SOLAR_FORGE_RECIPES } from './solar-forge-recipes';
 import {
@@ -410,13 +419,27 @@ export function getEffectivePlayerDefense(state: GameState): number {
  */
 export const EMPEROR_DAMAGE_REDUCTION = 0.5;
 
-export function getIncomingDamage(state: GameState, attackPower: number): number {
+/**
+ * Phase 24.5d buckler: `enemyType` is optional so every pre-Phase-24.5d
+ * caller (and any future non-enemy-sourced damage) stays unaffected — the
+ * reduction only ever applies when the caller explicitly identifies the
+ * attacker as EnemyType 'sword'. Applied strictly after emperor_shield's
+ * existing reduction (docs/history/phase-24-5d-accessory-effects.md
+ * records this fixed order: emperor_shield first, buckler on top of its
+ * result), and before HP is ever touched — both reductions happen inside
+ * this single funnel, HP reduction always happens at the caller.
+ */
+export function getIncomingDamage(state: GameState, attackPower: number, enemyType?: EnemyType): number {
   const raw = computeIncomingDamage(attackPower, getEffectivePlayerDefense(state));
   if (raw <= 0) return raw;
+  let result = raw;
   if (getActiveEffect(state, 'emperor_shield')) {
-    return Math.max(1, Math.ceil(raw * (1 - EMPEROR_DAMAGE_REDUCTION)));
+    result = Math.max(1, Math.ceil(result * (1 - EMPEROR_DAMAGE_REDUCTION)));
   }
-  return raw;
+  if (enemyType === 'sword' && isBucklerEquipped(state)) {
+    result = Math.max(1, Math.floor(result * BUCKLER_DAMAGE_MULTIPLIER_PROVISIONAL));
+  }
+  return result;
 }
 
 /**
@@ -478,7 +501,11 @@ function spawnEnemyDropIfAny(state: GameState, target: EnemyActor, events: GameE
   // the seed this enemy's drop derives from cannot change based on
   // other enemies dying first.
   const enemyId = target.id ?? 0;
-  if (!rollEnemyDropOccurs(floorSeed, enemyId)) return;
+  // Phase 24.5d circlet: 25% relative reduction to the normal
+  // enemy-drop occurrence chance only — monster-house reward/floor
+  // generation/other fixed rolls never read this.
+  const dropChanceMultiplier = isCircletEquipped(state) ? CIRCLET_ENEMY_DROP_MULTIPLIER_PROVISIONAL : 1;
+  if (!rollEnemyDropOccurs(floorSeed, enemyId, dropChanceMultiplier)) return;
 
   const drawnItemId = selectEnemyDropItemIdWithCards(state.floor, floorSeed, enemyId);
   let finalItemId: ItemId = drawnItemId;
@@ -1226,15 +1253,20 @@ function applyPlayerAction(
         applyCurseTrapEffect(state, trap, events);
       } else {
       const effectId = trap.trapType === 'slow_trap' ? 'movement_slow' : 'poison';
-      // Phase 24.3 poison_guard (poison_guard): blocks only a *new*
-      // poison application at its single production choke point (the
-      // poison trap) — never treats already-active poison, and never
-      // affects movement_slow. isPlayerPoisonImmune reads only
-      // state.equippedArmorId, so this stays a pure gate with no other
-      // side effect when blocked (still reveals/triggers the trap above
-      // exactly as before — only the effect grant itself is skipped).
-      if (effectId === 'poison' && isPlayerPoisonImmune(state)) {
-        events.push({ type: 'effect_blocked', effectId: 'poison', reason: 'poison_guard' });
+      // Phase 24.3 poison_guard / Phase 24.5d earth_guard: blocks only a
+      // *new* poison application at its single production choke point
+      // (the poison trap) — never treats already-active poison, and
+      // never affects movement_slow. This is the only production site
+      // that grants poison (confirmed by this phase's audit — see this
+      // file's getIncomingDamage doc comment on the separate starvation/
+      // poison-tick exclusion), so a single combined gate here covers
+      // both poison_guard (armor) and earth_guard (accessory) — either
+      // equipped, or both, blocks identically. Neither cures existing
+      // poison, and blocking has no other side effect (still reveals/
+      // triggers the trap above exactly as before — only the effect
+      // grant itself is skipped).
+      if (effectId === 'poison' && (isPlayerPoisonImmune(state) || isEarthGuardEquipped(state))) {
+        events.push({ type: 'effect_blocked', effectId: 'poison', reason: isPlayerPoisonImmune(state) ? 'poison_guard' : 'earth_guard' });
       } else {
       const def = EFFECT_DEFINITIONS[effectId];
       const result = grantOrRefreshEffect(state, effectId);
@@ -1545,8 +1577,15 @@ export const SUNLIGHT_CHARGE_AMOUNT = 1;
  * behavior rather than inventing a new rule.
  */
 function resolveSolarCharge(state: GameState, events: GameEvent[]): { consumed: boolean; attacked: boolean; defeated: boolean } {
-  state.solarEnergy = Math.min(getEffectiveMaxSolarEnergy(state), state.solarEnergy + SUNLIGHT_CHARGE_AMOUNT);
-  events.push({ type: 'solar_charge_used', recovered: SUNLIGHT_CHARGE_AMOUNT });
+  // Phase 24.5d hot_blooded_headband: +1 to the recovered amount only on
+  // a successful sunlight solar-charge action (this function is only
+  // ever reached on a sunlit tile below max SOL — see this file's
+  // resolveSolarCharge call site's own doc comment — so no separate
+  // shadow/chargeNotEstablished check is needed here).
+  const chargeAmount = SUNLIGHT_CHARGE_AMOUNT + (isHotBloodedHeadbandEquipped(state) ? HOT_BLOODED_HEADBAND_CHARGE_BONUS_PROVISIONAL : 0);
+  const before = state.solarEnergy;
+  state.solarEnergy = Math.min(getEffectiveMaxSolarEnergy(state), state.solarEnergy + chargeAmount);
+  events.push({ type: 'solar_charge_used', recovered: state.solarEnergy - before });
   return { consumed: true, attacked: false, defeated: false };
 }
 
@@ -1660,8 +1699,13 @@ function applyItemUse(
       events.push({ type: 'sun_fruit_use_failed', itemId, reason: 'sol_full' });
       return { consumed: false, attacked: false, defeated: false };
     }
+    // Phase 24.5d adventurer_boots: 1.5x on sun_fruit's base solarAmount
+    // only — never solar charge, other items, or cards.
+    const effectiveSolarAmount = isAdventurerBootsEquipped(state)
+      ? Math.floor(solarAmount * ADVENTURER_BOOTS_SUN_FRUIT_MULTIPLIER_PROVISIONAL)
+      : solarAmount;
     const before = state.solarEnergy;
-    state.solarEnergy = Math.min(getEffectiveMaxSolarEnergy(state), state.solarEnergy + solarAmount);
+    state.solarEnergy = Math.min(getEffectiveMaxSolarEnergy(state), state.solarEnergy + effectiveSolarAmount);
     const recovered = state.solarEnergy - before;
     state.inventory[itemId] = owned - 1;
     events.push({ type: 'sun_fruit_used', itemId, recovered });
@@ -2767,10 +2811,10 @@ function applyClairvoyanceUse(
  * time: revealTrap first, then triggered = true, so revealed is always
  * true by the moment triggered becomes true.
  */
-function revealTrap(
+export function revealTrap(
   trap: import('./types').TrapTile,
   events: GameEvent[],
-  source: 'step' | 'clairvoyance',
+  source: 'step' | 'clairvoyance' | 'grigri_glasses',
 ): boolean {
   if (trap.revealed) return false;
   trap.revealed = true;
@@ -3012,7 +3056,59 @@ function applyAccessoryEquip(
   events.push({ type: 'accessory_equipped', accessoryId });
   state.inventoryOpen = false;
   markGeneralItemIdentified(state, accessoryId, events);
+  // Phase 24.5d equip_order: target validation -> equip/swap成立 ->
+  // general identification (above) -> max SOL recalculation/clamp ->
+  // grigri_glasses' one-time effect -> message/event -> existing 1-turn
+  // progression. This covers both a fresh equip and a swap (this same
+  // assignment above already overwrote any previously-equipped
+  // accessory, so a swap away from circlet is clamped here identically
+  // to a swap into circlet needing no clamp).
+  clampSolarEnergyToEffectiveMax(state);
+  if (accessoryId === 'grigri_glasses') {
+    revealAllCurrentFloorTraps(state, events, 'grigri_glasses');
+  }
   return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
+ * Phase 24.5d circlet (circlet_max_sol_bonus removal_paths): clamps
+ * state.solarEnergy down to the current getEffectiveMaxSolarEnergy(state)
+ * if it now exceeds it — a no-op whenever current SOL is already within
+ * the (possibly just-changed) effective max. Called from every accessory
+ * equip/unequip/swap site so circlet's max-SOL bonus can never leave
+ * current SOL above the true max after circlet is removed or swapped
+ * away from. Never raises current SOL (only ever clamps downward).
+ */
+function clampSolarEnergyToEffectiveMax(state: GameState): void {
+  const max = getEffectiveMaxSolarEnergy(state);
+  if (state.solarEnergy > max) {
+    state.solarEnergy = max;
+  }
+}
+
+/**
+ * Phase 24.5d grigri_glasses (grigri_glasses_trap_reveal): reveals every
+ * currently-hidden trap on `state.traps` via the same revealTrap helper
+ * clairvoyance_fruit uses (Phase 18.2), so the revealed=false-implies-
+ * nothing / triggered=true-implies-revealed=true invariant and the
+ * 'trap_revealed' event's emission rule stay defined in exactly one
+ * place. Idempotent (revealTrap itself is a no-op/no-event on an
+ * already-revealed trap) — calling this twice in a row (e.g. re-equip
+ * after an unequip) never double-counts or double-notifies. Pushes one
+ * summary 'grigri_glasses_activated' event (mirrors clairvoyance_used)
+ * so the message log can show a single line regardless of how many traps
+ * this call actually revealed.
+ */
+function revealAllCurrentFloorTraps(
+  state: GameState,
+  events: GameEvent[],
+  source: 'grigri_glasses',
+): void {
+  let revealedCount = 0;
+  for (const trap of state.traps ?? []) {
+    if (revealTrap(trap, events, source)) revealedCount++;
+  }
+  events.push({ type: 'grigri_glasses_activated', revealedCount });
 }
 
 /**
@@ -3037,6 +3133,10 @@ function applyAccessoryUnequip(
   state.equippedAccessoryInstanceId = null;
   events.push({ type: 'accessory_unequipped', accessoryId });
   state.inventoryOpen = false;
+  // Phase 24.5d circlet: see clampSolarEnergyToEffectiveMax's doc
+  // comment — a no-op unless the unequipped accessory was circlet and
+  // current SOL now exceeds the un-boosted max.
+  clampSolarEnergyToEffectiveMax(state);
   return { consumed: true, attacked: false, defeated: false };
 }
 
@@ -3379,7 +3479,7 @@ function resolveEnemyAttackHit(state: GameState, enemy: EnemyActor, events: Game
     return false;
   }
 
-  const damage = getIncomingDamage(state, enemy.attack);
+  const damage = getIncomingDamage(state, enemy.attack, enemy.type);
   player.hp = Math.max(0, player.hp - damage);
   events.push({ type: 'enemy_attack', enemyType: enemy.type, attackerId, damage });
   // Phase 24.3 spike_mail (spike_mail): only for an adjacent attacker
@@ -4265,7 +4365,7 @@ function resolveKrakenEnemy(
     enemy.tentacleTarget = undefined;
     const area = tentacleCrossCells(map, target);
     const hit = area.some((pos) => pos.x === player.pos.x && pos.y === player.pos.y);
-    const damage = hit ? getIncomingDamage(state, enemy.attack) : 0;
+    const damage = hit ? getIncomingDamage(state, enemy.attack, enemy.type) : 0;
     events.push({
       type: 'kraken_tentacle_strike',
       enemyId: enemy.id ?? 0,

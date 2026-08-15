@@ -232,7 +232,7 @@ export type RunEventPayload =
   // funnel through). Kept as two distinct RunEvent types rather than one
   // generic "trap_event" so a consumer can filter discovery from
   // activation without a payload-shape branch.
-  | { type: 'trap_revealed'; trapType: import('./types').TrapType; source: 'step' | 'clairvoyance' }
+  | { type: 'trap_revealed'; trapType: import('./types').TrapType; source: 'step' | 'clairvoyance' | 'grigri_glasses' }
   | { type: 'trap_triggered'; trapType: import('./types').TrapType }
   // Phase 15.2 recovery/satiety/status rebalance: previously
   // starvation_damage had no TelemetryEvent translation at all (see
@@ -1091,6 +1091,14 @@ function translateGameEvent(
       // valid, expected value — clairvoyance_fruit.consumption's "hidden
       // 罠が0件でも使用は成立する").
       pushEvent(telemetry, after, consumed, { type: 'item_used', itemId: event.itemId, effect: 'trap_reveal', amount: event.revealedCount });
+      break;
+    }
+    case 'grigri_glasses_activated': {
+      // Phase 24.5d: same item_used effect:'trap_reveal' reuse as
+      // clairvoyance_used above (telemetry.policy's "新規raw categoryは
+      // 原則追加しない") — itemId is fixed to 'grigri_glasses' since this
+      // event carries no itemId of its own.
+      pushEvent(telemetry, after, consumed, { type: 'item_used', itemId: 'grigri_glasses', effect: 'trap_reveal', amount: event.revealedCount });
       break;
     }
     // Phase 24.4e2 呪いtelemetry統合: below are the raw-event

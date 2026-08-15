@@ -16,6 +16,7 @@ import {
 import { ELEMENT_DISPLAY_NAMES, ALL_ELEMENT_IDS } from './game/element-def';
 import { ARMOR_DEFINITIONS } from './game/armor-def';
 import { WEAPON_DEFINITIONS } from './game/weapon-def';
+import { ACCESSORY_DEFINITIONS } from './game/accessory-def';
 import { getEquipmentInstanceById } from './game/equipment-instance';
 import { SOLAR_FORGE_RECIPES } from './game/solar-forge-recipes';
 import { getSolarForgeSecondMaterialCandidates, isForgeEligibleWeaponId, SolarForgeCandidate } from './game/solar-forge';
@@ -2243,11 +2244,15 @@ class MainScene extends Phaser.Scene {
               selectedEntry.kind === 'equipment_instance' && selectedEntry.equipped ? '装備中' : '未装備',
             );
           } else if (def.category === 'accessory') {
-            // Phase 24.5b: no attack/defense/refineLevel/curse numeric
-            // detail is ever pushed for accessory — the 6 initial
-            // species carry no such field (accessory-def.ts). Only the
-            // equipped/unequipped state line, matching weapon/armor's
-            // own pattern above.
+            // Phase 24.5d: identified-only effect description
+            // (ACCESSORY_DEFINITIONS[..].description) — mirrors weapon/
+            // armor's identified-only numeric stat line above. Never
+            // shown while the species is unidentified (ui.detail.
+            // unidentified's "正式名・rank・効果説明を漏らさない").
+            if (itemIdentified) {
+              const acc = ACCESSORY_DEFINITIONS[selected as import('./game/types').AccessoryId];
+              detailLines.push(acc.description);
+            }
             detailLines.push(
               selectedEntry.kind === 'equipment_instance' && selectedEntry.equipped ? '装備中' : '未装備',
             );
@@ -2472,6 +2477,13 @@ class MainScene extends Phaser.Scene {
       // previous floor's combat messages are not carried over — the log is
       // cleared and replaced with the floor-advance message.
       this.state = advanceToNextFloor(this.state);
+      // Phase 24.5d grigri_glasses: message log is cleared and replaced
+      // with 'floor_advanced' immediately below regardless, so the
+      // reveal events themselves are never pushed to the log here — the
+      // functional effect (trap.revealed=true on the new floor) already
+      // happened inside advanceToNextFloor unconditionally; only the
+      // optional message text would be discarded by clearMessages()
+      // next, so there is no reason to request it.
       // Telemetry (Phase 10.3.1): floor_completed for the departed floor
       // was already pushed by recordTurn (detected from the pre-advance
       // phase transition); this only needs the new floor's own

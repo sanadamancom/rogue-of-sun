@@ -9,7 +9,8 @@ import {
   ENEMY_COUNT_BY_FLOOR,
   ENEMY_COUNT_PER_FLOOR,
 } from './mapgen';
-import { createInitialActor, createInitialEnemy } from './turn';
+import { createInitialActor, createInitialEnemy, revealTrap } from './turn';
+import { GameEvent } from './events';
 import { selectTrapType } from './curse-active';
 import { chooseDarkRoomIndex } from './dark-rooms';
 import { buildMonsterHouseFloorState, createMonsterHouseRng } from './monster-house';
@@ -802,8 +803,20 @@ export function createInitialState(runSeed: number): GameState {
  * Advances to the next floor of the same run, carrying over the player's
  * current HP, max HP, attack, and regen progress, and resetting all
  * per-floor state (map, position, enemies, exit).
+ *
+ * `events` (Phase 24.5d, optional) — when supplied, receives every
+ * grigri_glasses trap-reveal event for the newly-built floor if
+ * grigri_glasses is still equipped after the carry-over above (equip_
+ * order's "装備したまま次floorへ進んだ場合、生成後のtrapも全て発見済み
+ * にする"). Uses the exact same revealTrap helper as the equip-time
+ * activation (turn.ts) and clairvoyance_fruit, so the same idempotent/
+ * no-double-notify guarantees hold. Omitting `events` (existing callers)
+ * still reveals every trap in nextState.traps identically — only the
+ * event emission is skipped — since the underlying trap.revealed state
+ * change (this feature's actual game-mechanical effect) must never
+ * depend on whether a caller happens to want the message.
  */
-export function advanceToNextFloor(state: GameState): GameState {
+export function advanceToNextFloor(state: GameState, events?: GameEvent[]): GameState {
   const carry: CarryOverStats = {
     hp: state.player.hp,
     maxHp: state.player.maxHp,
@@ -869,6 +882,20 @@ export function advanceToNextFloor(state: GameState): GameState {
   // transition via `carry.equipmentInstances`'s plain `{ ...i }` copy
   // above.
   resetPerFloorEquipmentEffectState(nextState);
+  // Phase 24.5d grigri_glasses: see this function's own doc comment
+  // above. `carry.equippedAccessoryId` is what buildFloorState copies
+  // onto nextState, so this reads nextState.equippedAccessoryId (never
+  // the pre-transition state's) to decide whether it's still equipped
+  // on the new floor.
+  if (nextState.equippedAccessoryId === 'grigri_glasses') {
+    const localEvents: GameEvent[] = [];
+    let revealedCount = 0;
+    for (const trap of nextState.traps ?? []) {
+      if (revealTrap(trap, localEvents, 'grigri_glasses')) revealedCount++;
+    }
+    localEvents.push({ type: 'grigri_glasses_activated', revealedCount });
+    if (events) events.push(...localEvents);
+  }
   return nextState;
 }
 

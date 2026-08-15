@@ -86,9 +86,17 @@ function createEnemyDropRng(floorSeed: number, enemyId: number, salt: number): (
  * SALT_DROP_OCCURS-derived stream. Never touches state.combatRngState or
  * any other existing stream.
  */
-export function rollEnemyDropOccurs(floorSeed: number, enemyId: number): boolean {
+/**
+ * `chanceMultiplier` (Phase 24.5d circlet_enemy_drop_multiplier) scales
+ * ENEMY_DROP_CHANCE_PROVISIONAL before the threshold compare — the roll
+ * itself (this same rng() call, same stream, same salt) is always
+ * consumed exactly once regardless of the multiplier, so circlet never
+ * changes roll count/stream/salt, only the comparison threshold. Defaults
+ * to 1 (unaffected) for every existing call site.
+ */
+export function rollEnemyDropOccurs(floorSeed: number, enemyId: number, chanceMultiplier: number = 1): boolean {
   const rng = createEnemyDropRng(floorSeed, enemyId, SALT_DROP_OCCURS);
-  return rng() < ENEMY_DROP_CHANCE_PROVISIONAL;
+  return rng() < ENEMY_DROP_CHANCE_PROVISIONAL * chanceMultiplier;
 }
 
 /**

@@ -1,6 +1,7 @@
 import { EnemyType, EquipmentInstance, GameState, WeaponId, ElementId } from './types';
 import { WEAPON_DEFINITIONS } from './weapon-def';
 import { ARMOR_DEFINITIONS } from './armor-def';
+import { ACCESSORY_DEFINITIONS } from './accessory-def';
 import { ENEMY_DEFINITIONS, EnemyTrait } from './enemy-def';
 import { isInRoomBounds } from './visibility';
 import { getEquipmentInstanceById, normalizeEquipmentEffectState } from './equipment-instance';
@@ -260,9 +261,71 @@ export function getArmorEffectiveMaxSolBonus(state: GameState): number {
   return state.equippedArmorId && ARMOR_DEFINITIONS[state.equippedArmorId]?.effectId === 'max_sol_bonus' ? 2 : 0;
 }
 
-/** The player's effective max SOL: base state.maxSolarEnergy plus light_garb's bonus (0 if not equipped). Single source of truth for every SOL-max comparison/clamp in turn.ts. */
+/** Phase 24.5d circlet (circlet_max_sol_bonus): the multiplier applied to (base maxSolarEnergy + light_garb's flat bonus) while circlet is equipped — see getEffectiveMaxSolarEnergy for where this is actually applied. */
+export const CIRCLET_MAX_SOL_MULTIPLIER_PROVISIONAL = 1.25;
+
+/** Phase 24.5d: whether the equipped accessory's effectId is `effectId` — the single dispatch check every accessory effect predicate below funnels through, mirroring armor's `ARMOR_DEFINITIONS[state.equippedArmorId]?.effectId ===` pattern. */
+function isAccessoryEffectActive(state: GameState, effectId: import('./accessory-def').AccessoryEffectId): boolean {
+  return state.equippedAccessoryId != null && ACCESSORY_DEFINITIONS[state.equippedAccessoryId].effectId === effectId;
+}
+
+/** Phase 24.5d hot_blooded_headband (hot_blooded_headband_charge_bonus): whether it's equipped. */
+export function isHotBloodedHeadbandEquipped(state: GameState): boolean {
+  return isAccessoryEffectActive(state, 'hot_blooded_headband_charge_bonus');
+}
+
+/** Phase 24.5d hot_blooded_headband's flat bonus added to a *successful* sunlight solar-charge action's recovered amount (turn.ts's resolveSolarCharge — never applied on a non-charge wait or while in shadow). */
+export const HOT_BLOODED_HEADBAND_CHARGE_BONUS_PROVISIONAL = 1;
+
+/** Phase 24.5d earth_guard (earth_guard_poison_immunity): whether the player is currently immune to any new poison application — reuses the exact same production choke point as poison_guard (isPlayerPoisonImmune, turn.ts's poison-apply call site), so either accessory or armor alone (or both) blocks a fresh poison grant identically; neither cures existing poison. */
+export function isEarthGuardEquipped(state: GameState): boolean {
+  return isAccessoryEffectActive(state, 'earth_guard_poison_immunity');
+}
+
+/** Phase 24.5d buckler (buckler_sword_damage_reduction): whether it's equipped. */
+export function isBucklerEquipped(state: GameState): boolean {
+  return isAccessoryEffectActive(state, 'buckler_sword_damage_reduction');
+}
+
+/** Phase 24.5d buckler's damage multiplier against EnemyType 'sword' physical hits only — applied in turn.ts's getIncomingDamage, after emperor_shield's existing reduction and before HP is reduced. */
+export const BUCKLER_DAMAGE_MULTIPLIER_PROVISIONAL = 0.75;
+
+/** Phase 24.5d adventurer_boots (adventurer_boots_sun_fruit_bonus): whether it's equipped. */
+export function isAdventurerBootsEquipped(state: GameState): boolean {
+  return isAccessoryEffectActive(state, 'adventurer_boots_sun_fruit_bonus');
+}
+
+/** Phase 24.5d adventurer_boots' multiplier on sun_fruit's base solarAmount (turn.ts's applyItemUse sun_fruit branch only — never apples/solar charge/cards). */
+export const ADVENTURER_BOOTS_SUN_FRUIT_MULTIPLIER_PROVISIONAL = 1.5;
+
+/** Phase 24.5d circlet (circlet_max_sol_bonus): whether it's equipped. */
+export function isCircletEquipped(state: GameState): boolean {
+  return isAccessoryEffectActive(state, 'circlet_max_sol_bonus');
+}
+
+/** Phase 24.5d circlet's relative multiplier on the normal (non-circlet) enemy-drop occurrence chance (enemy-drop.ts's rollEnemyDropOccurs) — never touches monster-house reward, floor-generation, or any other fixed-reward roll. */
+export const CIRCLET_ENEMY_DROP_MULTIPLIER_PROVISIONAL = 0.75;
+
+/** Phase 24.5d grigri_glasses (grigri_glasses_trap_reveal): whether it's equipped. */
+export function isGrigriGlassesEquipped(state: GameState): boolean {
+  return isAccessoryEffectActive(state, 'grigri_glasses_trap_reveal');
+}
+
+/**
+ * The player's effective max SOL: base state.maxSolarEnergy plus
+ * light_garb's flat bonus, then Phase 24.5d circlet's 1.25x multiplier
+ * (floor) applied on top of that already-armor-adjusted total while
+ * circlet is equipped (docs/history/phase-24-5d-accessory-effects.md
+ * records this layering choice — circlet modifies the *effective*, not
+ * the raw base, max). Single source of truth for every SOL-max
+ * comparison/clamp in turn.ts.
+ */
 export function getEffectiveMaxSolarEnergy(state: GameState): number {
-  return state.maxSolarEnergy + getArmorEffectiveMaxSolBonus(state);
+  const base = state.maxSolarEnergy + getArmorEffectiveMaxSolBonus(state);
+  if (isCircletEquipped(state)) {
+    return Math.floor(base * CIRCLET_MAX_SOL_MULTIPLIER_PROVISIONAL);
+  }
+  return base;
 }
 
 // --- armor: elemental damage reduction -----------------------------------
