@@ -1,6 +1,7 @@
-import { ArmorId, EquipmentInstance, EquipmentEffectState, EquipmentRank, GameState, WeaponId, EnemyType } from './types';
+import { AccessoryId, ArmorId, EquipmentDefinitionId, EquipmentInstance, EquipmentEffectState, EquipmentRank, GameState, WeaponId, EnemyType } from './types';
 import { WEAPON_DEFINITIONS, WEAPON_IDS_IN_ORDER } from './weapon-def';
 import { ARMOR_DEFINITIONS, ARMOR_IDS_IN_ORDER } from './armor-def';
+import { ACCESSORY_DEFINITIONS, ACCESSORY_IDS_IN_ORDER } from './accessory-def';
 
 /**
  * Phase 20.0c equipment-instance foundation. This module is the single
@@ -30,6 +31,30 @@ export function isWeaponOrArmorId(id: string): id is WeaponId | ArmorId {
   return WEAPON_OR_ARMOR_ID_SET.has(id);
 }
 
+// Phase 24.5b アクセサリー基本装備基盤: derived from
+// ACCESSORY_IDS_IN_ORDER (single source of truth for the 6-species
+// roster), mirroring WEAPON_OR_ARMOR_ID_SET's own construction pattern.
+const ACCESSORY_ID_SET: ReadonlySet<string> = new Set<string>(ACCESSORY_IDS_IN_ORDER);
+
+/** Whether `id` is one of the 6 registered AccessoryId species. */
+export function isAccessoryId(id: string): id is AccessoryId {
+  return ACCESSORY_ID_SET.has(id);
+}
+
+/**
+ * Whether `id` is any equippable definitionId — weapon, armor, or
+ * accessory. Used by the shared equipment boundaries (place/discard's
+ * resolveEquipmentTargetForRemoval, pickup's instance-creation gate,
+ * inventoryEntries' equipment_instance-vs-inventory_item routing) that
+ * must treat all 3 categories uniformly, while weapon/armor-only
+ * production code keeps using isWeaponOrArmorId directly so an
+ * accessory can never silently reach a weapon/armor-specific
+ * computation.
+ */
+export function isEquipmentDefinitionId(id: string): id is EquipmentDefinitionId {
+  return isWeaponOrArmorId(id) || isAccessoryId(id);
+}
+
 const VALID_RANKS: readonly EquipmentRank[] = ['C', 'B', 'A', 'S', 'R'];
 
 /**
@@ -38,11 +63,17 @@ const VALID_RANKS: readonly EquipmentRank[] = ['C', 'B', 'A', 'S', 'R'];
  * normalizeEquipmentInstances both use so a species' definition table
  * stays the one source of truth for rank, never duplicated inline.
  */
-function definitionRankFor(definitionId: WeaponId | ArmorId): EquipmentRank {
+function definitionRankFor(definitionId: EquipmentDefinitionId): EquipmentRank {
   // Phase 24.3: was a single `=== 'armor'` check, correct only while
   // 'armor' was the sole registered ArmorId — now checks set membership
   // across all 15 armor species so a non-'armor' armor definitionId
   // (e.g. 'black_armor') resolves its rank correctly too.
+  // Phase 24.5b: accessory branch added alongside, checked first since
+  // ACCESSORY_ID_SET/ARMOR_IDS_IN_ORDER/WEAPON_IDS_IN_ORDER are mutually
+  // exclusive by construction (isEquipmentDefinitionId's own contract).
+  if (isAccessoryId(definitionId)) {
+    return ACCESSORY_DEFINITIONS[definitionId].rank;
+  }
   return (ARMOR_IDS_IN_ORDER as readonly string[]).includes(definitionId)
     ? ARMOR_DEFINITIONS[definitionId as ArmorId].rank
     : WEAPON_DEFINITIONS[definitionId as WeaponId].rank;
@@ -102,7 +133,7 @@ export function isValidRefineLevel(value: number): boolean {
  */
 export function mintEquipmentInstance(
   nextInstanceId: number,
-  definitionId: WeaponId | ArmorId,
+  definitionId: EquipmentDefinitionId,
   cursed = false,
 ): EquipmentInstance {
   return {
@@ -202,7 +233,7 @@ export function isEquipmentInstanceOnFloor(state: GameState, instanceId: string)
  */
 export function getHeldEquipmentInstances(state: GameState): EquipmentInstance[] {
   const inventory = state.inventory ?? {};
-  const heldByDefinition = new Map<WeaponId | ArmorId, EquipmentInstance[]>();
+  const heldByDefinition = new Map<EquipmentDefinitionId, EquipmentInstance[]>();
   for (const instance of getEquipmentInstances(state)) {
     if (isEquipmentInstanceOnFloor(state, instance.instanceId)) continue;
     const list = heldByDefinition.get(instance.definitionId) ?? [];
@@ -214,12 +245,18 @@ export function getHeldEquipmentInstances(state: GameState): EquipmentInstance[]
   for (const [definitionId, instances] of heldByDefinition) {
     const owned = inventory[definitionId] ?? 0;
     if (owned <= 0) continue;
+    // Phase 24.5b: 3rd branch for accessory, mirroring the existing
+    // weapon/armor pattern exactly — accessory has its own independent
+    // equippedAccessoryId/equippedAccessoryInstanceId pair, never
+    // confused with weapon/armor's.
     const equippedId =
       state.equippedWeaponInstanceId && definitionId === state.equippedWeaponId
         ? state.equippedWeaponInstanceId
         : state.equippedArmorInstanceId && definitionId === state.equippedArmorId
           ? state.equippedArmorInstanceId
-          : null;
+          : state.equippedAccessoryInstanceId && definitionId === state.equippedAccessoryId
+            ? state.equippedAccessoryInstanceId
+            : null;
     const equipped = instances.find((i) => i.instanceId === equippedId);
     const unequipped = instances.filter((i) => i.instanceId !== equippedId);
     const selected: EquipmentInstance[] = [];
@@ -247,7 +284,7 @@ export function getHeldEquipmentInstances(state: GameState): EquipmentInstance[]
  */
 export function findHeldInstanceById(
   state: GameState,
-  definitionId: WeaponId | ArmorId,
+  definitionId: EquipmentDefinitionId,
   equipmentInstanceId: string,
 ): EquipmentInstance | undefined {
   return getHeldEquipmentInstances(state).find(
@@ -264,7 +301,7 @@ export function findHeldInstanceById(
  */
 export function findHeldUnequippedInstanceById(
   state: GameState,
-  definitionId: WeaponId | ArmorId,
+  definitionId: EquipmentDefinitionId,
   equipmentInstanceId: string,
   equippedInstanceId: string | null | undefined,
 ): EquipmentInstance | undefined {
@@ -285,7 +322,7 @@ export function findHeldUnequippedInstanceById(
  * `state.equipmentInstances`/`state.nextEquipmentInstanceId` in place and
  * returns the new instance.
  */
-export function createEquipmentInstance(state: GameState, definitionId: WeaponId | ArmorId): EquipmentInstance {
+export function createEquipmentInstance(state: GameState, definitionId: EquipmentDefinitionId): EquipmentInstance {
   const next = state.nextEquipmentInstanceId ?? 0;
   const instance = mintEquipmentInstance(next, definitionId);
   state.nextEquipmentInstanceId = next + 1;
@@ -308,7 +345,7 @@ export function createEquipmentInstance(state: GameState, definitionId: WeaponId
  * curseRevealed is always false for a freshly-minted individual, exactly
  * like every other creation path — nothing reveals a curse at mint time.
  */
-export function createEquipmentInstanceWithCurse(state: GameState, definitionId: WeaponId | ArmorId, cursed: boolean): EquipmentInstance {
+export function createEquipmentInstanceWithCurse(state: GameState, definitionId: EquipmentDefinitionId, cursed: boolean): EquipmentInstance {
   const next = state.nextEquipmentInstanceId ?? 0;
   const instance = mintEquipmentInstance(next, definitionId, cursed);
   state.nextEquipmentInstanceId = next + 1;
@@ -335,7 +372,7 @@ export function createEquipmentInstanceWithCurse(state: GameState, definitionId:
  */
 export function createEquipmentInstanceWithRank(
   state: GameState,
-  definitionId: WeaponId | ArmorId,
+  definitionId: EquipmentDefinitionId,
   rank: EquipmentRank,
 ): EquipmentInstance {
   const next = state.nextEquipmentInstanceId ?? 0;
@@ -371,7 +408,7 @@ export function createEquipmentInstanceWithRank(
  */
 function findUnequippedInstance(
   state: GameState,
-  definitionId: WeaponId | ArmorId,
+  definitionId: EquipmentDefinitionId,
   equippedInstanceId: string | null | undefined,
 ): EquipmentInstance | undefined {
   return getEquipmentInstances(state).find(
@@ -389,7 +426,7 @@ function findUnequippedInstance(
  */
 export function ensureAvailableInstanceForEquip(
   state: GameState,
-  definitionId: WeaponId | ArmorId,
+  definitionId: EquipmentDefinitionId,
   equippedInstanceId: string | null | undefined,
 ): EquipmentInstance {
   return findUnequippedInstance(state, definitionId, equippedInstanceId) ?? createEquipmentInstance(state, definitionId);
@@ -450,7 +487,10 @@ export function normalizeEquipmentInstances(state: GameState): void {
 
   const inventory = state.inventory ?? {};
   for (const definitionId of Object.keys(inventory)) {
-    if (!isWeaponOrArmorId(definitionId)) continue;
+    // Phase 24.5b: widened from isWeaponOrArmorId to isEquipmentDefinitionId
+    // so an accessory's inventory count also gets backfilled with held
+    // instances, exactly like weapon/armor already are.
+    if (!isEquipmentDefinitionId(definitionId)) continue;
     const owned = inventory[definitionId] ?? 0;
     if (owned <= 0) continue;
     // Phase 24.1 correction: count only *held* instances (never a
@@ -506,6 +546,18 @@ export function normalizeEquipmentInstances(state: GameState): void {
       state.equippedArmorInstanceId = fallback ? fallback.instanceId : null;
     }
   }
+  // Phase 24.5b: identical backfill for accessory's own equipped pair.
+  if (state.equippedAccessoryId) {
+    const current = state.equippedAccessoryInstanceId
+      ? getEquipmentInstances(state).find(
+          (i) => i.instanceId === state.equippedAccessoryInstanceId && i.definitionId === state.equippedAccessoryId,
+        )
+      : undefined;
+    if (!current) {
+      const fallback = getEquipmentInstances(state).find((i) => i.definitionId === state.equippedAccessoryId);
+      state.equippedAccessoryInstanceId = fallback ? fallback.instanceId : null;
+    }
+  }
 }
 
 /**
@@ -520,7 +572,7 @@ export function normalizeEquipmentInstances(state: GameState): void {
  */
 export function findUnequippedInstanceId(
   state: GameState,
-  definitionId: WeaponId | ArmorId,
+  definitionId: EquipmentDefinitionId,
   equippedInstanceId: string | null | undefined,
 ): string | undefined {
   return getEquipmentInstances(state).find((i) => i.definitionId === definitionId && i.instanceId !== equippedInstanceId)
@@ -555,7 +607,7 @@ export function removeInstanceById(state: GameState, instanceId: string): void {
  */
 export function removeUnequippedInstance(
   state: GameState,
-  definitionId: WeaponId | ArmorId,
+  definitionId: EquipmentDefinitionId,
   equippedInstanceId: string | null | undefined,
 ): string | null {
   const instances = getEquipmentInstances(state);

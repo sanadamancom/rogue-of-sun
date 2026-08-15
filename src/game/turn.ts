@@ -50,6 +50,7 @@ import {
   getEquipmentInstances,
   isEquippedArmorCurseLocked,
   isEquippedWeaponCurseLocked,
+  isEquipmentDefinitionId,
   isWeaponOrArmorId,
   normalizeEquipmentInstances,
   removeInstanceById,
@@ -992,6 +993,16 @@ function applyPlayerAction(
     return applyArmorUnequip(state, action.equipmentInstanceId, events);
   }
 
+  // Phase 24.5b: accessory's equip/unequip pair, resolved the same way
+  // equip_weapon/equip_armor and unequip_weapon/unequip_armor are above.
+  if (action.type === 'equip_accessory') {
+    return applyAccessoryEquip(state, action.accessoryId, events, action.equipmentInstanceId);
+  }
+
+  if (action.type === 'unequip_accessory') {
+    return applyAccessoryUnequip(state, action.equipmentInstanceId, events);
+  }
+
   // Phase 11.2: place selected item at the player's feet / discard it
   // entirely. Both are resolved the same way use_item/equip_* are —
   // before the move/wait guard below, exempted from the inventoryOpen
@@ -1274,7 +1285,12 @@ function applyPlayerAction(
         // covers a ground weapon/armor that somehow reached the floor
         // through a non-floor-generation path without one already set
         // (defensive; no such path exists in production this phase).
-        if (isWeaponOrArmorId(item.itemId)) {
+        // Phase 24.5b: widened from isWeaponOrArmorId to
+        // isEquipmentDefinitionId so a manually-placed accessory ground
+        // item (Phase 24.5c's generation isn't wired up yet — this phase
+        // only supports fixture/manual placement) mints or reuses an
+        // instance on pickup exactly like weapon/armor already do.
+        if (isEquipmentDefinitionId(item.itemId)) {
           if (!item.equipmentInstanceId || !getEquipmentInstanceById(state, item.equipmentInstanceId)) {
             createEquipmentInstance(state, item.itemId);
           }
@@ -1291,7 +1307,7 @@ function applyPlayerAction(
           itemId: item.itemId,
           unidentifiedCard,
           displayName: getDisplayedItemName(state, item.itemId),
-          ...(isWeaponOrArmorId(item.itemId) && item.equipmentInstanceId ? { equipmentInstanceId: item.equipmentInstanceId } : {}),
+          ...(isEquipmentDefinitionId(item.itemId) && item.equipmentInstanceId ? { equipmentInstanceId: item.equipmentInstanceId } : {}),
         });
       } else {
         // Phase 11.1: inventory is at INVENTORY_CAPACITY. Put the ground
@@ -2377,7 +2393,13 @@ function applyTargetedCardUse(
         (target.instanceId === state.equippedWeaponInstanceId && isEquippedWeaponCurseLocked(state)) ||
         (target.instanceId === state.equippedArmorInstanceId && isEquippedArmorCurseLocked(state));
       if (instance && curseLocked) {
-        events.push({ type: 'curse_lock_rejected', operation: 'star_transform', equipmentInstanceId: instance.instanceId, itemId: instance.definitionId });
+        // Phase 24.5b: `instance` is guaranteed weapon/armor here —
+        // getStarCandidates explicitly excludes accessory (see
+        // card-target-selection.ts), so `target` can never reference an
+        // accessory instance in this branch. Cast narrows
+        // instance.definitionId (EquipmentDefinitionId) to this event's
+        // WeaponId | ArmorId itemId field.
+        events.push({ type: 'curse_lock_rejected', operation: 'star_transform', equipmentInstanceId: instance.instanceId, itemId: instance.definitionId as import('./types').WeaponId | import('./types').ArmorId });
       }
     }
     events.push({ type: 'card_use_failed', cardId, reason: 'no_valid_target' });
@@ -2400,14 +2422,25 @@ function applyTargetedCardUse(
   if (cardId === 'temperance' && target.kind === 'equipment_instance') {
     const instance = getEquipmentInstanceById(state, target.instanceId);
     if (instance) {
-      events.push({ type: 'equipment_uncursed', source: 'temperance', equipmentInstanceId: instance.instanceId, itemId: instance.definitionId });
+      // Phase 24.5b: `instance` is guaranteed weapon/armor — getTemperanceCandidates
+      // explicitly excludes accessory. See the star_transform cast above
+      // for the identical reasoning.
+      events.push({ type: 'equipment_uncursed', source: 'temperance', equipmentInstanceId: instance.instanceId, itemId: instance.definitionId as import('./types').WeaponId | import('./types').ArmorId });
     }
   } else if (cardId === 'star') {
     const newInstance = getEquipmentInstances(state).find((i) => !targetInstanceIdsBefore.has(i.instanceId));
     if (newInstance?.cursed) {
-      events.push({ type: 'equipment_curse_generated', route: 'star_transform', equipmentInstanceId: newInstance.instanceId, itemId: newInstance.definitionId });
+      // Phase 24.5b: `newInstance` is the freshly-minted star-transform
+      // result — resolveStarEffect only ever mints a WeaponId|ArmorId
+      // output (createEquipmentInstanceWithCurse is called with
+      // `chosen as WeaponId | ArmorId`, itself drawn from
+      // getTransformCandidatesForItem which only matches originalItemId's
+      // own category — and originalItemId here always came from a
+      // getStarCandidates entry, which excludes accessory). Cast narrows
+      // for this event payload's WeaponId | ArmorId itemId field.
+      events.push({ type: 'equipment_curse_generated', route: 'star_transform', equipmentInstanceId: newInstance.instanceId, itemId: newInstance.definitionId as import('./types').WeaponId | import('./types').ArmorId });
       if (newInstance.curseRevealed) {
-        events.push({ type: 'equipment_curse_discovered', equipmentInstanceId: newInstance.instanceId, itemId: newInstance.definitionId });
+        events.push({ type: 'equipment_curse_discovered', equipmentInstanceId: newInstance.instanceId, itemId: newInstance.definitionId as import('./types').WeaponId | import('./types').ArmorId });
       }
     }
   }
@@ -2923,16 +2956,88 @@ function applyArmorUnequip(
 }
 
 /**
+ * Resolves an 'equip_accessory' action (Phase 24.5b). Mirrors
+ * applyWeaponEquip/applyArmorEquip exactly, except: no curse-lock check
+ * exists (the 6 initial accessory species are never cursed — Phase
+ * 24.5a2a's finalized selection confirms all 6 are curse-excluded this
+ * phase), so no `cursed_equipment_equipped`/`equipment_curse_discovered`
+ * event branch is needed here — only weapon_/armor_ instances can ever
+ * reach that branch. Equipping never touches equippedWeaponId/
+ * equippedArmorId or vice versa (three fully independent slots).
+ */
+function applyAccessoryEquip(
+  state: GameState,
+  accessoryId: import('./types').AccessoryId,
+  events: GameEvent[],
+  equipmentInstanceId?: string,
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  const owned = state.inventory[accessoryId] ?? 0;
+  if (owned <= 0) {
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  normalizeEquipmentInstances(state);
+
+  // Phase 24.5b: see applyWeaponEquip's identical doc comment above.
+  if (equipmentInstanceId !== undefined && !findHeldInstanceById(state, accessoryId, equipmentInstanceId)) {
+    events.push({ type: 'accessory_equip_blocked', accessoryId, reason: 'invalid_instance', displayName: getDisplayedItemName(state, accessoryId) });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  if (state.equippedAccessoryId === accessoryId && (equipmentInstanceId === undefined || equipmentInstanceId === state.equippedAccessoryInstanceId)) {
+    events.push({ type: 'accessory_already_equipped', accessoryId });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+
+  const instance = equipmentInstanceId
+    ? findHeldInstanceById(state, accessoryId, equipmentInstanceId)!
+    : ensureAvailableInstanceForEquip(state, accessoryId, state.equippedAccessoryInstanceId ?? null);
+  state.equippedAccessoryId = accessoryId;
+  state.equippedAccessoryInstanceId = instance.instanceId;
+  events.push({ type: 'accessory_equipped', accessoryId });
+  state.inventoryOpen = false;
+  markGeneralItemIdentified(state, accessoryId, events);
+  return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
+ * Resolves an 'unequip_accessory' action (Phase 24.5b) — see
+ * applyWeaponUnequip's identical doc comment above for the full contract
+ * (stale-selection rejection, no inventory/equipmentInstances change,
+ * 1-turn consumption on success only). No curse-lock check — accessory
+ * is never cursed this phase (see applyAccessoryEquip's doc comment).
+ */
+function applyAccessoryUnequip(
+  state: GameState,
+  equipmentInstanceId: string,
+  events: GameEvent[],
+): { consumed: boolean; attacked: boolean; defeated: boolean } {
+  normalizeEquipmentInstances(state);
+  const accessoryId = state.equippedAccessoryId;
+  if (!accessoryId || state.equippedAccessoryInstanceId !== equipmentInstanceId) {
+    events.push({ type: 'accessory_unequip_blocked', reason: 'stale' });
+    return { consumed: false, attacked: false, defeated: false };
+  }
+  state.equippedAccessoryId = null;
+  state.equippedAccessoryInstanceId = null;
+  events.push({ type: 'accessory_unequipped', accessoryId });
+  state.inventoryOpen = false;
+  return { consumed: true, attacked: false, defeated: false };
+}
+
+/**
  * Whether `itemId` is the player's last copy of a currently-equipped
- * weapon/armor (Phase 11.2 equipped_item_rule): owning exactly 1 and it
- * being the equipped weapon or armor blocks place/discard, but owning 2+
- * of an equipped weapon/armor (not reachable today since weapons/armor
- * are non-stackable, but kept generic per the confirmed rule) does not.
+ * weapon/armor/accessory (Phase 11.2 equipped_item_rule; Phase 24.5b
+ * extends the same rule to accessory's own slot): owning exactly 1 and
+ * it being the equipped weapon/armor/accessory blocks place/discard, but
+ * owning 2+ of an equipped weapon/armor/accessory (not reachable today
+ * since none of these are stackable, but kept generic per the confirmed
+ * rule) does not.
  */
 function isLastEquippedCopy(state: GameState, itemId: import('./types').ItemId): boolean {
   const owned = state.inventory[itemId] ?? 0;
   if (owned !== 1) return false;
-  return state.equippedWeaponId === itemId || state.equippedArmorId === itemId;
+  return state.equippedWeaponId === itemId || state.equippedArmorId === itemId || state.equippedAccessoryId === itemId;
 }
 
 /**
@@ -2975,7 +3080,11 @@ function resolveEquipmentTargetForRemoval(
   itemId: import('./types').ItemId,
   equipmentInstanceId: string | undefined,
 ): { ok: true; instanceId: string | undefined } | { ok: false; reason: 'equipped' | 'invalid_instance' } {
-  if (!isWeaponOrArmorId(itemId)) {
+  // Phase 24.5b: widened from isWeaponOrArmorId to isEquipmentDefinitionId
+  // so accessory place/discard goes through the same instance-aware
+  // resolution weapon/armor already use, instead of falling through to
+  // the "no individual concept" branch below.
+  if (!isEquipmentDefinitionId(itemId)) {
     return { ok: true, instanceId: undefined };
   }
   const equippedInstanceIdForDefinition =
@@ -2983,7 +3092,9 @@ function resolveEquipmentTargetForRemoval(
       ? state.equippedWeaponInstanceId
       : itemId === state.equippedArmorId
         ? state.equippedArmorInstanceId
-        : null;
+        : itemId === state.equippedAccessoryId
+          ? state.equippedAccessoryInstanceId
+          : null;
 
   if (equipmentInstanceId !== undefined) {
     if (equippedInstanceIdForDefinition && equipmentInstanceId === equippedInstanceIdForDefinition) {
@@ -3071,7 +3182,14 @@ function applyPlaceItem(
   // first).
   if (target.instanceId) {
     const placedInstance = getEquipmentInstanceById(state, target.instanceId);
-    if (placedInstance?.cursed) {
+    // Phase 24.5b: guard narrows placedInstance.definitionId to
+    // WeaponId|ArmorId for this event's itemId field — accessory is
+    // never cursed this phase (Phase 24.5a2a's finalized selection), so
+    // `placedInstance?.cursed` is always false for an accessory instance
+    // and this branch is unreachable for one; the guard exists purely
+    // to satisfy the event payload's narrower type, not to change
+    // runtime behavior.
+    if (placedInstance?.cursed && isWeaponOrArmorId(placedInstance.definitionId)) {
       events.push({ type: 'cursed_equipment_discarded', equipmentInstanceId: target.instanceId, itemId: placedInstance.definitionId, action: 'place' });
     }
   }
@@ -3113,7 +3231,8 @@ function applyDiscardItem(
     // Phase 24.4e2: read cursed status before removal (removeInstanceById
     // below deletes the instance outright, so this must happen first).
     const removedInstance = getEquipmentInstanceById(state, target.instanceId);
-    if (removedInstance?.cursed) {
+    // Phase 24.5b: see applyPlaceItem's identical guard/doc comment above.
+    if (removedInstance?.cursed && isWeaponOrArmorId(removedInstance.definitionId)) {
       events.push({ type: 'cursed_equipment_discarded', equipmentInstanceId: target.instanceId, itemId: removedInstance.definitionId, action: 'discard' });
     }
     removeInstanceById(state, target.instanceId);
@@ -3311,11 +3430,15 @@ function tryApplyMummyCurseOnHit(state: GameState, enemy: EnemyActor, events: Ga
 
   target.cursed = true;
   target.curseRevealed = true;
+  // Phase 24.5b: `target` is guaranteed weapon/armor —
+  // getActiveCurseEligibleInstances explicitly excludes accessory (see
+  // curse-active.ts). Cast narrows for these events' WeaponId | ArmorId
+  // itemId field.
   events.push({
     type: 'equipment_cursed',
     source: 'mummy_hit',
     equipmentInstanceId: target.instanceId,
-    itemId: target.definitionId,
+    itemId: target.definitionId as import('./types').WeaponId | import('./types').ArmorId,
     equipped: true,
     revealed: true,
   });
@@ -3325,7 +3448,7 @@ function tryApplyMummyCurseOnHit(state: GameState, enemy: EnemyActor, events: Ga
   // (cursed===false) immediately before this, so curseRevealed was
   // necessarily false too (normalizeEquipmentInstances forces that
   // combination — see equipment-instance.ts).
-  events.push({ type: 'equipment_curse_discovered', equipmentInstanceId: target.instanceId, itemId: target.definitionId });
+  events.push({ type: 'equipment_curse_discovered', equipmentInstanceId: target.instanceId, itemId: target.definitionId as import('./types').WeaponId | import('./types').ArmorId });
 }
 
 /**
@@ -3362,7 +3485,9 @@ function applyCurseTrapEffect(state: GameState, trap: import('./types').TrapTile
     type: 'equipment_cursed',
     source: 'curse_trap',
     equipmentInstanceId: target.instanceId,
-    itemId: target.definitionId,
+    // Phase 24.5b: `target` is guaranteed weapon/armor — see the
+    // identical mummy_hit cast/comment above.
+    itemId: target.definitionId as import('./types').WeaponId | import('./types').ArmorId,
     equipped,
     revealed: equipped,
   });
@@ -3370,12 +3495,12 @@ function applyCurseTrapEffect(state: GameState, trap: import('./types').TrapTile
   // discovery (curseRevealed false->true) — an unequipped target's
   // curseRevealed stays false, so no discovery event is pushed for it.
   if (equipped) {
-    events.push({ type: 'equipment_curse_discovered', equipmentInstanceId: target.instanceId, itemId: target.definitionId });
+    events.push({ type: 'equipment_curse_discovered', equipmentInstanceId: target.instanceId, itemId: target.definitionId as import('./types').WeaponId | import('./types').ArmorId });
   }
   events.push({
     type: 'curse_trap_result',
     outcome: equipped ? 'equipped' : 'unequipped',
-    displayName: equipped ? getDisplayedItemName(state, target.definitionId) : undefined,
+    displayName: equipped ? getDisplayedItemName(state, target.definitionId as import('./types').WeaponId | import('./types').ArmorId) : undefined,
   });
 }
 

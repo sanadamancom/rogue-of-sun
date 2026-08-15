@@ -1,5 +1,5 @@
 import { ITEM_DEFINITIONS, ITEM_IDS_IN_ORDER } from './item-def';
-import { getHeldEquipmentInstances, isWeaponOrArmorId, normalizeEquipmentInstances } from './equipment-instance';
+import { getHeldEquipmentInstances, isEquipmentDefinitionId, normalizeEquipmentInstances } from './equipment-instance';
 import { processTurn, TurnResult } from './turn';
 import { EquipmentRank, GameState, ItemId } from './types';
 
@@ -77,11 +77,16 @@ export function inventoryEntries(state: GameState): InventoryEntry[] {
   for (const itemId of ITEM_IDS_IN_ORDER) {
     const count = state.inventory[itemId] ?? 0;
     if (count <= 0) continue;
-    if (isWeaponOrArmorId(itemId)) {
+    if (isEquipmentDefinitionId(itemId)) {
       const held = getHeldEquipmentInstances(state).filter((instance) => instance.definitionId === itemId);
       for (const instance of held) {
+        // Phase 24.5b: 3rd equipped check for accessory, alongside the
+        // pre-existing weapon/armor pair — independent slots, never
+        // simultaneously true for the same instanceId.
         const equipped =
-          instance.instanceId === state.equippedWeaponInstanceId || instance.instanceId === state.equippedArmorInstanceId;
+          instance.instanceId === state.equippedWeaponInstanceId ||
+          instance.instanceId === state.equippedArmorInstanceId ||
+          instance.instanceId === state.equippedAccessoryInstanceId;
         entries.push({
           kind: 'equipment_instance',
           itemId,
@@ -220,6 +225,14 @@ export function selectedInventoryAction(state: GameState): import('./types').Pla
         ? { type: 'unequip_armor', equipmentInstanceId: entry.instanceId }
         : { type: 'equip_armor', armorId, equipmentInstanceId: entry.instanceId };
     }
+    // Phase 24.5b: accessory branch, identical shape to weapon/armor
+    // above — see turn.ts's applyAccessoryEquip/applyAccessoryUnequip.
+    if (def.category === 'accessory') {
+      const accessoryId = entry.itemId as import('./types').AccessoryId;
+      return entry.equipped
+        ? { type: 'unequip_accessory', equipmentInstanceId: entry.instanceId }
+        : { type: 'equip_accessory', accessoryId, equipmentInstanceId: entry.instanceId };
+    }
   }
 
   const def = ITEM_DEFINITIONS[entry.itemId];
@@ -228,6 +241,11 @@ export function selectedInventoryAction(state: GameState): import('./types').Pla
   }
   if (def.category === 'armor') {
     return { type: 'equip_armor', armorId: entry.itemId as import('./types').ArmorId };
+  }
+  // Phase 24.5b: defensive fallback mirroring weapon/armor above — same
+  // "somehow has no tracked instance" case, now extended to accessory.
+  if (def.category === 'accessory') {
+    return { type: 'equip_accessory', accessoryId: entry.itemId as import('./types').AccessoryId };
   }
   return { type: 'use_item', itemId: entry.itemId };
 }

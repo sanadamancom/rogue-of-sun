@@ -1,4 +1,4 @@
-import { AbilityId, CardId, Direction8, EffectId, ElementalAffinity, ElementId, EnchantmentId, EnemyType, ItemId, StatusAilmentId, TrapType, WeaponId, ArmorId, Vec2 } from './types';
+import { AbilityId, AccessoryId, CardId, Direction8, EffectId, ElementalAffinity, ElementId, EnchantmentId, EnemyType, ItemId, StatusAilmentId, TrapType, WeaponId, ArmorId, Vec2 } from './types';
 
 /**
  * Typed, display-agnostic record of a notable action that happened during
@@ -269,6 +269,15 @@ export type GameEvent =
   // curse. Neither ever changes equipment/inventory/turn state.
   | { type: 'weapon_unequip_blocked'; reason: 'stale' | 'cursed' }
   | { type: 'armor_unequip_blocked'; reason: 'stale' | 'cursed' }
+  // Phase 24.5b: accessory's own equip/unequip event set, identical in
+  // shape to weapon/armor's above except there is no 'cursed' reason —
+  // the 6 initial accessory species are never cursed this phase (see
+  // turn.ts's applyAccessoryEquip/applyAccessoryUnequip doc comments).
+  | { type: 'accessory_equipped'; accessoryId: AccessoryId }
+  | { type: 'accessory_already_equipped'; accessoryId: AccessoryId }
+  | { type: 'accessory_equip_blocked'; accessoryId: AccessoryId; reason: 'invalid_instance'; displayName?: string }
+  | { type: 'accessory_unequipped'; accessoryId: AccessoryId }
+  | { type: 'accessory_unequip_blocked'; reason: 'stale' }
   | { type: 'player_whiff'; weaponId?: WeaponId }
   | { type: 'enemy_knocked_back'; enemyType: EnemyType }
   | { type: 'hammer_recover' }

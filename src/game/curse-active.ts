@@ -1,5 +1,5 @@
 import { createRng } from './mapgen';
-import { getHeldEquipmentInstances } from './equipment-instance';
+import { getHeldEquipmentInstances, isWeaponOrArmorId } from './equipment-instance';
 import { NORMAL_RANKS } from './equipment-loot';
 import { ArmorId, EquipmentInstance, GameState, TrapType, WeaponId } from './types';
 
@@ -50,6 +50,14 @@ const ACTIVE_CURSE_INELIGIBLE_IDS: ReadonlySet<WeaponId | ArmorId> = new Set<Wea
 export function getActiveCurseEligibleInstances(state: GameState): EquipmentInstance[] {
   return getHeldEquipmentInstances(state).filter(
     (instance) =>
+      // Phase 24.5b: explicit category exclusion — accessory instances
+      // must never reach mummy/curse_trap's eligible pool, even though
+      // the 6 initial species are cursed:false and rank C/B/A/S (S is
+      // outside NORMAL_RANKS, but C/B/A ones would otherwise pass every
+      // remaining filter below incidentally). isWeaponOrArmorId narrows
+      // instance.definitionId back to WeaponId | ArmorId for
+      // ACTIVE_CURSE_INELIGIBLE_IDS.has below.
+      isWeaponOrArmorId(instance.definitionId) &&
       !instance.cursed &&
       (NORMAL_RANKS as readonly string[]).includes(instance.rank) &&
       !ACTIVE_CURSE_INELIGIBLE_IDS.has(instance.definitionId),

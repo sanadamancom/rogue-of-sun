@@ -62,7 +62,7 @@ import { getAbilities, getElementalMindBonus, getPowerDamageBonus } from './abil
 import { getHunger } from './hunger';
 import { getActiveEffect } from './effects';
 import { ELEMENTAL_AFFINITY_BONUS_DAMAGE } from './combat';
-import { getEquipmentInstanceById } from './equipment-instance';
+import { getEquipmentInstanceById, isWeaponOrArmorId } from './equipment-instance';
 
 // ---------------------------------------------------------------------
 // Event schema (event_model / event_types / event_requirements)
@@ -356,7 +356,12 @@ function pushFloorGeneratedCurseEvents(telemetry: RunTelemetry, state: GameState
   for (const item of state.groundItems) {
     if (!item.equipmentInstanceId) continue;
     const instance = getEquipmentInstanceById(state, item.equipmentInstanceId);
-    if (!instance || !instance.cursed) continue;
+    // Phase 24.5b: accessory is never floor-generated this phase (Phase
+    // 24.5c's job), so this guard is unreachable-false for an accessory
+    // instance in production — added to satisfy this event's WeaponId |
+    // ArmorId itemId field now that EquipmentInstance.definitionId is
+    // the wider EquipmentDefinitionId.
+    if (!instance || !instance.cursed || !isWeaponOrArmorId(instance.definitionId)) continue;
     pushEvent(telemetry, state, false, {
       type: 'equipment_curse_generated',
       route: item.spawnSource === 'monster_house' ? 'monster_house' : 'normal_floor',
@@ -917,7 +922,10 @@ function translateGameEvent(
       // equipmentInstanceId on the source event in that case).
       if (event.equipmentInstanceId) {
         const acquiredInstance = getEquipmentInstanceById(after, event.equipmentInstanceId);
-        if (acquiredInstance?.cursed) {
+        // Phase 24.5b: see pushFloorGeneratedCurseEvents' identical
+        // guard/comment above — accessory is never cursed this phase,
+        // so this is unreachable-false for an accessory instance.
+        if (acquiredInstance?.cursed && isWeaponOrArmorId(acquiredInstance.definitionId)) {
           pushEvent(telemetry, after, consumed, {
             type: 'cursed_equipment_acquired',
             equipmentInstanceId: acquiredInstance.instanceId,
@@ -1184,7 +1192,7 @@ function translateGameEvent(
     case 'weapon_equip_blocked': {
       if (event.reason === 'cursed' && after.equippedWeaponInstanceId) {
         const instance = getEquipmentInstanceById(after, after.equippedWeaponInstanceId);
-        if (instance) {
+        if (instance && isWeaponOrArmorId(instance.definitionId)) {
           pushEvent(telemetry, after, consumed, {
             type: 'curse_lock_rejected',
             operation: 'equip_swap',
@@ -1198,7 +1206,7 @@ function translateGameEvent(
     case 'armor_equip_blocked': {
       if (event.reason === 'cursed' && after.equippedArmorInstanceId) {
         const instance = getEquipmentInstanceById(after, after.equippedArmorInstanceId);
-        if (instance) {
+        if (instance && isWeaponOrArmorId(instance.definitionId)) {
           pushEvent(telemetry, after, consumed, {
             type: 'curse_lock_rejected',
             operation: 'equip_swap',
@@ -1212,7 +1220,7 @@ function translateGameEvent(
     case 'weapon_unequip_blocked': {
       if (event.reason === 'cursed' && after.equippedWeaponInstanceId) {
         const instance = getEquipmentInstanceById(after, after.equippedWeaponInstanceId);
-        if (instance) {
+        if (instance && isWeaponOrArmorId(instance.definitionId)) {
           pushEvent(telemetry, after, consumed, {
             type: 'curse_lock_rejected',
             operation: 'unequip',
@@ -1226,7 +1234,7 @@ function translateGameEvent(
     case 'armor_unequip_blocked': {
       if (event.reason === 'cursed' && after.equippedArmorInstanceId) {
         const instance = getEquipmentInstanceById(after, after.equippedArmorInstanceId);
-        if (instance) {
+        if (instance && isWeaponOrArmorId(instance.definitionId)) {
           pushEvent(telemetry, after, consumed, {
             type: 'curse_lock_rejected',
             operation: 'unequip',

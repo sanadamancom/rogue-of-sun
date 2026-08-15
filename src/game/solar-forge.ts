@@ -1,12 +1,12 @@
-import { ArmorId, EquipmentInstance, EquipmentRank, GameState, WeaponId } from './types';
+import { EquipmentDefinitionId, EquipmentInstance, EquipmentRank, GameState, WeaponId } from './types';
 import { WEAPON_DEFINITIONS, WeaponDefinition } from './weapon-def';
 import { getHeldEquipmentInstances } from './equipment-instance';
 import { ARMOR_IDS_IN_ORDER } from './armor-def';
 import { isGeneralItemIdentified } from './item-identification';
 
-/** Phase 24.3: every registered armor species (was a single `=== 'armor'` check, correct only while 'armor' was the sole ArmorId). */
+/** Phase 24.3: every registered armor species (was a single `=== 'armor'` check, correct only while 'armor' was the sole ArmorId). Phase 24.5b: parameter widened to EquipmentDefinitionId so an accessory instance's definitionId can be checked here too (always returns false — accessory is never in ARMOR_IDS_IN_ORDER) without a separate cast at every call site. */
 const ARMOR_ID_SET: ReadonlySet<string> = new Set<string>(ARMOR_IDS_IN_ORDER);
-function isArmorDefinitionId(id: WeaponId | ArmorId): boolean {
+function isArmorDefinitionId(id: EquipmentDefinitionId): boolean {
   return ARMOR_ID_SET.has(id);
 }
 

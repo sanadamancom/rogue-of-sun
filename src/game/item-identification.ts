@@ -98,16 +98,19 @@ export function isGeneralIdentifiableConsumable(itemId: ItemId): boolean {
 }
 
 /**
- * Whether `itemId` is a weapon or armor definition that participates in
- * general identification (every WeaponId/ArmorId except the
- * always-identified solar_gun) — determined via ITEM_DEFINITIONS'
- * category field rather than a duplicated id list, so weapon-def.ts/
- * armor-def.ts stay the single source of truth for the roster.
+ * Whether `itemId` is a weapon, armor, or accessory definition that
+ * participates in general identification (every WeaponId/ArmorId except
+ * the always-identified solar_gun, plus every AccessoryId — Phase 24.5b
+ * extends this the same way weapon/armor already work: instance-based,
+ * definitionId-granularity identification via equip success) —
+ * determined via ITEM_DEFINITIONS' category field rather than a
+ * duplicated id list, so weapon-def.ts/armor-def.ts/accessory-def.ts
+ * stay the single source of truth for each roster.
  */
 export function isGeneralIdentifiableEquipment(itemId: ItemId): boolean {
   if (ALWAYS_IDENTIFIED_EQUIPMENT_IDS.has(itemId)) return false;
   const category = ITEM_DEFINITIONS[itemId]?.category;
-  return category === 'weapon' || category === 'armor';
+  return category === 'weapon' || category === 'armor' || category === 'accessory';
 }
 
 /**
@@ -180,6 +183,8 @@ export function markGeneralItemIdentified(
 const GENERIC_CONSUMABLE_NAME = '未鑑定の消耗品';
 const GENERIC_WEAPON_NAME = '未鑑定の武器';
 const GENERIC_ARMOR_NAME = '未鑑定の防具';
+/** Phase 24.5b: unidentified generic name for accessory category, mirroring GENERIC_WEAPON_NAME/GENERIC_ARMOR_NAME. */
+const GENERIC_ACCESSORY_NAME = '未鑑定のアクセサリー';
 
 /**
  * The single shared player-visible display-name resolver for any ItemId
@@ -206,6 +211,7 @@ export function getDisplayedItemName(state: GameState, itemId: ItemId): string {
   const category = ITEM_DEFINITIONS[itemId].category;
   if (category === 'weapon') return GENERIC_WEAPON_NAME;
   if (category === 'armor') return GENERIC_ARMOR_NAME;
+  if (category === 'accessory') return GENERIC_ACCESSORY_NAME;
   return GENERIC_CONSUMABLE_NAME;
 }
 

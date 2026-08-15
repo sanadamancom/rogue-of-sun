@@ -343,7 +343,7 @@ describe('Phase 20.0a: card definition foundation', () => {
       expect(ITEM_DEFINITIONS.armor).toMatchObject({ id: 'armor', category: 'armor', consumable: false });
     });
 
-    it('ITEM_IDS_IN_ORDER is exactly the pre-existing 12 non-card ids, the Phase 24.3 equipment catalog expansion, and all 17 cards, in CARD_IDS_IN_ORDER order', () => {
+    it('ITEM_IDS_IN_ORDER is exactly the pre-existing 12 non-card ids, the Phase 24.3 equipment catalog expansion, the Phase 24.5b accessory catalog, and all 17 cards, in CARD_IDS_IN_ORDER order', () => {
       expect(ITEM_IDS_IN_ORDER).toEqual([
         'apple',
         'sword',
@@ -390,6 +390,16 @@ describe('Phase 20.0a: card definition foundation', () => {
         'dark_garb',
         'spike_mail',
         'black_armor',
+        // Phase 24.5b: the 6 initially-adopted accessory species,
+        // inserted right after the pre-existing weapon/armor catalog
+        // and before 'chocolate' — see item-def.ts's ITEM_IDS_IN_ORDER
+        // for the identical ordering.
+        'hot_blooded_headband',
+        'earth_guard',
+        'buckler',
+        'adventurer_boots',
+        'circlet',
+        'grigri_glasses',
         'chocolate',
         'banana',
         'antidote',

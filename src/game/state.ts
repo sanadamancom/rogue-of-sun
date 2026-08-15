@@ -53,7 +53,7 @@ import {
 } from './progression';
 import { INITIAL_ABILITY_VALUES } from './ability';
 import { normalizeIdentifiedGeneralItemIds } from './item-identification';
-import { Actor, ActiveEffect, AbilityValues, CardId, ElementId, EnchantmentId, EnemyActor, EnemyType, EquipmentInstance, GameState, GroundItem, Inventory, ItemId, TrapTile, Vec2, WeaponId, ArmorId, Direction8 } from './types';
+import { Actor, ActiveEffect, AbilityValues, AccessoryId, CardId, ElementId, EnchantmentId, EnemyActor, EnemyType, EquipmentInstance, GameState, GroundItem, Inventory, ItemId, TrapTile, Vec2, WeaponId, ArmorId, Direction8 } from './types';
 
 /** Generates a random run seed without relying on Math.random's implicit global state at call sites. */
 export function randomSeed(): number {
@@ -96,6 +96,11 @@ interface CarryOverStats {
   nextEquipmentInstanceId: number;
   equippedWeaponInstanceId: string | null;
   equippedArmorInstanceId: string | null;
+  // Phase 24.5b: accessory's own equipped pair, carried across floor
+  // transitions like weapon/armor's — see buildFloorState's identical
+  // carry-over lines for equippedWeaponId/equippedArmorId.
+  equippedAccessoryId?: AccessoryId | null;
+  equippedAccessoryInstanceId?: string | null;
 }
 
 /**
@@ -622,6 +627,12 @@ function buildFloorState(
     equippedArmorInstanceId: carry ? carry.equippedArmorInstanceId : null,
     equippedWeaponId: carry ? carry.equippedWeaponId : null,
     equippedArmorId: carry ? carry.equippedArmorId : null,
+    // Phase 24.5b: accessory carries over across floor transitions like
+    // weapon/armor's own equipped pair, and defaults to unequipped
+    // (null) on a brand new run (carry undefined) — identical pattern
+    // to equippedWeaponId/equippedArmorId above.
+    equippedAccessoryId: carry ? (carry.equippedAccessoryId ?? null) : null,
+    equippedAccessoryInstanceId: carry ? (carry.equippedAccessoryInstanceId ?? null) : null,
     // Always false at the start of a floor — never carried over, even
     // though equippedWeaponId is (Phase 08.7: "フロア遷移時は反動を解除
     // する" / "新しいゲーム開始時も反動なしで初期化する").
@@ -797,6 +808,10 @@ export function advanceToNextFloor(state: GameState): GameState {
     nextEquipmentInstanceId: state.nextEquipmentInstanceId ?? 0,
     equippedWeaponInstanceId: state.equippedWeaponInstanceId ?? null,
     equippedArmorInstanceId: state.equippedArmorInstanceId ?? null,
+    // Phase 24.5b: additive-default pattern identical to
+    // equippedWeaponInstanceId/equippedArmorInstanceId above.
+    equippedAccessoryId: state.equippedAccessoryId ?? null,
+    equippedAccessoryInstanceId: state.equippedAccessoryInstanceId ?? null,
   };
   const nextState = buildFloorState(state.runSeed, state.floor + 1, state.turn, carry);
   // Phase 24.3 effect_state floor_transition: floorTriggerUses/

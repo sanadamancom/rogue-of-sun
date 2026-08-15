@@ -1581,7 +1581,9 @@ class MainScene extends Phaser.Scene {
           終了原因: ${this.telemetry.endCause ?? '—'} ／
           LIFE: ${summary.finalState.life}/${summary.finalState.maxLife} ／
           SOL: ${summary.finalState.sol} ／
-          装備: ${summary.finalState.equipment.weapon ?? '素手'} / ${summary.finalState.equipment.armor ?? 'なし'} ／
+          装備: ${summary.finalState.equipment.weapon ?? '素手'} / ${summary.finalState.equipment.armor ?? 'なし'} / ${
+            this.state.equippedAccessoryId ? this.displayedItemName(this.state.equippedAccessoryId) : 'なし'
+          } ／
           所持品: ${inventoryText}
         </p>
         <p id="end-screen-export-status" style="min-height: 1.4em; color: #ff8080;"></p>
@@ -1684,19 +1686,21 @@ class MainScene extends Phaser.Scene {
     if (!entry) return [];
     const def = ITEM_DEFINITIONS[entry.itemId];
     const actions: string[] = [];
-    if (def.category === 'weapon' || def.category === 'armor') {
+    if (def.category === 'weapon' || def.category === 'armor' || def.category === 'accessory') {
       // Phase 24.1: the label reflects this specific entry's equipped
       // state (never the species'), so two held individuals of the same
       // species can show different labels ('装備する' for one, '外す' for
       // the other) — see selectedInventoryAction's identical per-entry
-      // routing in inventory.ts.
+      // routing in inventory.ts. Phase 24.5b extends this to accessory.
       const equipped = entry.kind === 'equipment_instance' && entry.equipped;
       actions.push(equipped ? '外す' : '装備する');
       // Phase 24.3 太陽鍛冶 UI: offered whenever this entry is a
       // forge-eligible weapon individual (never solar_gun, never armor,
-      // curse status irrelevant to whether the action itself is *shown*
-      // — a cursed material is still rejected at candidate-enumeration/
-      // apply time, matching curse_rules' "呪いを断定しない汎用文言").
+      // never accessory — Phase 24.5a2a's finalized selection confirms
+      // solar forge stays weapon-only this phase — curse status
+      // irrelevant to whether the action itself is *shown* — a cursed
+      // material is still rejected at candidate-enumeration/apply time,
+      // matching curse_rules' "呪いを断定しない汎用文言").
       if (def.category === 'weapon' && isForgeEligibleWeaponId(entry.itemId as import('./game/types').WeaponId)) {
         actions.push('太陽鍛冶');
       }
@@ -2235,6 +2239,15 @@ class MainScene extends Phaser.Scene {
               const a = ARMOR_DEFINITIONS[selected as 'armor'];
               detailLines.push(`防御${a.armorValue}`);
             }
+            detailLines.push(
+              selectedEntry.kind === 'equipment_instance' && selectedEntry.equipped ? '装備中' : '未装備',
+            );
+          } else if (def.category === 'accessory') {
+            // Phase 24.5b: no attack/defense/refineLevel/curse numeric
+            // detail is ever pushed for accessory — the 6 initial
+            // species carry no such field (accessory-def.ts). Only the
+            // equipped/unequipped state line, matching weapon/armor's
+            // own pattern above.
             detailLines.push(
               selectedEntry.kind === 'equipment_instance' && selectedEntry.equipped ? '装備中' : '未装備',
             );

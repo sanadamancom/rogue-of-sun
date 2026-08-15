@@ -693,6 +693,19 @@ export interface GameState {
   /** Phase 20.0c equipment-instance foundation: the individual armor instance currently equipped — see equippedWeaponInstanceId's identical doc comment above. */
   equippedArmorInstanceId?: string | null;
   /**
+   * Phase 24.5b アクセサリー基本装備基盤: the currently equipped
+   * accessory, or null for no accessory equipped — a third slot
+   * independent of equippedWeaponId/equippedArmorId (equipping one never
+   * affects the others). Equipping never removes the accessory from
+   * `inventory` and never changes any combat stat this phase (the 6
+   * initial species carry no attack/defense/effect field — see
+   * accessory-def.ts). Persists across floor transitions like
+   * equippedWeaponId; resets to null on a brand new run.
+   */
+  equippedAccessoryId?: AccessoryId | null;
+  /** Phase 24.5b: the individual accessory instance currently equipped — see equippedWeaponInstanceId's identical doc comment above. */
+  equippedAccessoryInstanceId?: string | null;
+  /**
    * Whether the hammer is in recoil (Phase 08.7): set true after any
    * hammer attack via X (hit, kill, failed-knockback, or whiff) — never
    * while a different weapon is equipped. While true, pressing X with the
@@ -1049,6 +1062,14 @@ export type ItemId =
   | 'frost_enchantment'
   | 'cloud_enchantment'
   | 'earth_enchantment'
+  // Phase 24.5b アクセサリー基本装備基盤: the 6 initially-adopted
+  // accessory species (Phase 24.5a2a's finalized selection, see
+  // accessory-def.ts's ACCESSORY_DEFINITIONS for each species' rank).
+  // Folded into ItemId the same way WeaponId/ArmorId species already
+  // are, so ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> stays a
+  // single exhaustive map. No 6-species-worth of attack/defense/effect
+  // fields exist yet — those are explicitly Phase 24.5d's job.
+  | AccessoryId
   // Phase 20.0a card definition foundation: the 17 tarot-card consumable
   // ids (see CardId below and card-def.ts's CARD_DEFINITIONS) are folded
   // directly into ItemId — same pattern as every other item id above —
@@ -1196,6 +1217,46 @@ export type ArmorId =
   | 'black_armor';
 
 /**
+ * Accessory species — Phase 24.5b registers the 6 initially-adopted
+ * species (Phase 24.5a2a's finalized selection; see accessory-def.ts's
+ * ACCESSORY_DEFINITIONS for each species' rank/displayName). A separate
+ * union from ItemId/WeaponId/ArmorId for the same reason WeaponId/ArmorId
+ * are separate: accessory occupies its own independent equipment slot
+ * (equippedAccessoryId), distinct from weapon/armor, so the three can
+ * never be confused at the type level.
+ */
+export type AccessoryId =
+  | 'hot_blooded_headband'
+  | 'earth_guard'
+  | 'buckler'
+  | 'adventurer_boots'
+  | 'circlet'
+  | 'grigri_glasses';
+
+/**
+ * Phase 24.5b: the 3 equipment slots (weapon/armor/accessory). Used by
+ * production code that needs to reason about "which slot" generically
+ * rather than reading equippedWeaponId/equippedArmorId/equippedAccessoryId
+ * directly — most call sites still read the individual fields, this type
+ * exists for the handful of shared-boundary functions that dispatch on
+ * slot identity itself.
+ */
+export type EquipmentSlot = 'weapon' | 'armor' | 'accessory';
+
+/**
+ * Phase 24.5b: the union of every equippable definitionId (weapon, armor,
+ * or accessory species). EquipmentInstance.definitionId uses this wider
+ * type so a single instance-management module (equipment-instance.ts) can
+ * mint/track/normalize individuals of any of the 3 categories uniformly.
+ * Weapon/armor-only production code (combat, solar forge, curse
+ * eligibility, Star/Temperance candidates) continues to use the narrower
+ * `WeaponId | ArmorId` type (via isWeaponOrArmorId's existing type guard)
+ * rather than this wider union, so accessory instances can never silently
+ * reach those call sites without an explicit narrowing check.
+ */
+export type EquipmentDefinitionId = WeaponId | ArmorId | AccessoryId;
+
+/**
  * Phase 24.1 equipment rank data foundation (rogue-of-sun-development-
  * plan_.md Phase 24.1's "equipment rankとDPをどの段階で追加するか" ->
  * rank only, data-plumbing scope). Fixed order C < B < A < S < R,
@@ -1228,8 +1289,17 @@ export type EquipmentRank = 'C' | 'B' | 'A' | 'S' | 'R';
 export interface EquipmentInstance {
   /** Stable, run-unique identifier for this individual (never reused, never shared with any other instance or with any WeaponId/ArmorId/ItemId/CardId). */
   instanceId: string;
-  /** Which species (WEAPON_DEFINITIONS/ARMOR_DEFINITIONS key) this individual is. */
-  definitionId: WeaponId | ArmorId;
+  /**
+   * Which species (WEAPON_DEFINITIONS/ARMOR_DEFINITIONS/ACCESSORY_DEFINITIONS
+   * key) this individual is. Phase 24.5b widens this from `WeaponId |
+   * ArmorId` to `EquipmentDefinitionId` so a single instance can be an
+   * accessory too — every weapon/armor-only call site that reads this
+   * field narrows it back down via isWeaponOrArmorId (equipment-
+   * instance.ts) before use, so an accessory instance can never reach a
+   * weapon/armor-specific computation without an explicit type-guard
+   * check.
+   */
+  definitionId: EquipmentDefinitionId;
   /** Non-negative integer strengthening level, 0 for a freshly-created instance. Phase 20.0c does not itself apply this to damage/defense calculations or allow any card to change it (deferred to Phase 20.5b's Moon/Sun). */
   refineLevel: number;
   /** Whether this individual is cursed. Independent of curseRevealed — see that field's own doc comment. */
@@ -1354,6 +1424,11 @@ export type PlayerAction =
   // happens to be equipped now.
   | { type: 'unequip_weapon'; equipmentInstanceId: string }
   | { type: 'unequip_armor'; equipmentInstanceId: string }
+  // Phase 24.5b: accessory's equip/unequip pair, identical in shape to
+  // equip_weapon/equip_armor and unequip_weapon/unequip_armor above —
+  // see applyAccessoryEquip/applyAccessoryUnequip in turn.ts.
+  | { type: 'equip_accessory'; accessoryId: AccessoryId; equipmentInstanceId?: string }
+  | { type: 'unequip_accessory'; equipmentInstanceId: string }
   | { type: 'toggle_enchantment' }
   | { type: 'place_item'; itemId: ItemId; equipmentInstanceId?: string }
   | { type: 'discard_item'; itemId: ItemId; equipmentInstanceId?: string }

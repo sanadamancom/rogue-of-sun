@@ -247,6 +247,25 @@ export function formatEvent(event: GameEvent): string {
       }
       return '防具を外せなかった。';
     }
+    case 'accessory_equipped': {
+      const name = ITEM_DEFINITIONS[event.accessoryId].displayName;
+      return `${name}を装備した。`;
+    }
+    case 'accessory_already_equipped': {
+      const name = ITEM_DEFINITIONS[event.accessoryId].displayName;
+      return `${name}はすでに装備している。`;
+    }
+    case 'accessory_equip_blocked': {
+      const name = event.displayName ?? ITEM_DEFINITIONS[event.accessoryId].displayName;
+      return `${name}を装備できなかった。`;
+    }
+    case 'accessory_unequipped': {
+      const name = ITEM_DEFINITIONS[event.accessoryId].displayName;
+      return `${name}を外した。`;
+    }
+    case 'accessory_unequip_blocked': {
+      return 'アクセサリーを外せなかった。';
+    }
     case 'player_whiff':
       return '空振りした。';
     case 'enemy_knocked_back': {

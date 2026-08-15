@@ -4,6 +4,7 @@ import {
   getHeldEquipmentInstances,
   isEquippedArmorCurseLocked,
   isEquippedWeaponCurseLocked,
+  isWeaponOrArmorId,
 } from './equipment-instance';
 import { ENCHANTMENT_ITEM_IDS, ITEM_DEFINITIONS, ITEM_IDS_IN_ORDER } from './item-def';
 import { getDisplayedItemName, isGeneralItemIdentified } from './item-identification';
@@ -133,6 +134,13 @@ function isDiscoveredCurse(instance: EquipmentInstance): boolean {
  */
 export function getTemperanceCandidates(state: GameState): CardTargetRef[] {
   return getHeldEquipmentInstances(state)
+    // Phase 24.5b: explicit category exclusion, even though the 6
+    // initial accessory species are always cursed:false (Phase 24.5a2a's
+    // finalized selection) and would therefore already fail
+    // isDiscoveredCurse implicitly — an explicit gate is required per
+    // Phase 24.5b's exclusion design rather than relying on that
+    // incidental property alone.
+    .filter((instance) => isWeaponOrArmorId(instance.definitionId))
     .filter(isDiscoveredCurse)
     .map((instance): CardTargetRef => ({ kind: 'equipment_instance', instanceId: instance.instanceId }));
 }
@@ -187,7 +195,13 @@ export function getStarCandidates(state: GameState): CardTargetRef[] {
     if (CARD_ID_SET.has(itemId)) continue;
     if (STAR_INELIGIBLE_ITEM_IDS.has(itemId)) continue;
     const def = ITEM_DEFINITIONS[itemId];
-    if (def.category === 'weapon' || def.category === 'armor') continue; // handled via instances below
+    // Phase 24.5b: explicit accessory exclusion added alongside the
+    // existing weapon/armor exclusion — accessory (like weapon/armor)
+    // is tracked via equipment_instance entries below, never as a plain
+    // inventory_item candidate, even though `state.inventory[itemId]`
+    // is still a positive count for a held accessory (same dual-tracking
+    // shape as weapon/armor).
+    if (def.category === 'weapon' || def.category === 'armor' || def.category === 'accessory') continue; // handled via instances below
     const owned = state.inventory[itemId] ?? 0;
     if (owned <= 0) continue;
     if (!hasAlternateTransformCategory(itemId)) continue;
@@ -197,6 +211,16 @@ export function getStarCandidates(state: GameState): CardTargetRef[] {
   const weaponBound = isEquippedWeaponCurseLocked(state);
   const armorBound = isEquippedArmorCurseLocked(state);
   for (const instance of getHeldEquipmentInstances(state)) {
+    // Phase 24.5b: explicit category exclusion — accessory instances
+    // must never reach Star's transform candidates, even though the
+    // rank/eligible-transform-category checks below would otherwise
+    // pass for the initial 6 species (Phase 24.5a2a's finalized
+    // selection is all C/B/A/S, no S-ineligible id here, and multiple
+    // accessories of the same category would give a nonzero
+    // hasAlternateTransformCategory result). isWeaponOrArmorId narrows
+    // instance.definitionId back to WeaponId | ArmorId for every
+    // subsequent line in this loop.
+    if (!isWeaponOrArmorId(instance.definitionId)) continue;
     if (STAR_INELIGIBLE_ITEM_IDS.has(instance.definitionId)) continue;
     if (!isStarEligibleRank(instance.definitionId)) continue;
     if (!hasAlternateTransformCategory(instance.definitionId)) continue;

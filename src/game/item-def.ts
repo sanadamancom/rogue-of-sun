@@ -17,7 +17,7 @@ export interface ItemDefinition {
   displayName: string;
   /** Sprite/emoji glyph used by the loader/renderer for this item. Phase 08.2/08.3/08.4/08.5/08.7 use plain emoji glyphs in place of processed sprite assets (user-approved substitution; see docs/history/phase-08-2-inventory-and-apple-healing.md, phase-08-3-weapon-equipment-and-sword.md, phase-08-4-armor-defense-and-floor2-golem.md, phase-08-5-spear-reach-weapon.md, and phase-08-7-hammer-knockback-weapon.md). */
   glyph: string;
-  category: 'consumable' | 'weapon' | 'armor';
+  category: 'consumable' | 'weapon' | 'armor' | 'accessory';
   /** Whether using this item removes one from the inventory (true for apple, false for sword/spear/hammer/armor — equipping never consumes any of them). */
   consumable: boolean;
   /** Whether multiple copies stack into one inventory count (true for apple; false for sword/spear/hammer/armor — these are never placed more than once per relevant floor, and equipment isn't stacked). */
@@ -445,6 +445,22 @@ export const ITEM_DEFINITIONS: Record<ItemId, ItemDefinition> = {
     consumable: true,
     stackable: true,
   },
+  // Phase 24.5b アクセサリー基本装備基盤: the 6 initially-adopted
+  // accessory species (Phase 24.5a2a's finalized selection — see
+  // accessory-def.ts's ACCESSORY_DEFINITIONS, the single source of
+  // truth for rank; displayName here matches that table exactly).
+  // consumable: false / stackable: false, identical to every weapon/
+  // armor entry above (accessory requires an EquipmentInstance just
+  // like weapon/armor — see equipment-instance.ts). No attack/defense/
+  // effect field exists on ItemDefinition for any category, so no
+  // placeholder is needed or added here; Phase 24.5d is where a future
+  // effect-related field (if any) would be introduced.
+  hot_blooded_headband: { id: 'hot_blooded_headband', displayName: '熱血ハチマキ', glyph: '✨', category: 'accessory', consumable: false, stackable: false },
+  earth_guard: { id: 'earth_guard', displayName: '大地の守り', glyph: '✨', category: 'accessory', consumable: false, stackable: false },
+  buckler: { id: 'buckler', displayName: 'バックラー', glyph: '✨', category: 'accessory', consumable: false, stackable: false },
+  adventurer_boots: { id: 'adventurer_boots', displayName: '冒険者のブーツ', glyph: '✨', category: 'accessory', consumable: false, stackable: false },
+  circlet: { id: 'circlet', displayName: 'サークレット', glyph: '✨', category: 'accessory', consumable: false, stackable: false },
+  grigri_glasses: { id: 'grigri_glasses', displayName: 'グリグリメガネ', glyph: '✨', category: 'accessory', consumable: false, stackable: false },
 };
 
 /**
@@ -515,6 +531,17 @@ export const ITEM_IDS_IN_ORDER: ItemId[] = [
   'dark_garb',
   'spike_mail',
   'black_armor',
+  // Phase 24.5b アクセサリー基本装備基盤: the 6 initially-adopted
+  // accessory species, appended after the pre-existing weapon/armor ids
+  // so held individuals display/equip correctly — never inserted into
+  // GROUND_ITEM_POOL_FLOOR_*_ADDITIONS (state.ts), so normal floor
+  // generation is unaffected this phase (Phase 24.5c's job).
+  'hot_blooded_headband',
+  'earth_guard',
+  'buckler',
+  'adventurer_boots',
+  'circlet',
+  'grigri_glasses',
   'chocolate',
   'banana',
   'antidote',
