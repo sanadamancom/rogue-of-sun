@@ -184,7 +184,7 @@ describe('schema stability after the field rename (Phase 10.3.3a)', () => {
     const state = freshState({ enemies: [] });
     const telemetry = createRunTelemetry(state);
     const doc = buildTelemetryDocument(telemetry, state);
-    expect(doc.schemaVersion).toBe(7);
+    expect(doc.schemaVersion).toBe(8);
   });
 
   it('the export filename still uses the v3 prefix', () => {
@@ -196,7 +196,7 @@ describe('schema stability after the field rename (Phase 10.3.3a)', () => {
     });
     const telemetry = createRunTelemetry(state);
     step(state, { type: 'wait' }, telemetry);
-    expect(buildExportFilename(telemetry)).toMatch(/^rogue-of-sun-run-v7-888-/);
+    expect(buildExportFilename(telemetry)).toMatch(/^rogue-of-sun-run-v8-888-/);
   });
 
   it('the saved JSON re-parses and no player_healed event contains actualAmount', () => {

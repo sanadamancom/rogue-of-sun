@@ -182,6 +182,17 @@ export type GameEvent =
        * older test fixtures that never set this keep working unchanged.
        */
       displayName?: string;
+      /**
+       * Phase 24.4e2 curse telemetry: which EquipmentInstance this
+       * pickup resolves to, for a floor-generated weapon/armor pickup —
+       * a pure observability addition (mirrors targetId/attackerId's own
+       * Phase 10.3.2 precedent), never read by message-log.ts and never
+       * changing pickup behavior itself. Absent for every non-equipment
+       * item. Lets telemetry.ts's translateGameEvent determine whether
+       * this was a cursed_equipment_acquired without re-deriving pickup
+       * logic of its own.
+       */
+      equipmentInstanceId?: string;
     }
   // Phase 11.1 inventory capacity: pushed instead of 'item_picked_up' when
   // GameState.inventory is already at INVENTORY_CAPACITY, so the ground
@@ -551,4 +562,58 @@ export type GameEvent =
   // ItemId/instance/slot can never leak through this event
   // (player_message.unequipped_target's "真のItemId・名称・対象slotを
   // 漏らさない").
-  | { type: 'curse_trap_result'; outcome: 'no_target' | 'equipped' | 'unequipped'; displayName?: string };
+  | { type: 'curse_trap_result'; outcome: 'no_target' | 'equipped' | 'unequipped'; displayName?: string }
+  // Phase 24.4e2 呪いtelemetry統合: internal-telemetry-only events, all
+  // formatted as '' by message-log.ts (never player-visible — the
+  // player-facing text for these transitions, where any exists, is
+  // already covered by other existing events: e.g. curse_trap_result
+  // above, weapon_equipped/armor_equipped, weapon_equip_blocked/
+  // armor_equip_blocked/weapon_unequip_blocked/armor_unequip_blocked,
+  // solar_forge_failed, item_placed/item_discarded, floor_started).
+  // These exist purely so telemetry.ts's translateGameEvent has a
+  // single, unambiguous commit-boundary signal per lifecycle
+  // transition, pushed only where turn.ts already commits the
+  // corresponding state change — never speculatively, never for a
+  // rolled-back/cancelled/stale-target attempt.
+  //
+  // 'equipment_curse_generated': a brand-new cursed EquipmentInstance
+  // was actually minted via enemy_drop or Star's transform-result path
+  // (normal_floor/monster_house generation is observed separately by
+  // telemetry.ts directly from GameState at floor-start time, since
+  // state.ts's floor generation has no GameEvent stream of its own to
+  // push into).
+  | { type: 'equipment_curse_generated'; route: 'enemy_drop' | 'star_transform'; equipmentInstanceId: string; itemId: WeaponId | ArmorId }
+  // 'equipment_curse_discovered': curseRevealed just transitioned
+  // false -> true on an existing instance (equip-time discovery, an
+  // active-curse route's equipped-target discovery, or Star's
+  // auto-reequip discovery). Never pushed when curseRevealed was
+  // already true (re-equipping an already-known-cursed instance is not
+  // a fresh discovery).
+  | { type: 'equipment_curse_discovered'; equipmentInstanceId: string; itemId: WeaponId | ArmorId }
+  // 'cursed_equipment_equipped': a cursed instance's equip just
+  // succeeded (known or unknown beforehand — `wasRevealed` is the
+  // pre-equip curseRevealed value, read before this same action may set
+  // it true, so callers can derive "equipped while still unknown"
+  // without a second lookup).
+  | { type: 'cursed_equipment_equipped'; equipmentInstanceId: string; itemId: WeaponId | ArmorId; wasRevealed: boolean }
+  // 'curse_lock_rejected': only ever pushed directly for the
+  // star_transform operation (the one case with no pre-existing event
+  // that already distinguishes a curse-lock-caused rejection from any
+  // other kind — see turn.ts's applyTargetedCardUse). The other 5
+  // operations' curse_lock_rejected counts are derived by telemetry.ts
+  // from their own pre-existing `reason: 'cursed'` events
+  // (weapon_equip_blocked/armor_equip_blocked/weapon_unequip_blocked/
+  // armor_unequip_blocked/solar_forge_failed) — no new GameEvent needed
+  // for those.
+  | { type: 'curse_lock_rejected'; operation: 'star_transform'; equipmentInstanceId: string; itemId: WeaponId | ArmorId }
+  // 'equipment_uncursed': Temperance's decurse just committed onto the
+  // live state (turn.ts's applyTargetedCardUse, after
+  // Object.assign(state, transaction.nextState) — never pushed for a
+  // cancelled/stale/0-candidate attempt, since those never reach that
+  // commit line at all).
+  | { type: 'equipment_uncursed'; source: 'temperance'; equipmentInstanceId: string; itemId: WeaponId | ArmorId }
+  // 'cursed_equipment_discarded': an unequipped cursed instance was
+  // just removed from the player's held equipment via place or discard
+  // (never pushed for the equipped individual, which place/discard
+  // already reject outright regardless of curse status).
+  | { type: 'cursed_equipment_discarded'; equipmentInstanceId: string; itemId: WeaponId | ArmorId; action: 'place' | 'discard' };

@@ -356,6 +356,17 @@ export function formatEvent(event: GameEvent): string {
       if (event.outcome === 'no_target') return '何も起こらなかった。';
       if (event.outcome === 'equipped') return `${event.displayName}が呪われていることに気づいた！`;
       return '持ち物に不吉な気配が宿った。';
+    // Phase 24.4e2: internal telemetry only, never player-visible — see
+    // events.ts's own doc comment on each. formatEvents filters out
+    // these empty strings before returning, same as 'trap_revealed'/
+    // 'equipment_cursed' above.
+    case 'equipment_curse_generated':
+    case 'equipment_curse_discovered':
+    case 'cursed_equipment_equipped':
+    case 'curse_lock_rejected':
+    case 'equipment_uncursed':
+    case 'cursed_equipment_discarded':
+      return '';
     // Phase 18.1/18.2: trap_revealed has no dedicated user-facing line of
     // its own — the player-move ('step') case is always immediately
     // followed by 'trap_triggered' in the same turn's event list, whose

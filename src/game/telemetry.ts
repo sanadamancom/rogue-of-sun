@@ -62,6 +62,7 @@ import { getAbilities, getElementalMindBonus, getPowerDamageBonus } from './abil
 import { getHunger } from './hunger';
 import { getActiveEffect } from './effects';
 import { ELEMENTAL_AFFINITY_BONUS_DAMAGE } from './combat';
+import { getEquipmentInstanceById } from './equipment-instance';
 
 // ---------------------------------------------------------------------
 // Event schema (event_model / event_types / event_requirements)
@@ -281,7 +282,23 @@ export type RunEventPayload =
   | { type: 'experience_gained'; amount: number; enemyId: number; enemyType: EnemyType; level: number; experience: number }
   | { type: 'player_leveled_up'; previousLevel: number; newLevel: number; abilityPointsGained: number; unspentAbilityPoints: number }
   // Phase 13.2 ability point allocation foundation.
-  | { type: 'ability_point_spent'; ability: AbilityId; previousValue: number; newValue: number; remainingAbilityPoints: number };
+  | { type: 'ability_point_spent'; ability: AbilityId; previousValue: number; newValue: number; remainingAbilityPoints: number }
+  // Phase 24.4e2 呪いtelemetry統合: internal-only raw events for curse
+  // lifecycle transitions. `equipmentInstanceId`/`itemId` carry the real,
+  // un-obscured identity (telemetry.rules' "内部telemetryでは真ID保持
+  //可" — never surfaced to player-visible text; message-log.ts's own
+  // formatting is entirely unaffected by these, per events.ts's own doc
+  // comment on the source GameEvents). See computeRunSummary's `curses`
+  // aggregation for how each of these is counted.
+  | { type: 'equipment_curse_generated'; route: 'normal_floor' | 'monster_house' | 'enemy_drop' | 'star_transform'; equipmentInstanceId: string; itemId: WeaponId | ArmorId }
+  | { type: 'equipment_cursed'; source: 'mummy_hit' | 'curse_trap'; equipmentInstanceId: string; itemId: WeaponId | ArmorId; equipped: boolean; revealed: boolean }
+  | { type: 'equipment_curse_discovered'; equipmentInstanceId: string; itemId: WeaponId | ArmorId }
+  | { type: 'cursed_equipment_acquired'; equipmentInstanceId: string; itemId: WeaponId | ArmorId }
+  | { type: 'cursed_equipment_equipped'; equipmentInstanceId: string; itemId: WeaponId | ArmorId; wasRevealed: boolean }
+  | { type: 'curse_lock_rejected'; operation: 'unequip' | 'equip_swap' | 'place' | 'discard' | 'solar_forge' | 'star_transform'; equipmentInstanceId?: string; itemId?: WeaponId | ArmorId }
+  | { type: 'equipment_uncursed'; source: 'temperance'; equipmentInstanceId: string; itemId: WeaponId | ArmorId }
+  | { type: 'cursed_equipment_discarded'; equipmentInstanceId: string; itemId: WeaponId | ArmorId; action: 'place' | 'discard' }
+  | { type: 'cursed_equipment_floor_transition' };
 
 export type RunEvent = RunEventCommon & RunEventPayload;
 
@@ -299,12 +316,76 @@ export interface RunTelemetry {
   // effects (Phase 13.3a) and speed/action-gauge scheduler (Phase 13.3b)
   // were wired in, per telemetry.schema's "from: 6" / "to: 7". No v1-v6
   // read-compatibility shim is provided — this is an export-only format.
-  schemaVersion: 7;
+  // Phase 24.4e2: bumped from 7 to 8 — this phase adds 9 new RunEvent
+  // categories (equipment_curse_generated/equipment_cursed/
+  // equipment_curse_discovered/cursed_equipment_acquired/
+  // cursed_equipment_equipped/curse_lock_rejected/equipment_uncursed/
+  // cursed_equipment_discarded/cursed_equipment_floor_transition) and 1
+  // new RunSummary field (`curses`) to the public export shape — per
+  // schema_policy's "public export summaryにcurses fieldを追加するため
+  // telemetry schemaVersionを1だけ上げる". No v1-v7 read-compatibility
+  // shim is provided — this remains an export-only format (no
+  // save/load, no importer — schema_policy's "古いrun JSONを読み込む
+  // migrationは、現在import機構がなければ不要").
+  schemaVersion: 8;
   seed: number;
   result: 'in_progress' | 'clear' | 'death';
   endCause: string | null;
   events: RunEvent[];
   finalized: boolean;
+}
+
+/**
+ * Phase 24.4e2: scans `state.groundItems` for every floor-generated
+ * weapon/armor whose EquipmentInstance already landed cursed (the curse
+ * roll happens at floor-generation time — see state.ts's buildFloorState
+ * — before any GameEvent mechanism exists to push through, since floor
+ * generation itself is not a processTurn call). `state.groundItems` is
+ * always rebuilt from scratch per floor (never carried over — see its
+ * own GameState doc comment), so every entry found here is guaranteed to
+ * be freshly generated for *this* floor, never a previous floor's
+ * already-reported instance. Route is derived from each GroundItem's own
+ * `spawnSource` (Phase 21.5): 'monster_house' if set, 'normal_floor'
+ * otherwise. Called from both createRunTelemetry (floor 1) and
+ * recordFloorStarted (floors 2+) — both represent "a floor was just
+ * generated" equally, even though only the latter is also a
+ * "transition" (see pushFloorTransitionCurseEvent below for that
+ * distinct, floor-2+-only concern).
+ */
+function pushFloorGeneratedCurseEvents(telemetry: RunTelemetry, state: GameState): void {
+  for (const item of state.groundItems) {
+    if (!item.equipmentInstanceId) continue;
+    const instance = getEquipmentInstanceById(state, item.equipmentInstanceId);
+    if (!instance || !instance.cursed) continue;
+    pushEvent(telemetry, state, false, {
+      type: 'equipment_curse_generated',
+      route: item.spawnSource === 'monster_house' ? 'monster_house' : 'normal_floor',
+      equipmentInstanceId: instance.instanceId,
+      itemId: instance.definitionId,
+    });
+  }
+}
+
+/**
+ * Phase 24.4e2: pushed only from recordFloorStarted (floors 2+, a
+ * genuine advanceToNextFloor transition) — never from createRunTelemetry
+ * (floor 1 is not a "transition"), and never for the final floor's
+ * victory clear (state.ts's floor-clear-vs-victory branch never calls
+ * advanceToNextFloor for the final floor at all, so recordFloorStarted
+ * is simply never invoked for that boundary — counter_semantics.
+ * floor_transition's own "現在のtransition境界に従って明記する", applied
+ * here as: only an actual advanceToNextFloor call counts). Counts
+ * transitions, not equipped-item count — pushed at most once per call,
+ * regardless of whether 1 or 2 equipped slots are cursed.
+ */
+function pushFloorTransitionCurseEvent(telemetry: RunTelemetry, state: GameState): void {
+  const equippedInstanceIds = [state.equippedWeaponInstanceId, state.equippedArmorInstanceId].filter(
+    (id): id is string => Boolean(id),
+  );
+  const anyEquippedCursed = equippedInstanceIds.some((id) => getEquipmentInstanceById(state, id)?.cursed);
+  if (anyEquippedCursed) {
+    pushEvent(telemetry, state, false, { type: 'cursed_equipment_floor_transition' });
+  }
 }
 
 /**
@@ -315,7 +396,7 @@ export interface RunTelemetry {
  */
 export function createRunTelemetry(state: GameState): RunTelemetry {
   const telemetry: RunTelemetry = {
-    schemaVersion: 7,
+    schemaVersion: 8,
     seed: state.runSeed,
     result: 'in_progress',
     endCause: null,
@@ -324,6 +405,7 @@ export function createRunTelemetry(state: GameState): RunTelemetry {
   };
   pushEvent(telemetry, state, false, { type: 'run_started', seed: state.runSeed, satiety: getHunger(state), sol: state.solarEnergy });
   pushEvent(telemetry, state, false, { type: 'floor_started', floor: state.floor });
+  pushFloorGeneratedCurseEvents(telemetry, state);
   return telemetry;
 }
 
@@ -826,6 +908,23 @@ function translateGameEvent(
       } else if (ARMOR_IDS.includes(event.itemId as ArmorId)) {
         pushEvent(telemetry, after, consumed, { type: 'equipment_acquired', slot: 'armor', id: event.itemId as ArmorId });
       }
+      // Phase 24.4e2: cursed_equipment_acquired — pickup of a
+      // ground-generated equipment instance that was already cursed
+      // (curseRevealed true or false alike — counter_semantics.acquired
+      // doesn't distinguish). Never fires for a Star/forge-minted
+      // instance (those are created directly in inventory, never via a
+      // GroundItem pickup) or for a non-equipment item (no
+      // equipmentInstanceId on the source event in that case).
+      if (event.equipmentInstanceId) {
+        const acquiredInstance = getEquipmentInstanceById(after, event.equipmentInstanceId);
+        if (acquiredInstance?.cursed) {
+          pushEvent(telemetry, after, consumed, {
+            type: 'cursed_equipment_acquired',
+            equipmentInstanceId: acquiredInstance.instanceId,
+            itemId: acquiredInstance.definitionId,
+          });
+        }
+      }
       break;
     }
     case 'item_used': {
@@ -986,6 +1085,172 @@ function translateGameEvent(
       pushEvent(telemetry, after, consumed, { type: 'item_used', itemId: event.itemId, effect: 'trap_reveal', amount: event.revealedCount });
       break;
     }
+    // Phase 24.4e2 呪いtelemetry統合: below are the raw-event
+    // translations for every curse lifecycle transition observable from
+    // within a processTurn call (generation via enemy_drop/star_transform,
+    // active-curse infliction/discovery via mummy_hit/curse_trap,
+    // equip-time discovery/equip, curse-lock rejections, Temperance
+    // uncurse, place/discard removal). normal_floor/monster_house
+    // generation and floor-transition-while-cursed-equipped have no
+    // GameEvent of their own (floor generation/transition has no event
+    // stream — see state.ts) and are instead observed directly from
+    // GameState by recordFloorStarted below.
+    case 'equipment_curse_generated': {
+      pushEvent(telemetry, after, consumed, {
+        type: 'equipment_curse_generated',
+        route: event.route,
+        equipmentInstanceId: event.equipmentInstanceId,
+        itemId: event.itemId,
+      });
+      break;
+    }
+    // Phase 24.4e2: reuses Phase 24.4e1's equipment_cursed GameEvent
+    // verbatim as the "inflicted" counter's raw source — never
+    // reimplemented, per rng_design/event_boundary_rules'
+    // "active curse付与ではPhase 24.4e1のequipment_cursedを正規eventと
+    // して再利用する".
+    case 'equipment_cursed': {
+      pushEvent(telemetry, after, consumed, {
+        type: 'equipment_cursed',
+        source: event.source,
+        equipmentInstanceId: event.equipmentInstanceId,
+        itemId: event.itemId,
+        equipped: event.equipped,
+        revealed: event.revealed,
+      });
+      break;
+    }
+    case 'equipment_curse_discovered': {
+      pushEvent(telemetry, after, consumed, {
+        type: 'equipment_curse_discovered',
+        equipmentInstanceId: event.equipmentInstanceId,
+        itemId: event.itemId,
+      });
+      break;
+    }
+    case 'cursed_equipment_equipped': {
+      pushEvent(telemetry, after, consumed, {
+        type: 'cursed_equipment_equipped',
+        equipmentInstanceId: event.equipmentInstanceId,
+        itemId: event.itemId,
+        wasRevealed: event.wasRevealed,
+      });
+      break;
+    }
+    // Phase 24.4e2: this event (events.ts) is only ever pushed directly
+    // for the star_transform operation — the other 5 operations are
+    // derived below from their own pre-existing `reason: 'cursed'`
+    // events, each producing the same curse_lock_rejected RunEventPayload.
+    case 'curse_lock_rejected': {
+      pushEvent(telemetry, after, consumed, {
+        type: 'curse_lock_rejected',
+        operation: event.operation,
+        equipmentInstanceId: event.equipmentInstanceId,
+        itemId: event.itemId,
+      });
+      break;
+    }
+    case 'equipment_uncursed': {
+      pushEvent(telemetry, after, consumed, {
+        type: 'equipment_uncursed',
+        source: event.source,
+        equipmentInstanceId: event.equipmentInstanceId,
+        itemId: event.itemId,
+      });
+      break;
+    }
+    case 'cursed_equipment_discarded': {
+      pushEvent(telemetry, after, consumed, {
+        type: 'cursed_equipment_discarded',
+        equipmentInstanceId: event.equipmentInstanceId,
+        itemId: event.itemId,
+        action: event.action,
+      });
+      break;
+    }
+    // Phase 24.4e2: derived curse_lock_rejected translations — each of
+    // these 4 GameEvent categories already existed before this Phase
+    // and already carries a `reason` field that distinguishes a
+    // curse-lock-caused rejection from every other rejection reason for
+    // that same action; only the 'cursed' branch is ever translated
+    // into curse_lock_rejected (every other reason is left untranslated
+    // by this addition, exactly as before this Phase). The rejected
+    // individual is always the currently-equipped one for its slot
+    // (equip_swap/unequip both only ever block the *currently equipped*
+    // instance — the block target and the request target are never a
+    // different individual), so `after.equippedWeaponInstanceId`/
+    // `equippedArmorInstanceId` (unchanged by a rejected action) safely
+    // resolves it.
+    case 'weapon_equip_blocked': {
+      if (event.reason === 'cursed' && after.equippedWeaponInstanceId) {
+        const instance = getEquipmentInstanceById(after, after.equippedWeaponInstanceId);
+        if (instance) {
+          pushEvent(telemetry, after, consumed, {
+            type: 'curse_lock_rejected',
+            operation: 'equip_swap',
+            equipmentInstanceId: instance.instanceId,
+            itemId: instance.definitionId,
+          });
+        }
+      }
+      break;
+    }
+    case 'armor_equip_blocked': {
+      if (event.reason === 'cursed' && after.equippedArmorInstanceId) {
+        const instance = getEquipmentInstanceById(after, after.equippedArmorInstanceId);
+        if (instance) {
+          pushEvent(telemetry, after, consumed, {
+            type: 'curse_lock_rejected',
+            operation: 'equip_swap',
+            equipmentInstanceId: instance.instanceId,
+            itemId: instance.definitionId,
+          });
+        }
+      }
+      break;
+    }
+    case 'weapon_unequip_blocked': {
+      if (event.reason === 'cursed' && after.equippedWeaponInstanceId) {
+        const instance = getEquipmentInstanceById(after, after.equippedWeaponInstanceId);
+        if (instance) {
+          pushEvent(telemetry, after, consumed, {
+            type: 'curse_lock_rejected',
+            operation: 'unequip',
+            equipmentInstanceId: instance.instanceId,
+            itemId: instance.definitionId,
+          });
+        }
+      }
+      break;
+    }
+    case 'armor_unequip_blocked': {
+      if (event.reason === 'cursed' && after.equippedArmorInstanceId) {
+        const instance = getEquipmentInstanceById(after, after.equippedArmorInstanceId);
+        if (instance) {
+          pushEvent(telemetry, after, consumed, {
+            type: 'curse_lock_rejected',
+            operation: 'unequip',
+            equipmentInstanceId: instance.instanceId,
+            itemId: instance.definitionId,
+          });
+        }
+      }
+      break;
+    }
+    // Phase 24.4e2: solar_forge_failed carries no equipmentInstanceId of
+    // its own (validateForgeMaterials never identified *which* material
+    // was cursed in its own reason-only failure payload — see
+    // solar-forge.ts) — curse_lock_rejected's equipmentInstanceId/itemId
+    // are optional for exactly this case (the only one that can't
+    // resolve them from GameState alone, since a rejected forge attempt
+    // never puts an equipped-only assumption in play the way
+    // equip/unequip's block always does).
+    case 'solar_forge_failed': {
+      if (event.reason === 'cursed') {
+        pushEvent(telemetry, after, consumed, { type: 'curse_lock_rejected', operation: 'solar_forge' });
+      }
+      break;
+    }
     default:
       // Every other GameEvent category (facing/AI-behavior-flavor events
       // like sword_dash, web_placed, bat_retreat, mummy_shamble_rest,
@@ -1046,6 +1311,12 @@ function deriveDeathCauseFromTail(telemetry: RunTelemetry): string {
  */
 export function recordFloorStarted(telemetry: RunTelemetry, state: GameState): void {
   pushEvent(telemetry, state, false, { type: 'floor_started', floor: state.floor });
+  // Phase 24.4e2: a genuine floor transition — both the new floor's own
+  // freshly-generated curse instances and the "was a cursed item
+  // equipped across this transition" marker apply here, never at
+  // createRunTelemetry (floor 1 is not a transition).
+  pushFloorGeneratedCurseEvents(telemetry, state);
+  pushFloorTransitionCurseEvent(telemetry, state);
 }
 
 /**
@@ -1222,6 +1493,53 @@ export interface RunSummary {
     equipment: { weapon: WeaponId | null; armor: ArmorId | null };
     inventory: Record<string, number>;
   };
+  // Phase 24.4e2 呪いtelemetry統合: see counter_semantics in
+  // docs/history/phase-24-4e2-curse-telemetry.md for each field's exact
+  // trigger condition. All derived from telemetry.events alone
+  // (computeRunSummary's own single-source-of-truth pattern, unchanged
+  // by this phase).
+  curses: {
+    generatedCount: number;
+    generatedByRoute: { normal_floor: number; monster_house: number; enemy_drop: number; star_transform: number };
+    inflictedCount: number;
+    inflictedBySource: { mummy_hit: number; curse_trap: number };
+    discoveredCount: number;
+    acquiredCount: number;
+    equippedCount: number;
+    equippedWhileUnrevealedCount: number;
+    lockRejectedCount: number;
+    lockRejectedByOperation: {
+      unequip: number;
+      equip_swap: number;
+      place: number;
+      discard: number;
+      solar_forge: number;
+      star_transform: number;
+    };
+    uncursedCount: number;
+    uncursedBySource: { temperance: number };
+    discardedUnequippedCount: number;
+    floorTransitionsWhileEquippedCount: number;
+  };
+}
+
+function emptyCursesSummary(): RunSummary['curses'] {
+  return {
+    generatedCount: 0,
+    generatedByRoute: { normal_floor: 0, monster_house: 0, enemy_drop: 0, star_transform: 0 },
+    inflictedCount: 0,
+    inflictedBySource: { mummy_hit: 0, curse_trap: 0 },
+    discoveredCount: 0,
+    acquiredCount: 0,
+    equippedCount: 0,
+    equippedWhileUnrevealedCount: 0,
+    lockRejectedCount: 0,
+    lockRejectedByOperation: { unequip: 0, equip_swap: 0, place: 0, discard: 0, solar_forge: 0, star_transform: 0 },
+    uncursedCount: 0,
+    uncursedBySource: { temperance: 0 },
+    discardedUnequippedCount: 0,
+    floorTransitionsWhileEquippedCount: 0,
+  };
 }
 
 function emptyWeaponStats(): WeaponCombatStats {
@@ -1262,6 +1580,7 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
   let experienceGained = 0;
   let levelsGained = 0;
   let abilityPointsSpent = 0;
+  const curses = emptyCursesSummary();
 
   // Phase 15.2 recovery/satiety/status rebalance accumulators.
   let satietyStart = 0;
@@ -1525,6 +1844,46 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
         abilityPointsSpent++;
         allocationsByAbility[event.ability]++;
         break;
+      // Phase 24.4e2 呪いtelemetry統合: see counter_semantics in
+      // docs/history/phase-24-4e2-curse-telemetry.md for each case's
+      // exact trigger condition — every one of these RunEventPayload
+      // variants is only ever pushed at a genuine commit boundary (see
+      // translateGameEvent/pushFloorGeneratedCurseEvents/
+      // pushFloorTransitionCurseEvent above), so a straight per-event
+      // increment here is correct with no additional dedup logic
+      // needed.
+      case 'equipment_curse_generated':
+        curses.generatedCount++;
+        curses.generatedByRoute[event.route]++;
+        break;
+      case 'equipment_cursed':
+        curses.inflictedCount++;
+        curses.inflictedBySource[event.source]++;
+        break;
+      case 'equipment_curse_discovered':
+        curses.discoveredCount++;
+        break;
+      case 'cursed_equipment_acquired':
+        curses.acquiredCount++;
+        break;
+      case 'cursed_equipment_equipped':
+        curses.equippedCount++;
+        if (!event.wasRevealed) curses.equippedWhileUnrevealedCount++;
+        break;
+      case 'curse_lock_rejected':
+        curses.lockRejectedCount++;
+        curses.lockRejectedByOperation[event.operation]++;
+        break;
+      case 'equipment_uncursed':
+        curses.uncursedCount++;
+        curses.uncursedBySource[event.source]++;
+        break;
+      case 'cursed_equipment_discarded':
+        curses.discardedUnequippedCount++;
+        break;
+      case 'cursed_equipment_floor_transition':
+        curses.floorTransitionsWhileEquippedCount++;
+        break;
       default:
         break;
     }
@@ -1610,6 +1969,7 @@ export function computeRunSummary(telemetry: RunTelemetry, finalState: GameState
       equipment: { weapon: finalState.equippedWeaponId, armor: finalState.equippedArmorId },
       inventory: { ...finalState.inventory },
     },
+    curses,
   };
 }
 
@@ -1622,15 +1982,15 @@ function sanitizeForFilename(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, '');
 }
 
-/** Phase 13.3c: schemaVersion 6 -> 7 (ability numeric effects + speed/action-gauge scheduler now shipped), "v6" -> "v7" filenames, so old exports are never confused with the new ones. */
+/** Phase 24.4e2: schemaVersion 7 -> 8 (curse lifecycle telemetry now shipped), "v7" -> "v8" filenames, so old exports are never confused with the new ones. */
 export function buildExportFilename(telemetry: RunTelemetry): string {
   const seedPart = sanitizeForFilename(String(telemetry.seed));
   const resultPart = telemetry.result === 'clear' ? 'clear' : 'death';
-  return `rogue-of-sun-run-v7-${seedPart}-${resultPart}.json`;
+  return `rogue-of-sun-run-v8-${seedPart}-${resultPart}.json`;
 }
 
 export interface TelemetryDocument {
-  schemaVersion: 7;
+  schemaVersion: 8;
   /**
    * The most recently main-integrated, fully-completed development
    * Phase's identifier (maintenance-game-version-policy), independent of
@@ -1700,7 +2060,7 @@ export const CURRENT_GAME_VERSION = 'phase-20';
 export function buildTelemetryDocument(telemetry: RunTelemetry, finalState: GameState): TelemetryDocument {
   const summary = computeRunSummary(telemetry, finalState);
   return {
-    schemaVersion: 7,
+    schemaVersion: 8,
     gameVersion: CURRENT_GAME_VERSION,
     run: {
       seed: telemetry.seed,

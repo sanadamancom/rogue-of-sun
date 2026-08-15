@@ -367,7 +367,7 @@ describe('Phase 14.2: telemetry compatibility', () => {
   it('keeps schemaVersion at 7', () => {
     const state = freshState();
     const telemetry = createRunTelemetry(state);
-    expect(telemetry.schemaVersion).toBe(7);
+    expect(telemetry.schemaVersion).toBe(8);
   });
 
   // Phase 14.3 note: originally asserted additionalDamage 0 (no combat

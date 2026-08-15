@@ -514,6 +514,15 @@ function spawnEnemyDropIfAny(state: GameState, target: EnemyActor, events: GameE
   if (resolvedDefinitionId) {
     const instance = createEquipmentInstanceWithCurse(state, resolvedDefinitionId, cursed);
     equipmentInstanceId = instance.instanceId;
+    // Phase 24.4e2: pushed only when this freshly-minted instance
+    // actually landed cursed — never for an uncursed enemy drop, and
+    // never before the instance/GroundItem placement below has fully
+    // succeeded (the `!dropPos` early return above already exited
+    // before any instance was minted, so this line is only reached once
+    // the drop is guaranteed to land).
+    if (cursed) {
+      events.push({ type: 'equipment_curse_generated', route: 'enemy_drop', equipmentInstanceId, itemId: resolvedDefinitionId });
+    }
   }
 
   state.groundItems.push({
@@ -1282,6 +1291,7 @@ function applyPlayerAction(
           itemId: item.itemId,
           unidentifiedCard,
           displayName: getDisplayedItemName(state, item.itemId),
+          ...(isWeaponOrArmorId(item.itemId) && item.equipmentInstanceId ? { equipmentInstanceId: item.equipmentInstanceId } : {}),
         });
       } else {
         // Phase 11.1: inventory is at INVENTORY_CAPACITY. Put the ground
@@ -2354,15 +2364,53 @@ function applyTargetedCardUse(
     return { consumed: false, attacked: false, defeated: false };
   }
   if (!isCardTargetStillValid(state, cardId, target)) {
+    // Phase 24.4e2: distinguishes a star target that's stale specifically
+    // because it's a curse-locked equipped instance (getStarCandidates
+    // excludes those — see card-target-selection.ts) from every other
+    // staleness cause (discarded, transformed away, etc.) — the only
+    // one of the 6 curse_lock_rejected operations with no pre-existing
+    // event that already carries this distinction, so it's pushed
+    // directly here rather than derived in telemetry.ts.
+    if (cardId === 'star' && target.kind === 'equipment_instance') {
+      const instance = getEquipmentInstanceById(state, target.instanceId);
+      const curseLocked =
+        (target.instanceId === state.equippedWeaponInstanceId && isEquippedWeaponCurseLocked(state)) ||
+        (target.instanceId === state.equippedArmorInstanceId && isEquippedArmorCurseLocked(state));
+      if (instance && curseLocked) {
+        events.push({ type: 'curse_lock_rejected', operation: 'star_transform', equipmentInstanceId: instance.instanceId, itemId: instance.definitionId });
+      }
+    }
     events.push({ type: 'card_use_failed', cardId, reason: 'no_valid_target' });
     return { consumed: false, attacked: false, defeated: false };
   }
+  const targetInstanceIdsBefore = new Set(getEquipmentInstances(state).map((i) => i.instanceId));
   const transaction = resolveCardTargetEffect(state, cardId, target);
   if (transaction.status !== 'success') {
     events.push({ type: 'card_use_failed', cardId, reason: 'no_valid_target' });
     return { consumed: false, attacked: false, defeated: false };
   }
   Object.assign(state, transaction.nextState);
+  // Phase 24.4e2: pushed only here, strictly after the commit above —
+  // never for a rolled-back/cancelled/stale-target attempt, since those
+  // all return before reaching this line. Diffing against
+  // targetInstanceIdsBefore (captured before resolveCardTargetEffect
+  // ran) is how Star's freshly-minted result instance is identified
+  // without changing resolveStarEffect's own {success:boolean} return
+  // contract.
+  if (cardId === 'temperance' && target.kind === 'equipment_instance') {
+    const instance = getEquipmentInstanceById(state, target.instanceId);
+    if (instance) {
+      events.push({ type: 'equipment_uncursed', source: 'temperance', equipmentInstanceId: instance.instanceId, itemId: instance.definitionId });
+    }
+  } else if (cardId === 'star') {
+    const newInstance = getEquipmentInstances(state).find((i) => !targetInstanceIdsBefore.has(i.instanceId));
+    if (newInstance?.cursed) {
+      events.push({ type: 'equipment_curse_generated', route: 'star_transform', equipmentInstanceId: newInstance.instanceId, itemId: newInstance.definitionId });
+      if (newInstance.curseRevealed) {
+        events.push({ type: 'equipment_curse_discovered', equipmentInstanceId: newInstance.instanceId, itemId: newInstance.definitionId });
+      }
+    }
+  }
   finishSuccessfulCardUse(state, cardId, events);
   events.push({ type: 'card_target_effect_resolved', cardId, target });
   return { consumed: true, attacked: false, defeated: false };
@@ -2738,7 +2786,17 @@ function applyWeaponEquip(
     // (rogue-of-sun-development-plan.md 20.0c's "呪われた装備を装備した
     // 時点でcurseRevealed=trueになる") — cursed itself is never set here;
     // only whether it's already-cursed status becomes known.
+    const wasRevealed = instance.curseRevealed;
     instance.curseRevealed = true;
+    // Phase 24.4e2: pushed after the mutation above (both curseRevealed
+    // fields already reflect the post-equip state), using the
+    // pre-mutation `wasRevealed` snapshot to distinguish a genuine
+    // false->true discovery from a re-equip of an already-known-cursed
+    // instance — never pushed twice for the same discovery.
+    events.push({ type: 'cursed_equipment_equipped', equipmentInstanceId: instance.instanceId, itemId: weaponId, wasRevealed });
+    if (!wasRevealed) {
+      events.push({ type: 'equipment_curse_discovered', equipmentInstanceId: instance.instanceId, itemId: weaponId });
+    }
   }
   events.push({ type: 'weapon_equipped', weaponId });
   state.inventoryOpen = false;
@@ -2823,7 +2881,12 @@ function applyArmorEquip(
   state.equippedArmorId = armorId;
   state.equippedArmorInstanceId = instance.instanceId;
   if (instance.cursed) {
+    const wasRevealed = instance.curseRevealed;
     instance.curseRevealed = true;
+    events.push({ type: 'cursed_equipment_equipped', equipmentInstanceId: instance.instanceId, itemId: armorId, wasRevealed });
+    if (!wasRevealed) {
+      events.push({ type: 'equipment_curse_discovered', equipmentInstanceId: instance.instanceId, itemId: armorId });
+    }
   }
   events.push({ type: 'armor_equipped', armorId });
   state.inventoryOpen = false;
@@ -3000,6 +3063,18 @@ function applyPlaceItem(
     ...(target.instanceId ? { equipmentInstanceId: target.instanceId } : {}),
   });
   state.nextGroundItemId += 1;
+  // Phase 24.4e2: pushed only when the placed individual was cursed
+  // (never for an ordinary item or an uncursed equipment individual) —
+  // place never removes the instance from equipmentInstances, so a
+  // simple post-mutation lookup is safe here (unlike discard below,
+  // where the instance is about to be removed and must be checked
+  // first).
+  if (target.instanceId) {
+    const placedInstance = getEquipmentInstanceById(state, target.instanceId);
+    if (placedInstance?.cursed) {
+      events.push({ type: 'cursed_equipment_discarded', equipmentInstanceId: target.instanceId, itemId: placedInstance.definitionId, action: 'place' });
+    }
+  }
   events.push({ type: 'item_placed', itemId, displayName: getDisplayedItemName(state, itemId) });
   clampSelectedItemIndex(state);
   return { consumed: true, attacked: false, defeated: false };
@@ -3035,6 +3110,12 @@ function applyDiscardItem(
 
   state.inventory[itemId] = owned - 1;
   if (target.instanceId) {
+    // Phase 24.4e2: read cursed status before removal (removeInstanceById
+    // below deletes the instance outright, so this must happen first).
+    const removedInstance = getEquipmentInstanceById(state, target.instanceId);
+    if (removedInstance?.cursed) {
+      events.push({ type: 'cursed_equipment_discarded', equipmentInstanceId: target.instanceId, itemId: removedInstance.definitionId, action: 'discard' });
+    }
     removeInstanceById(state, target.instanceId);
   }
   events.push({ type: 'item_discarded', itemId, displayName: getDisplayedItemName(state, itemId) });
@@ -3238,6 +3319,13 @@ function tryApplyMummyCurseOnHit(state: GameState, enemy: EnemyActor, events: Ga
     equipped: true,
     revealed: true,
   });
+  // Phase 24.4e2: mummy's active-curse target scope is equipped-only
+  // (see this function's own doc comment), so a successful application
+  // is always simultaneously a fresh discovery — target was eligible
+  // (cursed===false) immediately before this, so curseRevealed was
+  // necessarily false too (normalizeEquipmentInstances forces that
+  // combination — see equipment-instance.ts).
+  events.push({ type: 'equipment_curse_discovered', equipmentInstanceId: target.instanceId, itemId: target.definitionId });
 }
 
 /**
@@ -3278,6 +3366,12 @@ function applyCurseTrapEffect(state: GameState, trap: import('./types').TrapTile
     equipped,
     revealed: equipped,
   });
+  // Phase 24.4e2: only the equipped-target case is simultaneously a
+  // discovery (curseRevealed false->true) — an unequipped target's
+  // curseRevealed stays false, so no discovery event is pushed for it.
+  if (equipped) {
+    events.push({ type: 'equipment_curse_discovered', equipmentInstanceId: target.instanceId, itemId: target.definitionId });
+  }
   events.push({
     type: 'curse_trap_result',
     outcome: equipped ? 'equipped' : 'unequipped',

@@ -416,7 +416,7 @@ describe('JSON schema v2 (Phase 10.3.2)', () => {
     const state = freshState({ enemies: [] });
     const telemetry = createRunTelemetry(state);
     const doc = buildTelemetryDocument(telemetry, state);
-    expect(doc.schemaVersion).toBe(7);
+    expect(doc.schemaVersion).toBe(8);
   });
 
   it('filename uses the v2 prefix', () => {
@@ -428,7 +428,7 @@ describe('JSON schema v2 (Phase 10.3.2)', () => {
     });
     const telemetry = createRunTelemetry(state);
     step(state, { type: 'wait' }, telemetry);
-    expect(buildExportFilename(telemetry)).toBe('rogue-of-sun-run-v7-555-death.json');
+    expect(buildExportFilename(telemetry)).toBe('rogue-of-sun-run-v8-555-death.json');
   });
 
   it('no NaN or Infinity anywhere in the exported document', () => {
