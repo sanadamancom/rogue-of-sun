@@ -28,6 +28,7 @@ import { GameEvent } from './events';
 import { applyExperienceGain, getLevel } from './progression';
 import { roomIndexContaining } from './mapgen';
 import { getPowerDamageBonus, getPlayerSpeed, getElementalMindBonus, getAbilities, BODY_MAX_HP_PER_RANK, MIND_MAX_SOL_PER_RANK } from './ability';
+import { markGeneralItemIdentified, getDisplayedItemName } from './item-identification';
 import { CARD_DEFINITIONS, CARD_IDS_IN_ORDER } from './card-def';
 import {
   CARD_TARGET_EFFECT_RESOLVERS,
@@ -530,6 +531,11 @@ function spawnEnemyDropIfAny(state: GameState, target: EnemyActor, events: GameE
     !isCardIdentified(state, finalItemId as import('./types').CardId)
       ? { unidentifiedCard: true }
       : {}),
+    // Phase 24.4d1: same push-time-resolved-name pattern as
+    // item_picked_up's own displayName above — an enemy drop's dropped
+    // weapon/armor/ordinary consumable is never identified by the drop
+    // itself (取得、床配置、敵ドロップだけでは鑑定しない).
+    displayName: getDisplayedItemName(state, finalItemId),
   });
 }
 
@@ -1253,7 +1259,12 @@ function applyPlayerAction(
         // unidentified placeholder name instead of the real one.
         const isCard = (CARD_IDS_IN_ORDER as readonly string[]).includes(item.itemId);
         const unidentifiedCard = isCard && !isCardIdentified(state, item.itemId as CardId);
-        events.push({ type: 'item_picked_up', itemId: item.itemId, unidentifiedCard });
+        events.push({
+          type: 'item_picked_up',
+          itemId: item.itemId,
+          unidentifiedCard,
+          displayName: getDisplayedItemName(state, item.itemId),
+        });
       } else {
         // Phase 11.1: inventory is at INVENTORY_CAPACITY. Put the ground
         // item back exactly as it was (id/type/position/state untouched)
@@ -1261,7 +1272,7 @@ function applyPlayerAction(
         // instead of item_picked_up. No extra turn is consumed beyond the
         // normal move that already happened above, and no RNG is used.
         state.groundItems.splice(itemIndex, 0, item);
-        events.push({ type: 'item_pickup_failed', itemId: item.itemId, reason: 'inventory_full' });
+        events.push({ type: 'item_pickup_failed', itemId: item.itemId, reason: 'inventory_full', displayName: getDisplayedItemName(state, item.itemId) });
       }
     }
     return { consumed: true, attacked: false, defeated: false };
@@ -1523,10 +1534,14 @@ function applyItemUse(
   // Checked before the banana/hungerAmount/healAmount/solarAmount
   // branches below for the same reason as banana's own check.
   if (itemId === 'antidote') {
-    return applyAntidoteUse(state, itemId, events);
+    const result = applyAntidoteUse(state, itemId, events);
+    if (result.consumed) markGeneralItemIdentified(state, itemId, events);
+    return result;
   }
   if (itemId === 'panacea') {
-    return applyPanaceaUse(state, itemId, events);
+    const result = applyPanaceaUse(state, itemId, events);
+    if (result.consumed) markGeneralItemIdentified(state, itemId, events);
+    return result;
   }
 
   // Clairvoyance fruit (Phase 18.2): reveals every currently-hidden trap
@@ -1536,7 +1551,9 @@ function applyItemUse(
   // solarAmount branches below since clairvoyance_fruit has none of
   // those set (same precedent as banana/antidote/panacea above).
   if (itemId === 'clairvoyance_fruit') {
-    return applyClairvoyanceUse(state, itemId, events);
+    const result = applyClairvoyanceUse(state, itemId, events);
+    if (result.consumed) markGeneralItemIdentified(state, itemId, events);
+    return result;
   }
 
   // Banana (Phase 12.1 temporary-effect foundation): grants/refreshes
@@ -1545,19 +1562,23 @@ function applyItemUse(
   // before the hungerAmount/healAmount/solarAmount branches below since
   // banana has none of those set.
   if (itemId === 'banana') {
-    return applyBananaUse(state, itemId, events);
+    const result = applyBananaUse(state, itemId, events);
+    if (result.consumed) markGeneralItemIdentified(state, itemId, events);
+    return result;
   }
 
   // Chocolate (Phase 11.3): restores hunger, handled by its own function
   // since it reads/writes hunger.ts state rather than player.hp/solarEnergy.
   if ((def.hungerAmount ?? 0) > 0) {
-    return applyChocolateUse(state, itemId, events);
+    const result = applyChocolateUse(state, itemId, events);
+    if (result.consumed) markGeneralItemIdentified(state, itemId, events);
+    return result;
   }
 
   const healAmount = def.healAmount ?? 0;
   if (healAmount > 0) {
     if (player.hp >= player.maxHp) {
-      events.push({ type: 'item_use_failed', itemId, reason: 'full_hp' });
+      events.push({ type: 'item_use_failed', itemId, reason: 'full_hp', displayName: getDisplayedItemName(state, itemId) });
       return { consumed: false, attacked: false, defeated: false };
     }
     const before = player.hp;
@@ -1566,6 +1587,7 @@ function applyItemUse(
     state.inventory[itemId] = owned - 1;
     events.push({ type: 'item_used', itemId, healed });
     state.inventoryOpen = false;
+    markGeneralItemIdentified(state, itemId, events);
     return { consumed: true, attacked: false, defeated: false };
   }
 
@@ -1585,6 +1607,7 @@ function applyItemUse(
     state.inventory[itemId] = owned - 1;
     events.push({ type: 'sun_fruit_used', itemId, recovered });
     state.inventoryOpen = false;
+    markGeneralItemIdentified(state, itemId, events);
     return { consumed: true, attacked: false, defeated: false };
   }
 
@@ -2569,7 +2592,7 @@ function applyWeaponEquip(
   // different individual (docs/history/phase-24-1-equipment-instance-
   // actions.md's stale-action contract).
   if (equipmentInstanceId !== undefined && !findHeldInstanceById(state, weaponId, equipmentInstanceId)) {
-    events.push({ type: 'weapon_equip_blocked', weaponId, reason: 'invalid_instance' });
+    events.push({ type: 'weapon_equip_blocked', weaponId, reason: 'invalid_instance', displayName: getDisplayedItemName(state, weaponId) });
     return { consumed: false, attacked: false, defeated: false };
   }
 
@@ -2584,7 +2607,7 @@ function applyWeaponEquip(
   // 24.1 adds a dedicated unequip_weapon action (see applyWeaponUnequip
   // below), which is blocked by the exact same curse-lock rule.
   if (isEquippedWeaponCurseLocked(state)) {
-    events.push({ type: 'weapon_equip_blocked', weaponId, reason: 'cursed' });
+    events.push({ type: 'weapon_equip_blocked', weaponId, reason: 'cursed', displayName: getDisplayedItemName(state, weaponId) });
     return { consumed: false, attacked: false, defeated: false };
   }
 
@@ -2602,6 +2625,7 @@ function applyWeaponEquip(
   }
   events.push({ type: 'weapon_equipped', weaponId });
   state.inventoryOpen = false;
+  markGeneralItemIdentified(state, weaponId, events);
   return { consumed: true, attacked: false, defeated: false };
 }
 
@@ -2661,7 +2685,7 @@ function applyArmorEquip(
 
   // Phase 24.1: see applyWeaponEquip's identical doc comment above.
   if (equipmentInstanceId !== undefined && !findHeldInstanceById(state, armorId, equipmentInstanceId)) {
-    events.push({ type: 'armor_equip_blocked', armorId, reason: 'invalid_instance' });
+    events.push({ type: 'armor_equip_blocked', armorId, reason: 'invalid_instance', displayName: getDisplayedItemName(state, armorId) });
     return { consumed: false, attacked: false, defeated: false };
   }
 
@@ -2672,7 +2696,7 @@ function applyArmorEquip(
 
   // Phase 20.0c: see applyWeaponEquip's identical doc comment above.
   if (isEquippedArmorCurseLocked(state)) {
-    events.push({ type: 'armor_equip_blocked', armorId, reason: 'cursed' });
+    events.push({ type: 'armor_equip_blocked', armorId, reason: 'cursed', displayName: getDisplayedItemName(state, armorId) });
     return { consumed: false, attacked: false, defeated: false };
   }
 
@@ -2686,6 +2710,7 @@ function applyArmorEquip(
   }
   events.push({ type: 'armor_equipped', armorId });
   state.inventoryOpen = false;
+  markGeneralItemIdentified(state, armorId, events);
   return { consumed: true, attacked: false, defeated: false };
 }
 
@@ -2821,14 +2846,14 @@ function applyPlaceItem(
 ): { consumed: boolean; attacked: boolean; defeated: boolean } {
   const owned = state.inventory[itemId] ?? 0;
   if (owned <= 0) {
-    events.push({ type: 'item_place_failed', itemId, reason: 'item_unavailable' });
+    events.push({ type: 'item_place_failed', itemId, reason: 'item_unavailable', displayName: getDisplayedItemName(state, itemId) });
     return { consumed: false, attacked: false, defeated: false };
   }
 
   normalizeEquipmentInstances(state);
   const target = resolveEquipmentTargetForRemoval(state, itemId, equipmentInstanceId);
   if (!target.ok) {
-    events.push({ type: 'item_place_failed', itemId, reason: target.reason });
+    events.push({ type: 'item_place_failed', itemId, reason: target.reason, displayName: getDisplayedItemName(state, itemId) });
     return { consumed: false, attacked: false, defeated: false };
   }
 
@@ -2836,7 +2861,7 @@ function applyPlaceItem(
     (item) => item.pos.x === state.player.pos.x && item.pos.y === state.player.pos.y,
   );
   if (occupied) {
-    events.push({ type: 'item_place_failed', itemId, reason: 'ground_occupied' });
+    events.push({ type: 'item_place_failed', itemId, reason: 'ground_occupied', displayName: getDisplayedItemName(state, itemId) });
     return { consumed: false, attacked: false, defeated: false };
   }
 
@@ -2858,7 +2883,7 @@ function applyPlaceItem(
     ...(target.instanceId ? { equipmentInstanceId: target.instanceId } : {}),
   });
   state.nextGroundItemId += 1;
-  events.push({ type: 'item_placed', itemId });
+  events.push({ type: 'item_placed', itemId, displayName: getDisplayedItemName(state, itemId) });
   clampSelectedItemIndex(state);
   return { consumed: true, attacked: false, defeated: false };
 }
@@ -2880,14 +2905,14 @@ function applyDiscardItem(
 ): { consumed: boolean; attacked: boolean; defeated: boolean } {
   const owned = state.inventory[itemId] ?? 0;
   if (owned <= 0) {
-    events.push({ type: 'item_discard_failed', itemId, reason: 'item_unavailable' });
+    events.push({ type: 'item_discard_failed', itemId, reason: 'item_unavailable', displayName: getDisplayedItemName(state, itemId) });
     return { consumed: false, attacked: false, defeated: false };
   }
 
   normalizeEquipmentInstances(state);
   const target = resolveEquipmentTargetForRemoval(state, itemId, equipmentInstanceId);
   if (!target.ok) {
-    events.push({ type: 'item_discard_failed', itemId, reason: target.reason });
+    events.push({ type: 'item_discard_failed', itemId, reason: target.reason, displayName: getDisplayedItemName(state, itemId) });
     return { consumed: false, attacked: false, defeated: false };
   }
 
@@ -2895,7 +2920,7 @@ function applyDiscardItem(
   if (target.instanceId) {
     removeInstanceById(state, target.instanceId);
   }
-  events.push({ type: 'item_discarded', itemId });
+  events.push({ type: 'item_discarded', itemId, displayName: getDisplayedItemName(state, itemId) });
   clampSelectedItemIndex(state);
   return { consumed: true, attacked: false, defeated: false };
 }
@@ -2961,6 +2986,12 @@ export function applySolarForge(
     outputInstanceId: output.instanceId,
   });
   state.inventoryOpen = false;
+  // Phase 24.4d1: forge success identifies the output definition
+  // regardless of rank (authoritative_decisions.solar_forge.output_rule
+  // — "合成成立時に出力definitionを鑑定済みにする" / "B/A/S/Rのいずれで
+  // も同じ規則を使う"). Never identifies the two consumed materials
+  // beyond whatever they already were.
+  markGeneralItemIdentified(state, recipe.outputDefinitionId, events);
   return { consumed: true, attacked: false, defeated: false };
 }
 

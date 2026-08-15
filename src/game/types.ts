@@ -840,6 +840,21 @@ export interface GameState {
    */
   identifiedCardIds?: CardId[];
   /**
+   * Phase 24.4d1 general item identification: the set of non-card ItemIds
+   * (7 ordinary consumables + weapon/armor definitionIds, run-shared —
+   * see item-identification.ts's module doc comment) identified so far
+   * this run. Optional, defaulting to an empty array when absent (see
+   * item-identification.ts's isGeneralItemIdentified), following the
+   * exact same pattern as identifiedCardIds above. A completely separate
+   * set from identifiedCardIds — cards keep their own existing contract
+   * unchanged; the two are never merged. Persists across floor
+   * transitions like identifiedCardIds; resets to empty on a brand new
+   * run or a post-death retry. Never contains duplicate entries, a
+   * CardId, or an always-identified id (solar_gun, the 5 one-time unlock
+   * pickups) — see item-identification.ts's normalizeIdentifiedGeneralItemIds.
+   */
+  identifiedGeneralItemIds?: ItemId[];
+  /**
    * Phase 20.0c equipment-instance foundation: every weapon/armor
    * individual currently held (equipped or not) this run — see
    * equipment-instance.ts's EquipmentInstance/CARD_DEFINITIONS-parallel

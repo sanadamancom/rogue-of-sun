@@ -167,7 +167,7 @@ describe('Phase 24.1: instance-aware equip/swap', () => {
     const result = processTurn(state, { type: 'equip_weapon', weaponId: 'sword', equipmentInstanceId: armorInstance.instanceId });
     expect(result.consumed).toBe(false);
     expect(state.equippedWeaponId).toBeNull();
-    expect(result.events).toContainEqual({ type: 'weapon_equip_blocked', weaponId: 'sword', reason: 'invalid_instance' });
+    expect(result.events).toContainEqual({ type: 'weapon_equip_blocked', weaponId: 'sword', reason: 'invalid_instance', displayName: '未鑑定の武器' });
   });
 
   it('rejects an unowned/unknown equipmentInstanceId', () => {

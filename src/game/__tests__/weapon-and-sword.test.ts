@@ -167,7 +167,7 @@ describe('sword pickup', () => {
       groundItems: [{ id: 0, itemId: 'sword', pos: { x: 3, y: 1 } }],
     });
     const result = processTurn(state, { type: 'move', direction: 'E' });
-    expect(result.events).toContainEqual({ type: 'item_picked_up', itemId: 'sword', unidentifiedCard: false });
+    expect(result.events).toContainEqual({ type: 'item_picked_up', itemId: 'sword', unidentifiedCard: false, displayName: '未鑑定の武器' });
   });
 });
 

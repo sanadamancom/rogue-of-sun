@@ -26,6 +26,10 @@ function stateWithWeapons(counts: Partial<Record<WeaponId, number>>): GameState 
     state.inventory[id as WeaponId] = count as number;
   }
   normalizeEquipmentInstances(state);
+  // Phase 24.4d1: this file tests forge recipe/lineage judgement, not
+  // identification — pre-identify every fixture weapon so the new
+  // unidentified-material exclusion rule never interferes.
+  state.identifiedGeneralItemIds = Object.keys(counts) as import('../types').ItemId[];
   return state;
 }
 

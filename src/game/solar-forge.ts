@@ -2,6 +2,7 @@ import { ArmorId, EquipmentInstance, EquipmentRank, GameState, WeaponId } from '
 import { WEAPON_DEFINITIONS, WeaponDefinition } from './weapon-def';
 import { getHeldEquipmentInstances } from './equipment-instance';
 import { ARMOR_IDS_IN_ORDER } from './armor-def';
+import { isGeneralItemIdentified } from './item-identification';
 
 /** Phase 24.3: every registered armor species (was a single `=== 'armor'` check, correct only while 'armor' was the sole ArmorId). */
 const ARMOR_ID_SET: ReadonlySet<string> = new Set<string>(ARMOR_IDS_IN_ORDER);
@@ -376,7 +377,14 @@ export function getSolarForgeCandidatesWithLineage(
   registry: readonly SolarForgeRecipe[],
 ): SolarForgeCandidate[] {
   const held = getHeldEquipmentInstances(state).filter(
-    (i) => !isArmorDefinitionId(i.definitionId) && isForgeEligibleWeaponId(i.definitionId as WeaponId) && !i.cursed,
+    (i) =>
+      !isArmorDefinitionId(i.definitionId) &&
+      isForgeEligibleWeaponId(i.definitionId as WeaponId) &&
+      !i.cursed &&
+      // Phase 24.4d1: an unidentified weapon never becomes a forge
+      // material candidate (authoritative_decisions.solar_forge.
+      // input_rule's "未鑑定weaponは合成素材候補として成立させない").
+      isGeneralItemIdentified(state, i.definitionId),
   );
   const candidates: SolarForgeCandidate[] = [];
   for (let i = 0; i < held.length; i++) {
@@ -431,7 +439,14 @@ export function getSolarForgeCandidates(
 ): SolarForgeCandidate[] {
   if (registry.length === 0) return [];
   const held = getHeldEquipmentInstances(state).filter(
-    (i) => !isArmorDefinitionId(i.definitionId) && isForgeEligibleWeaponId(i.definitionId as WeaponId) && !i.cursed,
+    (i) =>
+      !isArmorDefinitionId(i.definitionId) &&
+      isForgeEligibleWeaponId(i.definitionId as WeaponId) &&
+      !i.cursed &&
+      // Phase 24.4d1: an unidentified weapon never becomes a forge
+      // material candidate (authoritative_decisions.solar_forge.
+      // input_rule's "未鑑定weaponは合成素材候補として成立させない").
+      isGeneralItemIdentified(state, i.definitionId),
   );
   const candidates: SolarForgeCandidate[] = [];
   for (let i = 0; i < held.length; i++) {

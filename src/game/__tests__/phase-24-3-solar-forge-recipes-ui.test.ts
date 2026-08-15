@@ -21,6 +21,9 @@ function stateWith(counts: Partial<Record<string, number>>): GameState {
     (state.inventory as any)[id] = count;
   }
   normalizeEquipmentInstances(state);
+  // Phase 24.4d1: this file tests the UI-facing candidate/turn data
+  // layer, not identification — pre-identify every fixture weapon.
+  state.identifiedGeneralItemIds = Object.keys(counts) as import('../types').ItemId[];
   return state;
 }
 

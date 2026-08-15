@@ -224,7 +224,7 @@ describe('pickup (auto-pickup on move)', () => {
       groundItems: [{ id: 0, itemId: 'apple', pos: { x: 3, y: 1 } }],
     });
     const result = processTurn(state, { type: 'move', direction: 'E' });
-    expect(result.events).toContainEqual({ type: 'item_picked_up', itemId: 'apple', unidentifiedCard: false });
+    expect(result.events).toContainEqual({ type: 'item_picked_up', itemId: 'apple', unidentifiedCard: false, displayName: '未鑑定の消耗品' });
   });
 
   it('does not pick up anything when moving onto a tile with no ground item', () => {
@@ -351,7 +351,7 @@ describe('apple use rules (Phase 08.2)', () => {
     expect(result.consumed).toBe(false);
     expect(state.inventory.apple).toBe(1);
     expect(state.inventoryOpen).toBe(true);
-    expect(result.events).toContainEqual({ type: 'item_use_failed', itemId: 'apple', reason: 'full_hp' });
+    expect(result.events).toContainEqual({ type: 'item_use_failed', itemId: 'apple', reason: 'full_hp', displayName: '未鑑定の消耗品' });
   });
 
   it('full-HP use attempt does not consume a turn', () => {

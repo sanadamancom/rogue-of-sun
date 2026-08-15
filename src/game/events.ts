@@ -71,6 +71,16 @@ export type GameEvent =
        * card.
        */
       unidentifiedCard?: boolean;
+      /**
+       * Phase 24.4d1: the player-visible name to show for this pickup,
+       * pre-resolved at push time via item-identification.ts's
+       * getDisplayedItemName (same baked-in-at-push-time pattern as
+       * unidentifiedCard above, generalized to ordinary consumables and
+       * weapon/armor definitions). Absent falls back to the existing
+       * unidentifiedCard/ITEM_DEFINITIONS lookup in formatEvent, so
+       * older test fixtures that never set this keep working unchanged.
+       */
+      displayName?: string;
     }
   // Phase 23.1 skeleton revival: pushed instead of 'enemy_defeated' when
   // a body-form skeleton's HP reaches 0 from an attack that did not
@@ -162,21 +172,31 @@ export type GameEvent =
        * for a card whose species is already identified.
        */
       unidentifiedCard?: boolean;
+      /**
+       * Phase 24.4d1: the player-visible name to show for this pickup,
+       * pre-resolved at push time via item-identification.ts's
+       * getDisplayedItemName (same baked-in-at-push-time pattern as
+       * unidentifiedCard above, generalized to ordinary consumables and
+       * weapon/armor definitions). Absent falls back to the existing
+       * unidentifiedCard/ITEM_DEFINITIONS lookup in formatEvent, so
+       * older test fixtures that never set this keep working unchanged.
+       */
+      displayName?: string;
     }
   // Phase 11.1 inventory capacity: pushed instead of 'item_picked_up' when
   // GameState.inventory is already at INVENTORY_CAPACITY, so the ground
   // item is left in place (see turn.ts's move handling). Follows the same
   // reason-tagged shape as 'item_use_failed' below.
-  | { type: 'item_pickup_failed'; itemId: ItemId; reason: 'inventory_full' }
+  | { type: 'item_pickup_failed'; itemId: ItemId; reason: 'inventory_full'; displayName?: string }
   | { type: 'item_used'; itemId: ItemId; healed: number }
-  | { type: 'item_use_failed'; itemId: ItemId; reason: 'full_hp' }
+  | { type: 'item_use_failed'; itemId: ItemId; reason: 'full_hp'; displayName?: string }
   // Phase 11.2 place/discard: reasons mirror the shared blocked-condition
   // set (ground_occupied only applies to place; equipped/item_unavailable
   // apply to both).
-  | { type: 'item_placed'; itemId: ItemId }
-  | { type: 'item_place_failed'; itemId: ItemId; reason: 'ground_occupied' | 'equipped' | 'item_unavailable' | 'invalid_instance' }
-  | { type: 'item_discarded'; itemId: ItemId }
-  | { type: 'item_discard_failed'; itemId: ItemId; reason: 'equipped' | 'item_unavailable' | 'invalid_instance' }
+  | { type: 'item_placed'; itemId: ItemId; displayName?: string }
+  | { type: 'item_place_failed'; itemId: ItemId; reason: 'ground_occupied' | 'equipped' | 'item_unavailable' | 'invalid_instance'; displayName?: string }
+  | { type: 'item_discarded'; itemId: ItemId; displayName?: string }
+  | { type: 'item_discard_failed'; itemId: ItemId; reason: 'equipped' | 'item_unavailable' | 'invalid_instance'; displayName?: string }
   | { type: 'sun_fruit_used'; itemId: ItemId; recovered: number }
   // Phase 20.2 zero-effect-success contract: lovers always succeeds
   // (consume/identify/turn), even at full SOL — this event reports the
@@ -224,8 +244,8 @@ export type GameEvent =
   // equipmentInstanceId that doesn't resolve to a currently-held
   // individual of the requested species (stale selection, unowned,
   // wrong species) — see turn.ts's applyWeaponEquip/applyArmorEquip.
-  | { type: 'weapon_equip_blocked'; weaponId: WeaponId; reason: 'cursed' | 'invalid_instance' }
-  | { type: 'armor_equip_blocked'; armorId: ArmorId; reason: 'cursed' | 'invalid_instance' }
+  | { type: 'weapon_equip_blocked'; weaponId: WeaponId; reason: 'cursed' | 'invalid_instance'; displayName?: string }
+  | { type: 'armor_equip_blocked'; armorId: ArmorId; reason: 'cursed' | 'invalid_instance'; displayName?: string }
   // Phase 24.1: successful return to bare hands / no armor via the new
   // unequip_weapon/unequip_armor actions (turn.ts's applyWeaponUnequip/
   // applyArmorUnequip). weaponId/armorId is the species that was equipped
@@ -431,6 +451,13 @@ export type GameEvent =
   | { type: 'card_used'; cardId: CardId }
   | { type: 'card_use_failed'; cardId: CardId; reason: 'sealed' | 'not_implemented' | 'no_valid_target' | 'no_effect' | 'insufficient_resource' | 'refine_cap_reached' }
   | { type: 'card_identified'; cardId: CardId }
+  // Phase 24.4d1 general item identification: fired at most once per
+  // ItemId (weapon/armor definitionId or ordinary consumable ItemId),
+  // the first time markGeneralItemIdentified succeeds for it this run —
+  // see item-identification.ts's markGeneralItemIdentified doc comment.
+  // Never fired for cards (own 'card_identified' event above) or for
+  // always-identified ids (solar_gun, the 5 one-time unlock pickups).
+  | { type: 'general_item_identified'; itemId: ItemId }
   // Phase 20.3: judgement's automatic death-interrupt. Fired at most once
   // per death-confirmation point (turn.ts's playerDefeated check), never
   // alongside 'player_defeated' for the same confirmation (see turn.ts's

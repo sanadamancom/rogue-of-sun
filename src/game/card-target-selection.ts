@@ -1,6 +1,7 @@
 import { CARD_IDS_IN_ORDER } from './card-def';
 import { getEquipmentInstances, getHeldEquipmentInstances } from './equipment-instance';
 import { ITEM_DEFINITIONS, ITEM_IDS_IN_ORDER } from './item-def';
+import { getDisplayedItemName, isGeneralItemIdentified } from './item-identification';
 import { CardId, EquipmentInstance, GameState, ItemId } from './types';
 
 /**
@@ -221,15 +222,26 @@ export function describeCardTargetCandidate(
   if (ref.kind === 'inventory_item') {
     return {
       ref,
-      displayName: ITEM_DEFINITIONS[ref.itemId].displayName,
+      // Phase 24.4d1: routes through the shared resolver instead of the
+      // raw ITEM_DEFINITIONS displayName — this was the audit's second
+      // leak site (docs/history/phase-24-4d0-identification-audit.md
+      // section 4.10): an unidentified ordinary consumable's true name
+      // must not leak through star's candidate list either.
+      displayName: getDisplayedItemName(state, ref.itemId),
       equipped: false,
     };
   }
   const instance = getEquipmentInstances(state).find((i) => i.instanceId === ref.instanceId);
   const definitionId = instance?.definitionId;
-  const displayName = definitionId ? ITEM_DEFINITIONS[definitionId].displayName : '（不明な装備）';
+  const identified = definitionId ? isGeneralItemIdentified(state, definitionId as ItemId) : false;
+  const displayName = definitionId ? getDisplayedItemName(state, definitionId as ItemId) : '（不明な装備）';
   const equipped = state.equippedWeaponInstanceId === ref.instanceId || state.equippedArmorInstanceId === ref.instanceId;
-  const refineLevel = instance?.refineLevel;
+  // Phase 24.4d1: refineLevel is withheld while the definition itself is
+  // unidentified (player_visible_rules.item_detail's "refineLevel...を
+  // 未鑑定情報として漏らさない") — never shown for star regardless (star
+  // never surfaced it before this phase either), and for temperance only
+  // once the definition is identified.
+  const refineLevel = identified ? instance?.refineLevel : undefined;
   // temperance's candidates are, by construction (getTemperanceCandidates),
   // always cursed && curseRevealed — safe to state as a fact, not a leak.
   const note = cardId === 'temperance' ? '呪われている' : undefined;

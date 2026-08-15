@@ -183,7 +183,7 @@ describe('place_item success (Phase 11.2)', () => {
     });
     const result = processTurn(state, { type: 'place_item', itemId: 'apple' });
     const placedEvents = result.events.filter((e) => e.type === 'item_placed');
-    expect(placedEvents).toEqual([{ type: 'item_placed', itemId: 'apple' }]);
+    expect(placedEvents).toEqual([{ type: 'item_placed', itemId: 'apple', displayName: '未鑑定の消耗品' }]);
   });
 
   it('placing a weapon still owned 2+ times leaves 1 remaining and equipped', () => {
@@ -208,7 +208,7 @@ describe('place_item failure (Phase 11.2)', () => {
     expect(result.consumed).toBe(false);
     expect(state.inventory.apple).toBe(1);
     expect(state.groundItems).toEqual([{ id: 0, itemId: 'sword', pos: { x: 2, y: 1 } }]);
-    expect(result.events).toContainEqual({ type: 'item_place_failed', itemId: 'apple', reason: 'ground_occupied' });
+    expect(result.events).toContainEqual({ type: 'item_place_failed', itemId: 'apple', reason: 'ground_occupied', displayName: '未鑑定の消耗品' });
   });
 
   it('cannot place the last copy of a currently-equipped weapon', () => {
@@ -220,7 +220,7 @@ describe('place_item failure (Phase 11.2)', () => {
     expect(result.consumed).toBe(false);
     expect(state.inventory.sword).toBe(1);
     expect(state.groundItems).toHaveLength(0);
-    expect(result.events).toContainEqual({ type: 'item_place_failed', itemId: 'sword', reason: 'equipped' });
+    expect(result.events).toContainEqual({ type: 'item_place_failed', itemId: 'sword', reason: 'equipped', displayName: '未鑑定の武器' });
   });
 
   it('cannot place the last copy of currently-equipped armor', () => {
@@ -237,7 +237,7 @@ describe('place_item failure (Phase 11.2)', () => {
     const state = freshState();
     const result = processTurn(state, { type: 'place_item', itemId: 'apple' });
     expect(result.consumed).toBe(false);
-    expect(result.events).toContainEqual({ type: 'item_place_failed', itemId: 'apple', reason: 'item_unavailable' });
+    expect(result.events).toContainEqual({ type: 'item_place_failed', itemId: 'apple', reason: 'item_unavailable', displayName: '未鑑定の消耗品' });
   });
 
   it('does not consume a turn on failure', () => {
@@ -315,7 +315,7 @@ describe('discard_item success and confirmation (Phase 11.2)', () => {
     });
     const result = processTurn(state, { type: 'discard_item', itemId: 'apple' });
     const discardedEvents = result.events.filter((e) => e.type === 'item_discarded');
-    expect(discardedEvents).toEqual([{ type: 'item_discarded', itemId: 'apple' }]);
+    expect(discardedEvents).toEqual([{ type: 'item_discarded', itemId: 'apple', displayName: '未鑑定の消耗品' }]);
   });
 });
 
@@ -347,7 +347,7 @@ describe('discard_item failure and cancellation (Phase 11.2)', () => {
     const result = processTurn(state, { type: 'discard_item', itemId: 'sword' });
     expect(result.consumed).toBe(false);
     expect(state.inventory.sword).toBe(1);
-    expect(result.events).toContainEqual({ type: 'item_discard_failed', itemId: 'sword', reason: 'equipped' });
+    expect(result.events).toContainEqual({ type: 'item_discard_failed', itemId: 'sword', reason: 'equipped', displayName: '未鑑定の武器' });
   });
 
   it('can discard a non-last copy of a currently-equipped weapon', () => {
@@ -365,7 +365,7 @@ describe('discard_item failure and cancellation (Phase 11.2)', () => {
     const state = freshState();
     const result = processTurn(state, { type: 'discard_item', itemId: 'apple' });
     expect(result.consumed).toBe(false);
-    expect(result.events).toContainEqual({ type: 'item_discard_failed', itemId: 'apple', reason: 'item_unavailable' });
+    expect(result.events).toContainEqual({ type: 'item_discard_failed', itemId: 'apple', reason: 'item_unavailable', displayName: '未鑑定の消耗品' });
   });
 
   it('does not change combatRngState on failure', () => {

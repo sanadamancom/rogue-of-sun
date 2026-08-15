@@ -51,6 +51,7 @@ import {
   PROGRESSION_INITIAL_UNSPENT_ABILITY_POINTS,
 } from './progression';
 import { INITIAL_ABILITY_VALUES } from './ability';
+import { normalizeIdentifiedGeneralItemIds } from './item-identification';
 import { Actor, ActiveEffect, AbilityValues, CardId, ElementId, EnchantmentId, EnemyActor, EnemyType, EquipmentInstance, GameState, GroundItem, Inventory, ItemId, TrapTile, Vec2, WeaponId, ArmorId, Direction8 } from './types';
 
 /** Generates a random run seed without relying on Math.random's implicit global state at call sites. */
@@ -89,6 +90,7 @@ interface CarryOverStats {
   unspentAbilityPoints: number;
   abilities: AbilityValues;
   identifiedCardIds: CardId[];
+  identifiedGeneralItemIds: ItemId[];
   equipmentInstances: EquipmentInstance[];
   nextEquipmentInstanceId: number;
   equippedWeaponInstanceId: string | null;
@@ -683,6 +685,12 @@ function buildFloorState(
     // reference as `carry.identifiedCardIds`), matching abilities' own
     // per-call-copy reasoning above.
     identifiedCardIds: carry ? [...carry.identifiedCardIds] : [],
+    // General item identification (Phase 24.4d1): carried over across
+    // floor transitions like identifiedCardIds; a brand new run or a
+    // post-death retry (both go through createInitialState/restart,
+    // which never pass a carry) always starts empty. A fresh array per
+    // call, matching identifiedCardIds' own per-call-copy reasoning.
+    identifiedGeneralItemIds: carry ? [...carry.identifiedGeneralItemIds] : [],
     // Ability overlay state (Phase 13.2): never carried over across
     // floor transitions or restarts — always closed with no pending
     // confirmation at the start of a floor/run, like inventoryOpen/
@@ -758,6 +766,10 @@ export function advanceToNextFloor(state: GameState): GameState {
     // stale/corrupted value, so a malformed carry can never propagate
     // duplicates or invalid ids forward — see normalizeIdentifiedCardIds.
     identifiedCardIds: normalizeIdentifiedCardIds(state.identifiedCardIds),
+    // Phase 24.4d1 general item identification: additive-default pattern
+    // identical to identifiedCardIds above (no schemaVersion bump — see
+    // types.ts's GameState.identifiedGeneralItemIds doc comment).
+    identifiedGeneralItemIds: normalizeIdentifiedGeneralItemIds(state.identifiedGeneralItemIds),
     // Phase 20.0c equipment-instance foundation: additive-default pattern
     // identical to identifiedCardIds above (no schemaVersion bump — see
     // types.ts's GameState.equipmentInstances doc comment). Malformed

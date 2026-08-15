@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { toDirection4 } from './game/direction';
 import { ENEMY_DEFINITIONS } from './game/enemy-def';
 import { ITEM_DEFINITIONS } from './game/item-def';
-import { CARD_DEFINITIONS, CARD_IDS_IN_ORDER } from './game/card-def';
+import { getDisplayedItemName, isGeneralItemIdentified } from './game/item-identification';
 import {
   beginCardTargetSelection,
   CardTargetSelectionState,
@@ -63,7 +63,7 @@ import {
   toggleAbilityOverlay,
 } from './game/ability';
 import { EFFECT_DEFINITIONS, getActiveEffects } from './game/effects';
-import { processTurn, TurnResult, ELEMENT_ENCHANTMENT_SOL_COST, isCardIdentified, getSolarGunEffectiveElement, isGhostInsideWall } from './game/turn';
+import { processTurn, TurnResult, ELEMENT_ENCHANTMENT_SOL_COST, getSolarGunEffectiveElement, isGhostInsideWall } from './game/turn';
 import { shouldDisplayStepsBody } from './game/steps';
 import { DIRECTION_VECTORS, EnemyType, EnemyActor, GameState, GameMap, Direction8, Vec2 } from './game/types';
 import { CAMERA_VIEW_WIDTH, CAMERA_VIEW_HEIGHT } from './game/camera';
@@ -1652,14 +1652,16 @@ class MainScene extends Phaser.Scene {
    * (falls straight through to ITEM_DEFINITIONS[itemId].displayName, same
    * as before this phase).
    */
+  /**
+   * The name to show for `itemId` in the Inventory overlay (Phase 20.0b
+   * card identification; Phase 24.4d1 extends this to ordinary
+   * consumables and weapon/armor definitions). Delegates entirely to
+   * item-identification.ts's getDisplayedItemName, the single shared
+   * player-visible resolver, so this method and every other display
+   * call site stay in sync with exactly one identification check.
+   */
   private displayedItemName(itemId: import('./game/types').ItemId): string {
-    if ((CARD_IDS_IN_ORDER as readonly string[]).includes(itemId)) {
-      const cardId = itemId as import('./game/types').CardId;
-      if (!isCardIdentified(this.state, cardId)) {
-        return CARD_DEFINITIONS[cardId].unidentifiedDisplayName;
-      }
-    }
-    return ITEM_DEFINITIONS[itemId].displayName;
+    return getDisplayedItemName(this.state, itemId);
   }
 
   private rootMenuItems(): string[] {
@@ -2196,11 +2198,17 @@ class MainScene extends Phaser.Scene {
               // details on the same screen (inventory_entry_design's
               // display rules in docs/history/phase-24-1-equipment-
               // instance-actions.md). An undiscovered curse is never
-              // shown or hinted at here.
+              // shown or hinted at here. Phase 24.4d1: while the
+              // definitionId itself is unidentified, rank/refineLevel/
+              // curse mark are additionally withheld entirely (never
+              // just the true name) — see player_visible_rules.
+              // inventory in rogue-of-sun-development-plan.md.
+              const identified = isGeneralItemIdentified(this.state, entry.itemId);
               const equipMark = entry.equipped ? 'E ' : '  ';
-              const refineSuffix = entry.refineLevel > 0 ? `+${entry.refineLevel}` : '';
-              const curseMark = entry.curseRevealed ? '（呪）' : '';
-              listLines.push(`${marker}${equipMark}${def.glyph}${displayName}${refineSuffix} [${entry.rank}]${curseMark}`);
+              const refineSuffix = identified && entry.refineLevel > 0 ? `+${entry.refineLevel}` : '';
+              const curseMark = identified && entry.curseRevealed ? '（呪）' : '';
+              const rankSuffix = identified ? ` [${entry.rank}]` : '';
+              listLines.push(`${marker}${equipMark}${def.glyph}${displayName}${refineSuffix}${rankSuffix}${curseMark}`);
             } else {
               const equipMark = '  ';
               const count = def.category === 'consumable' ? `x${entry.count}` : '';
@@ -2212,16 +2220,21 @@ class MainScene extends Phaser.Scene {
         const selected = selectedItemId(this.state);
         if (selected && selectedEntry) {
           const def = ITEM_DEFINITIONS[selected];
+          const itemIdentified = isGeneralItemIdentified(this.state, selected);
           detailLines.push(this.displayedItemName(selected));
           if (def.category === 'weapon') {
-            const w = WEAPON_DEFINITIONS[selected as 'sword' | 'spear' | 'hammer'];
-            detailLines.push(`攻撃${w.attackPower}・射程${w.reach}`);
+            if (itemIdentified) {
+              const w = WEAPON_DEFINITIONS[selected as 'sword' | 'spear' | 'hammer'];
+              detailLines.push(`攻撃${w.attackPower}・射程${w.reach}`);
+            }
             detailLines.push(
               selectedEntry.kind === 'equipment_instance' && selectedEntry.equipped ? '装備中' : '未装備',
             );
           } else if (def.category === 'armor') {
-            const a = ARMOR_DEFINITIONS[selected as 'armor'];
-            detailLines.push(`防御${a.armorValue}`);
+            if (itemIdentified) {
+              const a = ARMOR_DEFINITIONS[selected as 'armor'];
+              detailLines.push(`防御${a.armorValue}`);
+            }
             detailLines.push(
               selectedEntry.kind === 'equipment_instance' && selectedEntry.equipped ? '装備中' : '未装備',
             );

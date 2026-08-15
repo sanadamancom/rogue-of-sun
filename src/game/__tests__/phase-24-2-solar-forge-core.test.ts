@@ -85,6 +85,14 @@ function stateWith(materials: Record<string, number>): GameState {
     (state.inventory as Record<string, number>)[id] = count;
   }
   normalizeEquipmentInstances(state);
+  // Phase 24.4d1: this file tests forge mechanics themselves (identity,
+  // atomicity, equipment-state carry-over, normalization, turn/RNG
+  // contract), not identification — every material fixture is
+  // pre-identified so the new "unidentified weapon never becomes a
+  // forge material candidate" rule (authoritative_decisions.solar_forge.
+  // input_rule) never interferes with these tests' own assertions.
+  // Identification-specific behavior has its own dedicated tests.
+  state.identifiedGeneralItemIds = Object.keys(materials) as import('../types').ItemId[];
   return state;
 }
 
