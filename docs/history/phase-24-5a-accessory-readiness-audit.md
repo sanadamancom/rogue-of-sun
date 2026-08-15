@@ -49,7 +49,7 @@ production code・既存testは変更していない。本ドキュメントの�
 | place | `resolveEquipmentTargetForRemoval`が`isWeaponOrArmorId`ベースで判定するため、この関数の拡張のみで対応可能（新規関数不要） | 維持可能 | 既存と同一 |
 | discard | 同上 | 維持可能 | 同上 |
 | inventory detail | UI層（main.ts）でaccessory種別の表示分岐が必要（後述audit_8） | N/A | N/A |
-| comparison | 既存の比較UIがweapon/armor専用構造なら同様の並行拡張が必要（未確認、要audit_8参照） | N/A | N/A |
+| comparison | **比較UI自体が本作に存在しない**（Phase 24.5a1のUI監査で確認、`grep`で"compare"/"比較"該当0件） | NOT_APPLICABLE | N/A |
 | solar forge | **対象外を維持**（`validateForgeMaterials`は武器限定判定を既に持つため、accessoryを候補に含めない = 何もしないことで自動的に対象外） | N/A | 変更なし |
 | Star target | `getStarCandidates`は`isStarEligibleRank`+`STAR_INELIGIBLE_ITEM_IDS`ベースの判定であり、accessoryを含めるかは明示的な設計判断が必要（`getHeldEquipmentInstances`が拡張されれば技術的には候補に混入しうるため、含めない場合は明示的な除外リストへの追加が必要） | — | — |
 | Temperance target | `getTemperanceCandidates`も同様。curse対象にaccessoryを含めるかの判断（audit_6）に従属 | — | — |
@@ -102,16 +102,79 @@ production code・既存testは変更していない。本ドキュメントの�
 
 **推奨**: **Phase 24.5bとPhase 24.5dは別工程として維持することを推奨する。** 根拠: slot/instance/操作/最小UIの追加（24.5b）はRNGストリームへ一切触れない構造変更であり検証が独立して行える。一方、通常床/MH/enemy-drop供給（24.5d）は3ルート共通のRNG消費順序・比率設計という別種のリスクを持つ。統合するとfocused testの責務が混在し、RNG非干渉の検証が複雑化する。
 
-## audit_8: UI/display監査
+## audit_8: UI/display監査（Phase 24.5a1で完了）
 
-- `main.ts`のinventory list/item detail/equipment panelは本監査で全文を精査していないが、`equippedWeaponId`/`equippedArmorId`を直接参照する箇所がturn.ts同様に存在する可能性が高い（型定義側の2フィールド構造から推定）。accessory追加時はUI層にも並行する第三の表示ブロックが必要になる見込み。
-- weapon/armor二択が固定表示されている箇所の全数調査は本監査のスコープでは完了していない（`grep`ベースの型定義調査に留まる）。Phase 24.5bの実装段階で個別に洗い出す必要がある。
-- 未鑑定表示・curse表示: 既存のitem-identification.ts/message-log.tsの汎用ItemId対応により、UIロジック自体は無変更で対応できる可能性が高いが、実際のレイアウト（3つ目のスロット表示位置）は新規UI要素になる。
-- **scope方針**: 指示どおり、Phase 24.5では機能上必要な最小UI（スロット存在の可視化・equip/unequip操作可能性）のみとし、完成版レイアウト・装飾はPhase 25へ委ねることを推奨する。
+`main.ts`のUI実装は単一のPhaser 3 `MainScene`（`class MainScene extends Phaser.Scene`）内に閉じている。ゲーム本体の表示はPhaserのCanvas API（Text/Graphicsオブジェクト）で行われ、run終了時（victory/game over）のレポート画面のみ別途DOM overlay（`document.createElement('div')`、`innerHTML`によるHTML構築）を使用する。**この2種類の描画手法はどちらも同一の`src/main.ts`という単一production entry pointに属しており、別frameworkや別entry pointは存在しない**（`index.html`が読み込むスクリプトは`src/main.ts`のみ、`phase-18-3-trap-playtest.html`は`scripts/build-single-html.mjs`が生成するビルド成果物であり別ソースではない）。stop_conditionの「UIが別frameworkまたは別entry pointにも実装され、どちらがproduction経路かコード上確定不能」には該当しない。
+
+### weapon/armor二択が固定されている箇所（全数確認済み、8箇所）
+
+| # | file:line | 内容 | accessory追加時の挙動（無変更の場合） |
+|---|---|---|---|
+| 1 | `main.ts:1687` | `if (def.category === 'weapon' \|\| def.category === 'armor') { ...装備する/外すアクションを提示... }` | accessoryは条件に一致せず、装備する/外すアクションが**一切提示されない**（`else if (def.consumable)`にも該当しないため置く/捨てるのみになる） |
+| 2 | `main.ts:1700` | `if (def.category === 'weapon' && isForgeEligibleWeaponId(...))` | 太陽鍛冶アクションは元々weapon限定のため、accessoryは自動的に対象外（**意図した挙動、変更不要**） |
+| 3 | `main.ts:2225` | item detail: `if (def.category === 'weapon') { 攻撃力/射程表示 }` | accessoryはこの分岐に入らない |
+| 4 | `main.ts:2233` | item detail: `else if (def.category === 'armor') { 防御力表示 }` | 同上、**かつ**この2分岐の外側にある「装備中/未装備」表示（`main.ts:2231,2239`）もこのif/else-if内にネストされているため、**accessoryは装備中/未装備の表示すら出ない** |
+| 5 | `inventory.ts:211` | `selectedInventoryAction`: `if (def.category === 'weapon') { return equip_weapon/unequip_weapon }` | accessoryはこの分岐に入らない |
+| 6 | `inventory.ts:217` | 同関数: `if (def.category === 'armor') { return equip_armor/unequip_armor }` | 同上。**両方に該当しない場合、`equipment_instance`エントリのif/if構造を素通りし、関数末尾の`return { type: 'use_item', itemId }`（inventory.ts:232）まで落ちる** — accessoryを選択して「装備する」を確定すると、装備action ではなく**誤って`use_item`（アイテム使用）actionが送信される**という実害のあるバグ経路になる |
+| 7 | `inventory.ts:226` | 同関数、非`equipment_instance`側フォールバック: `if (def.category === 'weapon')` | 同上構造 |
+| 8 | `inventory.ts:229` | 同関数: `if (def.category === 'armor')` | 同上 |
+
+**最重要所見**: #6（`inventory.ts:209-223`）は、accessoryの`ItemId`/`category`を追加しただけで`applyAccessoryEquip`等のaction handlerを未実装のまま放置すると、UIが誤って`use_item`アクションを送出してしまう実害のあるフォールスルーである。Phase 24.5bでは、`AccessoryId`/`category: 'accessory'`をtypesへ追加するタイミングと、`selectedInventoryAction`へ`accessory`分岐を追加するタイミングを**同一コミットで行う**必要がある（型追加とUI分岐追加が分離してしまうと、その間の状態で上記バグが顕在化する）。
+
+### UI監査matrix
+
+| UI経路 | file/function/selectors | 現在のweapon/armor前提 | accessory追加時の必要変更 | identification影響 | curse影響 | layout risk | test候補 | status |
+|---|---|---|---|---|---|---|---|---|
+| DOM構築（全体） | `main.ts`: `class MainScene extends Phaser.Scene`, `index.html`の単一entry | なし（Phaser Sceneのライフサイクルメソッド群） | 無変更 | — | — | 低 | 既存構造の維持確認のみ | NOT_APPLICABLE |
+| render関数（HUD） | `main.ts:2787` `this.hudText.setText(...)` | weapon/armorへの参照なし（floor/Lv/HP/SOL/満腹度/enchant/effectsのみ） | 無変更 | — | — | 低 | — | COMPLIANT |
+| Canvas HUD | 同上（`hudText`, `messageText`） | 同上 | 無変更 | — | — | 低 | — | COMPLIANT |
+| 装備欄・装備サマリー | 専用の常設装備欄表示は存在しない（HUDに武器名等は出ない。装備状態はinventory一覧のE markとitem detailでのみ確認可能） | N/A | N/A | — | — | — | — | NOT_APPLICABLE |
+| インベントリ一覧 | `main.ts:2182-2218`（`listLines`構築）、`inventoryEntries`（`inventory.ts:74-101`） | リスト生成自体は`isWeaponOrArmorId`ベースで category-agnostic。E markの計算のみ`equippedWeaponInstanceId`/`equippedArmorInstanceId`の2分岐（`inventory.ts:83-84`） | `inventoryEntries`のequipped計算に`\|\| instance.instanceId === state.equippedAccessoryInstanceId`を追加するだけで一覧表示は成立（`main.ts`側のrender自体は無変更で対応可能、`entry.kind`/`entry.equipped`のみ参照） | 影響なし（`getDisplayedItemName`/`isGeneralItemIdentified`は`ItemId`汎用） | 影響なし（`curseRevealed`/`cursed`もInventoryEntryへ汎用的に格納済み） | 低（動的行数、後述layout監査） | 一覧描画・E mark確認 | CHANGE_REQUIRED（`inventory.ts:83-84`のみ、小規模） |
+| アイテム詳細 | `main.ts:2219-2245` | `def.category === 'weapon'`/`'armor'`の2分岐、非該当時は装備中/未装備表示すら出ない（上記表#3,#4） | accessory用の`else if (def.category === 'accessory')`分岐を追加し、効果概要+装備中/未装備表示を出す | 影響小（`itemIdentified`変数は既に汎用） | 影響なし | 低（動的高さ） | detail表示・未鑑定名表示 | CHANGE_REQUIRED |
+| 装備比較表示 | **存在しない**（`grep -n "compare\|比較"`で該当0件） | N/A | 追加実装ゼロ（比較UI自体が本作に存在しない） | — | — | — | — | NOT_APPLICABLE |
+| equip/unequip/swap操作ボタン | `main.ts:1687-1702`（`currentItemActions`）、確定は`inventory.ts:205-233`（`selectedInventoryAction`） | 上記表#1,#5-8 | `currentItemActions`へaccessory分岐追加、`selectedInventoryAction`へaccessory分岐追加（型追加と同時コミット必須、上記参照） | 影響なし | 影響なし（curse対象外なら無関係） | — | equip/unequip/swap操作の確定・action shape検証 | CHANGE_REQUIRED |
+| 操作可否判定 | `resolveEquipmentTargetForRemoval`（turn.ts、Phase 24.5a audit_3で既確認）、`isEquippedWeaponCurseLocked`/`isEquippedArmorCurseLocked`（curse対象外なら無関係） | `isWeaponOrArmorId`ベース | `isWeaponOrArmorId`相当の拡張または並行関数（Phase 24.5a audit_2の既存結論どおり） | — | — | — | — | CHANGE_REQUIRED（Phase 24.5a既報告のとおり、本工程で新規発見なし） |
+| 確認ダイアログ | `main.ts:1855-1920`（`discardConfirmItemId`/`discardConfirmEquipmentInstanceId`） | itemId/equipmentInstanceId汎用、weapon/armor分岐なし | 無変更 | — | — | — | — | COMPLIANT |
+| Star/Temperanceの対象選択UI | `main.ts:2282-2295`（`card_target_selection`画面） | candidates配列を`describeCardTargetCandidate`経由で汎用描画、category分岐なし | UI自体は無変更。候補生成側（`getStarCandidates`/`getTemperanceCandidates`、card-target-selection.ts）でのaccessory除外が必要（Phase 24.5a audit_3で既報告） | — | — | — | 候補にaccessoryが混入しないことの確認 | COMPLIANT（UI層）／CHANGE_REQUIRED（候補生成側、Phase 24.5a既報告） |
+| Moon/Sunの対象表示 | 未実装（Phase 20.5b以降、本監査で該当UIコード無し） | N/A | 実装時にweapon限定（Sun）/armor限定（Moon）の制約をaccessoryへ拡張しないことを確認する必要があるが、現状UIコード自体が存在しない | — | — | — | — | NOT_APPLICABLE |
+| solar forge素材・出力表示 | `main.ts:1700`（表示条件）、`main.ts:2257-2279`（`solar_forge_material_b`画面） | `def.category === 'weapon'`ゲートにより非weaponは太陽鍛冶アクション自体が出ない | 無変更（accessoryは自動的に対象外、意図どおり） | — | — | — | — | COMPLIANT |
+| run result・victory・game over等の最終装備表示 | `main.ts:1584`（`showEndScreen`内、`装備: ${summary.finalState.equipment.weapon ?? '素手'} / ${summary.finalState.equipment.armor ?? 'なし'}`） | ハードコードされた2枠表示 | `summary.finalState.equipment.accessory`相当を追加した上で3枠表示へ変更（telemetry.ts側のRunSummary拡張が前提） | — | — | 低（overlay自体は`overflowY: 'auto'`の可変高さ、固定行数制約なし） | 終了画面の3枠表示確認 | CHANGE_REQUIRED（telemetry.ts拡張と対） |
+| telemetry download UIおよび表示上のschemaVersion参照 | `main.ts:1594-1623`（`exportTelemetryJson`） | UIテキスト自体にschemaVersion/バージョン番号のハードコードなし（`grep`で確認、`schemaVersion`という文字列はmain.ts中に一切出現しない） | 無変更（schemaVersion判断はaudit_9訂正版を参照） | — | — | — | — | COMPLIANT |
+| unidentified表示 | `item-identification.ts`の`getDisplayedItemName`/`isGeneralItemIdentified`を`main.ts`/`inventory.ts`が汎用的に呼ぶのみ | `ItemId`汎用 | 無変更（accessory用の`ITEM_DEFINITIONS`エントリに通常の`unidentifiedDisplayName`相当を設定するだけで自動対応） | 影響なし（既存機構をそのまま利用） | — | — | 未鑑定accessory名の秘匿確認 | COMPLIANT |
+| curse表示 | `inventory.ts`の`InventoryEntry.cursed`/`curseRevealed`、`main.ts:2209`の`curseMark` | `entry.kind === 'equipment_instance'`であれば category非依存で表示 | 初期版はcurse対象外のため、accessoryの`InventoryEntry`は`kind: 'equipment_instance'`と`kind: 'inventory_item'`のどちらで扱うかの設計次第（curse対象外なら`cursed`は常にfalseになるだけで表示ロジック自体は無変更） | — | 初期版は対象外（Phase 24.5a audit_6の推奨どおり） | — | curse markがaccessoryへ出ないことの確認 | COMPLIANT（curse対象外の前提で） |
+| キーボード入力経路 | `main.ts`の`handleKey`系（`determineContext`、`currentItemActions`のindex送り） | メニュー内はカーソルindexベースの汎用navigation、weapon/armor専用キーバインドなし | 無変更 | — | — | — | — | COMPLIANT |
+| タッチ入力経路 | **存在しない**（`grep`で`touchstart`/`pointerdown`等0件） | N/A | N/A | — | — | — | — | NOT_APPLICABLE |
+| ゲームパッド入力経路 | **存在しない**（`grep`で`gamepad`/`Gamepad`0件） | N/A | N/A | — | — | — | — | NOT_APPLICABLE |
+| CSS/レイアウト（メニューbox） | `main.ts:2403`（`listHeight = Math.min(FIELD_PIXEL_HEIGHT - 16, listLines.length * MENU_LINE_HEIGHT + PADDING*2 + 8)`）、`main.ts:2415`（表示可能行数でslice） | **動的サイズ**（内容行数に応じて高さを計算し、画面高さを超える分はslice） | 無変更（accessory分の1行追加は既存の動的サイジング機構内で自然に吸収される） | — | — | 低 | 狭い画面で行数超過時にsliceが機能することの確認（新規行追加による既存回帰） | COMPLIANT |
+| CSS/レイアウト（endScreenOverlay） | `main.ts:1490-1500`（`position: fixed; inset: 0; overflowY: auto`） | 固定height/固定行数なし、スクロール可能な全画面overlay | 無変更（1行追加は無リスク） | — | — | 低 | — | COMPLIANT |
+
+### action dispatch接続の確認
+
+UIからdispatchされるaction shapeとaction handlerの接続を追跡した:
+
+1. **item_actions画面**での「装備する/外す」選択 → `main.ts:1913`（`action = actions[itemActionIndex]`） → 該当なし（'捨てる'/'太陽鍛冶'/'置く'/'食べる／使う'のいずれにも一致しない場合）→ `main.ts:1976`（`selectedInventoryAction(state)`） → `inventory.ts:205-233`。
+2. `selectedInventoryAction`は`PlayerAction`（`equip_weapon`/`equip_armor`/`unequip_weapon`/`unequip_armor`/`use_item`のいずれか）を返し、`main.ts:1978`（`useSelectedInventoryItem(state)`、内部で`processTurn(state, action)`を呼ぶ）で実際にdispatchされる。
+3. 「置く」「捨てる」は`selectedItemId`/`selectedEquipmentInstanceId`（`inventory.ts:242-256`、いずれも`ItemId`/`entry.kind`汎用）経由で`place_item`/`discard_item`actionを直接構築（`main.ts:1940`）— **この経路はaccessory対応済み**（category分岐なし、`entry.kind === 'equipment_instance'`のみで判定）。
+4. **接続結果**: 「装備する/外す」の経路のみが`def.category`の3値目（accessory）で破綻する（上記UI matrixの#1,#5-8）。「置く/捨てる」「Star/Temperance対象選択」「太陽鍛冶」の経路はそれぞれの理由でcategory非依存またはaccessory自動除外により無変更で機能する。
+
+## Phase 24.5b向け最小UI契約の確認結果
+
+指示で確定契約として扱われた14項目のうち、コード監査で裏付け・矛盾確認が可能だった点を記録する（設計として妥当かどうかの判断ではなく、現行コードとの整合性確認のみ）:
+
+- 契約1（3枠化）・契約3（instance ID単位操作）: 上記UI matrixの「equip/unequip/swap操作ボタン」「action dispatch接続」の変更候補と整合する。既存の`equipmentInstanceId`ベースの操作パターン（`equip_weapon`等が`equipmentInstanceId?: string`を既に持つ）をそのまま踏襲できる。
+- 契約4（inventory一覧・item detail表示）: 上記UI matrixの該当行のとおり、変更範囲は特定済み。
+- 契約5（未鑑定真名非表示）: 既存の`getDisplayedItemName`が自動対応するため契約と矛盾なし。
+- 契約6・7（比較はaccessory同士のみ、weapon/armorとの数値比較新設なし）: 比較UI自体が現在存在しないため（NOT_APPLICABLE）、この契約は「将来比較UIを作る場合の制約」として記録するのみで、現時点のコードとの矛盾はない。
+- 契約8・9・10・11（curse対象外、curse marker/lock/Temperance/solar forge/Moon/Sun/Star混入禁止）: Phase 24.5a audit_3/6で既に整合する推奨を報告済み。本工程のUI監査でも、solar forge（`main.ts:1700`のweapon限定ゲート）とStar/Temperance対象選択UI（候補配列をそのまま描画するだけで、混入防止の実体は候補生成側にある）の両方で、UI層自体はcategoryを知らない設計になっており、混入防止の責務は一貫して生成側（`card-target-selection.ts`等）にあることを確認した。
+- 契約12・13（大規模レイアウト刷新なし、狭画面で操作を塞がない）: 上記layout監査のとおり、メニューboxは動的サイジングであり、accessory1行追加によるレイアウト破綻リスクは低いことを確認した。
+- 契約14（Phase 25相当のUI刷新を先取りしない）: 本工程はコード監査のみであり、デザイン変更は行っていない。
+
+矛盾は確認されなかった。
+
 
 ## audit_9: telemetry監査
 
-- 既存の`equipment.acquiredCount`/`equipment.changeCount`/`equipment.endingEquipment`（RunSummary、telemetry.ts）は`weapon`/`armor`の2スロット構造を前提にしている（`endingEquipment: { weapon: WeaponId | null; armor: ArmorId | null }`）。accessory追加時はこの構造に`accessory: AccessoryId | null`相当を追加する必要があり、**schemaVersionの更新が必要**（Phase 24.4e2の判断根拠と同様、新規fieldの追加はschemaVersion bumpの対象）。
+- 既存の`equipment.acquiredCount`/`equipment.changeCount`/`equipment.endingEquipment`（RunSummary、telemetry.ts）は`weapon`/`armor`の2スロット構造を前提にしている（`endingEquipment: { weapon: WeaponId | null; armor: ArmorId | null }`）。**この構造自体をaccessory対応させるのはPhase 24.5b単独のスコープではない**（後述のPhase 24.5a1訂正を参照 — schemaVersion変更が必要になるのはこのfield拡張を実際に行うPhase、すなわちaudit_7が推奨するPhase 24.5d、もしくはPhase 24.5bが装備状態のtelemetry反映まで含める場合に限る）。
 - 呪いlifecycle telemetry（Phase 24.4e2）は`WeaponId | ArmorId`型を各所で使用しているため、accessoryをcurse対象に含める場合はtelemetry側の型拡張も連鎖する（audit_6の推奨どおりcurse対象外とすれば、telemetry側もこの連鎖を回避できる）。
 - accessory専用counterの要否: 最小限として`accessory_acquired`/`accessory_equipped`/`accessory_changed`程度の既存equipment counterと並行する形が、既存パターンとの一貫性が高い。dashboardは追加しない。
 - internal ItemIdとplayer-visible名の分離: 既存の`getDisplayedItemName`パターンをそのまま踏襲すれば新規の分離ロジックは不要。
@@ -140,7 +203,7 @@ production code・既存testは変更していない。本ドキュメントの�
 | curse | `WeaponId | ArmorId`前提の生成/eligibility | curse-active.ts, equipment-loot.ts | 対象外推奨（audit_6） | 中〜高（対象化する場合） | 対象外なら24.5bで完結、対象化は別途 |
 | generation | 5スロットunion、3ルート共有RNGストリーム | equipment-loot.ts:25 | 独立カテゴリ+独立RNGストリーム推奨 | 中 | 24.5d |
 | RNG | floorSeedベース独立ストリーム原則が確立済み | equipment-loot.ts, state.ts | 新規XOR定数のみ、既存ストリーム非干渉 | 低（原則遵守すれば） | 24.5d |
-| UI | 未精査、weapon/armor二択の疑い | main.ts（未精査） | 第三ブロックの追加 | 中（範囲未確定） | 24.5b（最小） |
+| UI | Phase 24.5a1で全数確認済み。8箇所のweapon/armor二択ハードコード（main.ts×4, inventory.ts×4）+E mark計算1箇所 | main.ts:1687,1700,2225,2233; inventory.ts:83-84,211,217,226,229 | 型追加とUI分岐追加の同時コミットが必須（inventory.ts:209-223のuse_itemフォールスルーバグ回避） | 中（範囲確定済み、件数少） | 24.5b（最小） |
 | telemetry | `endingEquipment: {weapon,armor}`前提 | telemetry.ts | schemaVersion bump要 | 低〜中 | 24.5d |
 | schema | telemetry schemaVersion 8 | telemetry.ts | accessory対応で9へbump見込み | 低 | 24.5d |
 
@@ -194,3 +257,97 @@ production code・既存testは変更していない。本ドキュメントの�
 ## baseline validation結果
 
 - full suite（125/3152）・typecheck・buildはbaseline時点で確認済みのため、history作成後の再実行は不要（validation要件どおり）
+
+---
+
+# Phase 24.5a1 UI readiness audit補完（追記・訂正）
+
+Phase 24.5aで「UI詳細は未精査」「Phase 24.5b実装段階へ委譲」とされていたUI経路を、`main.ts`（唯一のproduction UI実装）と`src/game/inventory.ts`を対象に全数確認した。上記のaudit_8/audit_9セクションは本工程でその場で訂正済み（プレースホルダー文言は残っていない）。原作アクセサリーの名称・効果・採用品は本工程でも確定していない。
+
+## precheck（24.5a1）
+
+- base branch: `phase-24-5a-accessory-readiness-audit`
+- expected_head_prefix: `13b1d64` — 実際のHEAD `13b1d649a9292d880c8c3e1130ad99c790a31a9e`と一致
+- local/remote SHA一致、working tree clean、同名work branch不存在（新規作成）
+- main（`80596cd`）・既存phase branch未変更
+- baseline full suite 125/3152・typecheck・buildは前工程（Phase 24.5a）で成功記録済みのため再実行せず（docs-only工程）
+
+## UI監査matrixの件数
+
+- 監査対象UI経路: **19経路**（DOM構築/render/HUD/装備欄/インベントリ一覧/item detail/装備比較/equip操作/操作可否判定/確認ダイアログ/Star・Temperance対象選択/Moon・Sun対象表示/solar forge/run終了表示/telemetry download/unidentified表示/curse表示/キーボード/タッチ/ゲームパッド/CSS×2）
+- **CHANGE_REQUIRED: 5件**（インベントリ一覧のE mark計算、item detail表示、equip/unequip/swap操作ボタン、操作可否判定〈Phase 24.5a既報告分の再確認〉、run終了時最終装備表示）
+- **COMPLIANT: 9件**
+- **NOT_APPLICABLE: 8件**（存在しない機能: 装備比較UI、Moon/Sun対象表示、タッチ入力、ゲームパッド入力。および構造上無関係: DOM構築全体、装備欄専用表示〈存在しない〉、CSS重複計上分の一部整理により件数は上表参照）
+
+## 変更候補file/function/selectors一覧
+
+コードから直接確認できたweapon/armor二択ハードコードは**全8箇所**、いずれも「未確認」を残さず特定済み:
+
+1. `main.ts:1687` — `currentItemActions`、equip/unequipアクション提示条件
+2. `main.ts:1700` — 同関数、太陽鍛冶アクション提示条件（意図どおりweapon限定、変更不要）
+3. `main.ts:2225` — item detail、weapon分岐（攻撃力/射程）
+4. `main.ts:2233` — item detail、armor分岐（防御力）、かつ装備中/未装備表示がこの2分岐の内側にネストされている
+5. `inventory.ts:211` — `selectedInventoryAction`、weapon分岐（equipment_instance側）
+6. `inventory.ts:217` — 同関数、armor分岐（equipment_instance側）— **この2分岐に該当しない場合、関数末尾の`use_item`フォールバックへ落ちる実害バグ経路**
+7. `inventory.ts:226` — 同関数、weapon分岐（非equipment_instance側フォールバック）
+8. `inventory.ts:229` — 同関数、armor分岐（同上）
+
+加えて、E mark計算（`inventory.ts:83-84`、`getHeldEquipmentInstances`内ではなく`inventoryEntries`内）にも同型の2分岐が別途存在する（Phase 24.5aのaudit_1で報告済みの`getHeldEquipmentInstances`の分岐とは別関数の別箇所）。
+
+selectors（DOM）: `#end-screen-export-button`、`#end-screen-export-status`（`main.ts:1594,1609`）— いずれもaccessory非依存、変更不要。
+
+## action dispatch接続結果
+
+「装備する/外す」選択 → `currentItemActions`のindex → `selectedInventoryAction`（`inventory.ts:205-233`）→ `PlayerAction`構築 → `processTurn`という単一経路を確認した。この経路の`def.category`分岐（上記5,6,7,8）がaccessory未対応のまま`AccessoryId`/`category: 'accessory'`のみを型に追加すると、accessoryへの「装備する」操作が誤って`use_item`アクションとして送出される（`inventory.ts:232`のフォールバック）。**型追加とUI分岐追加の同時コミットが必須**であることを本工程の主要な確定事項として記録した。「置く/捨てる」「Star/Temperance対象選択」「太陽鍛冶」の各経路はcategory非依存またはaccessory自動除外により無変更で機能することも確認した。
+
+## layout risk
+
+メニューbox（`main.ts:2403-2425`、`listHeight`/`detailHeight`）・end screen overlay（`main.ts:1490-1500`、`position:fixed; overflowY:auto`）のいずれも**固定height/固定行数を持たず、内容量に応じた動的サイジング+overflow時のslice機構**を持つことを確認した。accessory1行の追加によるレイアウト破綻リスクは**低**。grid-template/flexによるカラム固定も存在しない（メニューはテキスト行の羅列描画）。mobile向けmedia queryは本監査では発見されなかった（`viewport`メタタグのみ、レスポンシブCSSクエリ自体が現状未使用）。
+
+## focused test計画（Phase 24.5b向け、既存テスト基盤の確認込み）
+
+`vite.config.ts`の`test.environment: 'node'`を確認: **jsdom/Canvas環境は設定されておらず、既存テストは`src/game/*`の純粋ロジックのみを対象にしている**（`main.ts`のPhaser/DOM描画コード自体をテストする既存基盤は存在しない）。この事実を踏まえ、focused testは「UIが呼び出すデータ層関数」を対象にすることを推奨する（`main.ts`自体の新規jsdomテスト化はこの監査のスコープ外の基盤追加判断になるため提案に留める）:
+
+| test候補 | 対象関数/追加候補ファイル |
+|---|---|
+| accessory枠が1枠表示される | `inventoryEntries`（`inventory.ts`）の出力にaccessory種のエントリが1件だけ含まれることを確認。新規`phase-24-5b-accessory-*.test.ts`候補 |
+| 未装備表示 | `InventoryEntry.equipped === false`のケース。同上 |
+| 装備済み表示 | `InventoryEntry.equipped === true`のケース、`equippedAccessoryInstanceId`との一致確認。同上 |
+| 同一instanceの装備・解除 | `selectedInventoryAction`がaccessory種で`equip_accessory`/`unequip_accessory`を正しく返すこと。同上 |
+| 別accessoryへのswap | 2種のaccessory間の`equip_accessory`呼び出し結果。同上 |
+| inventory一覧表示 | `inventoryEntries`のorder/フィルタリング（既存`ITEM_IDS_IN_ORDER`ベースの順序がaccessoryにも適用されること） |
+| item detail表示 | `main.ts`のdetail構築ロジックを関数として抽出できるかは実装時の判断だが、抽出困難な場合は`ITEM_DEFINITIONS[accessoryId].category === 'accessory'`の型レベル確認に留める |
+| 未鑑定名の秘匿 | `getDisplayedItemName`/`isGeneralItemIdentified`のaccessory ItemIdでの動作確認。既存`item-identification`系テストファイルへ追加が自然 |
+| weapon/armor表示の回帰 | 既存`phase-24-1-equipment-instance-actions.test.ts`等の全pass維持（既存テスト無変更） |
+| Star/Temperance/Moon/Sun候補への非混入 | `getStarCandidates`/`getTemperanceCandidates`がaccessory instanceを返さないことの確認。既存`phase-24-4d2-star-*`/temperance系テストファイルへ追加、またはPhase 24.5b新規ファイル |
+| solar forge候補への非混入 | `getSolarForgeSecondMaterialCandidates`等がaccessoryを返さないことの確認。既存`phase-24-3-solar-forge-*.test.ts`へ追加 |
+| curse表示・curse lockへの非混入 | `getActiveCurseEligibleInstances`等がaccessoryを含まないことの確認（curse対象外の場合）。既存curse系テストファイルへ追加 |
+| 狭い画面で操作領域が失われない | jsdom/Canvas基盤が存在しないため、`main.ts`の`listHeight`計算式自体を関数として抽出しユニットテスト化することを推奨（現状は`private`メソッド内のインライン計算のため、抽出は実装判断） |
+| action dispatchが正しいinstance IDを保持する | `selectedInventoryAction`が返す`PlayerAction`の`equipmentInstanceId`が選択中のentryと一致することの確認。新規テストファイル候補 |
+
+新規テストファイル候補: `src/game/__tests__/phase-24-5b-accessory-slot-and-operations.test.ts`（仮称、Phase 24.5b実装時に確定）。
+
+## telemetry schemaVersion判断（訂正）
+
+**Phase 24.5b（slot・instance・操作・最小UI）単独では、telemetry schemaVersionの変更は不要と判断する。**
+
+根拠: Phase 24.5bのスコープは装備枠・EquipmentInstance拡張・操作action・最小UIに限定されており（Phase 24.5aの推奨実装分割どおり、telemetry統合はPhase 24.5dへ分離）、`telemetry.ts`のRunSummary/RunEventPayload/TelemetryDocumentのいずれの構造にも触れない前提であれば、**accessory固有raw event・summary field・export構造は一切追加されない**。単に`ItemId`/`WeaponId`相当の型union内でaccessory種のリテラルが増えるだけであれば、Phase 24.4e2の既存判断根拠（"新しいRunEventカテゴリもRunSummary fieldも追加しない場合はbump不要"）と整合し、schemaVersion変更理由にはならない。
+
+Phase 24.5bの実装が「accessoryの取得・装備状態をtelemetryのequipment counterやendingEquipmentへ反映する」ところまで踏み込む場合（Phase 24.5aのaudit_9原案が想定していた範囲）は話が別で、その場合の**具体的export schema差分**は以下のとおりになる:
+
+- `RunSummary.equipment.endingEquipment`: `{ weapon: WeaponId | null; armor: ArmorId | null }` → `{ weapon: WeaponId | null; armor: ArmorId | null; accessory: AccessoryId | null }`（新規field追加）
+- 新規`RunEventPayload`カテゴリ（例: `accessory_acquired`/`accessory_changed`）を追加する場合はそれ自体が新カテゴリ追加に該当
+
+このいずれかを行う場合はPhase 24.4e2の前例（7→8）と同じ理由でschemaVersion bump（8→9）が必要になる。**Phase 24.5bがtelemetry構造に一切触れない実装方針を採る限り、この訂正の結論（schemaVersion変更不要）が適用される。**
+
+## Phase 24.5a operation matrixの訂正有無
+
+Phase 24.5aのoperation matrix（audit_3）自体に事実誤認は発見されなかった。今回のUI監査で新たに判明したのは、audit_3が「UI層」として明示的に扱っていなかった`selectedInventoryAction`（データ層とUI層の中間に位置する関数）のaccessory非対応時のフォールスルーバグ経路であり、これはoperation matrixの訂正ではなく**新規追記**として上記UI監査matrixおよびaction dispatch接続結果セクションに記録した。「装備比較」操作については、Phase 24.5aのaudit_3が`comparison`を操作候補として一般的に扱っていた箇所を、本工程で「該当UIが本作に存在しない（NOT_APPLICABLE）」と確定させた点が実質的な精緻化にあたる。
+
+## コード上の未確認事項
+
+**0件。** 上記UI監査matrixの全19経路について、`main.ts`/`inventory.ts`/`card-target-selection.ts`の該当コードを直接確認し、「未確認」「要追加確認」「推定」に該当する記述は残していない。原作アクセサリーの名称・効果・採用品は引き続き未確定（本工程のスコープ外）。
+
+## production/test変更の有無
+
+**変更なし。** `git diff main...HEAD -- 'src/**/*.ts'`は差分なし、test file差分なし。変更は`docs/history/phase-24-5a-accessory-readiness-audit.md`（既存ファイルの訂正・追記）のみ。一時ファイルは使用していない（grep/viewによる読み取り監査のみ）。
