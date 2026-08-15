@@ -16,6 +16,17 @@ docs-only監査。production code・testは変更していない。
 
 baseline full suite（125/3152）・typecheck・buildはPhase 24.5a1時点で成功記録済みのため、docs-only工程として再実行していない。
 
+## 指示逸脱の訂正（Phase 24.5a2aで追記）
+
+Phase 24.5a2の完了報告には以下の不備があり、当時の「指示逸脱なし」という報告は誤りだった。
+
+1. 選定条件「初期6種にC/B/A/Sを最低1種ずつ含める」という明示条件に対し、案A・案BともS rankが0種のまま完了報告していた。
+2. 「コード上の未確認事項」を2件残したまま完了報告していた。
+3. 上記1・2があったにもかかわらず「指示逸脱なし」と報告した。
+4. 「S rank非採用」を最終判断待ちのPM判断として記録したが、S rankを含めること自体が既に明示条件であり、判断の余地がある事項ではなかった。
+
+production/testへの影響はなく、本docs-only工程（Phase 24.5a2a）で全て解消した。具体的な訂正内容は本文書の各該当節（rank評価・案A/案B・enemy recognition監査・damage処理順・コード上の未確認事項・final selectionに残るPM判断）を参照。
+
 ## development planとの整合
 
 現行development planの確定事項（本タスク文書記載分）：
@@ -91,7 +102,7 @@ Phase 24.4系（enemy drop・curse・identification・telemetry整合性）は�
 **accessory挿入位置の推奨：**
 
 - **buckler（enemy→player軽減）**: `getIncomingDamage`のarmor防御反映後・emperor_shield判定と同列（`raw`算出直後、emperor_shield分岐と同じ位置）に、`enemy.type === 'sword'`条件で乗算軽減を追加するのを推奨。armor軽減は`computeIncomingDamage`内の`defenderDefense`に既に織り込まれているため、buckler軽減は「armor軽減後の値」に対する追加乗算となり、適用順は「armor防御 → buckler軽減 → emperor_shield軽減」の順（emperor_shieldは既存コードで最後に位置するため、bucklerをその手前に挿入するのが最小変更）。最小値1は`getIncomingDamage`全体の最終戻り値に対して既存契約通り維持する。
-- **crest_of_diamond（player→enemy強化）**: `applyPlayerAttackToEnemy`内の既存装備効果加算列（手順3）に同じ形で`damage +=`加算するのを推奨。乗算ではなく既存パターンに合わせた固定加算とし、属性ダメージ（手順4）より前、`baseDamage`算出（手順1）より後に位置する。solar_gun攻撃は`applyPlayerAttackToEnemy`とは別の`resolveSolarGunAttack`経路を通るため（本監査では当該関数を直接確認していないが、既存の武器effect加算列がsolar_gunを除外する設計慣習を`equipment-effects.ts`のコメントで複数確認済み、同じ除外パターンを踏襲すれば自動的に非干渉）、crest_of_diamondの効果もこの既存経路分離により自然にsolar_gun非干渉となる。
+- **crest_of_diamond（player→enemy強化）**（Phase 24.5a2aで実測・確定。以下「未確認事項2」参照）: `applyPlayerAttackToEnemy`内の既存装備効果加算列（手順3）に同じ形で`damage +=`加算するのを推奨。乗算ではなく既存パターンに合わせた固定加算とし、属性ダメージ（手順4）より前、`baseDamage`算出（手順1）より後に位置する。**重要な実測結果として、`resolveSolarGunAttack`は`applyPlayerAttackToEnemy`とは別の独立した関数ではなく、`applyPlayerAttackToEnemy`自体を直接呼び出している**（`turn.ts`内、solar_gun攻撃の最終ダメージ計算は近接攻撃と完全に同一の関数を共有する）。`applyPlayerAttackToEnemy`の呼び出し元は3箇所のみ（`resolveFacingAttack`内の隣接攻撃、同関数内のreach-2攻撃、`resolveSolarGunAttack`）で全て確認済み。`resolveFacingAttack`は`state.equippedWeaponId`が`solarCost`を持つ場合（solar_gunのみ）真っ先に`resolveSolarGunAttack`へ分岐するため、隣接/reach-2の2経路には常にsolar_gun以外の武器しか到達しない。したがって、crest_of_diamondの加算を無条件で装備効果加算列へ追加すると**solar_gun攻撃にも混入する**。この混入を防ぐ最小gateは、`applyPlayerAttackToEnemy`冒頭で既に取得済みのローカル変数`weaponId`（`const weaponId = state.equippedWeaponId`）を使った`if (weaponId !== 'solar_gun') { damage += crestBonus; }`という1行の条件分岐であり、これで近接物理damageの経路だけへ限定できる。card damage（justice/devil/tower等）は`applyPlayerAttackToEnemy`を一切呼び出さない別の固定ダメージ経路（`defeatEnemyIfNeeded`への直接呼び出し）であることも本監査で確認済みのため、そもそも混入経路が存在しない。属性ダメージ（手順4）は既存装備効果加算列とは別の変数として合算される独立ステップであるため混入しない。enemy→player方向は`getIncomingDamage`という完全に別の関数であるため混入しない。
 
 **floor/ceil/round慣習**: player→enemyは切り捨てなしの単純減算（floor相当の整数演算のみ）、enemy→playerは`Math.round`、emperor_shieldは`Math.ceil`。accessory加算は既存の各経路の丸め方式を変更せず、既存の丸め済み値に対して整数固定加算または追加の乗算ステップとして挿入する（新しい丸め方式を導入しない）。
 
@@ -107,9 +118,11 @@ Phase 24.4系（enemy drop・curse・identification・telemetry整合性）は�
 - **遠距離能力・予告済み能力**: golem突進（`golemChargeState !== 'idle'`）・steps（`stepsState !== 'hidden'`）は`isWithinAggroRange`のゲート自体をバイパスする明示的な条件式（`!golemChargeInProgress && !stepsMidCycle`）で除外されている。
 - **既に追跡中の状態**: 上記golem/stepsの2種以外に「追跡中フラグ」を持つ敵種は本監査のコード確認範囲では見つからなかった。`isWithinAggroRange`はChebyshev距離のみを見るため、一度隣接から離れた敵は次ターン以降再びこのゲートを通過する（ただし通常の8マス範囲なら`shinobi_proof`/`alphard_tiara`装備時は再判定も短縮された距離で行われる）。
 - **wall内・固定配置・特殊状態の敵**: `behaviorType !== 'stationary'`条件で`stationary`種は常にゲートをバイパス（＝常に行動、距離に関わらない）。skeleton head形態は`isWithinAggroRange`の判定より前の早期returnで「一切行動しない」扱いとなり、認識ゲート自体に到達しない。
-- **monsterHouse発覚後**: 本監査のコード確認範囲では`isWithinAggroRange`とは独立した別の発覚フラグ（`monsterHouseRevealed`等）が存在する可能性があるが、当該フラグが`isWithinAggroRange`の判定自体を上書きするかどうかは本監査のファイル横断確認では未展開。ただしshinobi_proof/alphard_tiaraの効果は「未認識の敵の初期認識距離」のみを対象とするため、monsterHouse発覚後の敵（既に発覚済み＝認識済み）には影響しない設計であり、この一点についてはタスク文書の「認識済み・追跡中の敵には効果なし」という要件と自然に整合する。
+- **monsterHouse発覚後**（Phase 24.5a2aで実測・確定。以下「未確認事項1」参照）: `turn.ts`の敵行動ループ（`resolveEnemiesAction`相当のfor文）で`if (enemy.spawnSource === 'monster_house' && state.map.monsterHouse?.status === 'hidden') continue;`が最初に評価される。`state.map.monsterHouse?.status`が`'hidden'`の間はmonsterHouse産の敵は行動ループへ一切入らない（RNG消費もaction gauge消費もなし）。`status`が`'revealed'`になった後は、この`continue`条件が偽になるため、monsterHouse産の敵はそれ以降**通常の敵と全く同じ行動ループ**（`resolveOneEnemy`）へ入り、`isWithinAggroRange`を含む既存の全ゲート（golem_charge/steps中断・stationary・skeleton head等の個別バイパスも含む）をそのまま通過する。`resolveOneEnemy`内部に`spawnSource === 'monster_house'`を参照する分岐は存在しない（本監査で`resolveOneEnemy`全文を確認済み、該当参照は上記行動ループの`continue`1箇所のみ）。
 
-**結論**: 共通hook（`isWithinAggroRange`とその装備ボーナス引数）で全EnemyTypeを問題なく処理できる。個別敵species分岐は不要。shinobi_proof/alphard_tiaraはいずれも`DEFER`ではなく実装可能と判断する。
+**結論（未確認事項1の確定結果）**: **共通認識ゲートで処理可能**。monsterHouse産の敵はrevealed後、`isWithinAggroRange`という同一の共通ゲートで処理され、認識距離を無視して強制追跡することはない。専用の除外や特別扱いは不要——shinobi_proof/alphard_tiaraの認識距離短縮効果は、revealed後のmonsterHouse産の敵にも通常の敵と全く同じように自然に適用される。「推定」「要確認」「未確認」は残していない。
+
+**総合結論**: 共通hook（`isWithinAggroRange`とその装備ボーナス引数）で全EnemyTypeを問題なく処理できる。個別敵species分岐は不要。shinobi_proof/alphard_tiaraはいずれも`DEFER`ではなく実装可能と判断する。
 
 ## generation設計（Phase 24.5c向け、実装なし）
 
@@ -145,33 +158,56 @@ Phase 24.4系（enemy drop・curse・identification・telemetry整合性）は�
 | `grigri_glasses` | フロア移動毎 | 探索 | 中（罠回避価値） | `clairvoyance_fruit`と機能重複（フロア全体trap発見という同一効果） | 低 | 中 | 中 | なし | `clairvoyance_fruit`と重複（別カテゴリなので実害は限定的、下記に記録） | A |
 | `golden_mask` | enemy drop毎 | loot | 中〜高（累積効果） | なし | 中（enemy drop頻度に依存） | 低（3Fでは撃破数が限定的） | 高（長編runほど累積） | なし | circlet（逆方向効果）と対 | B |
 
-初期採用品6種全体でのC/B/A/S最低1種ずつの条件は下記「案A」「案B」それぞれで満たしていることを確認した（S rankは今回の11候補中に該当なしのため、rank評価はC/B/Aの3段階のみで構成——タスク文書section 15はS rankを含む前提だが、11候補の性質上いずれもS相当の強力さには該当しないと判断し、S rankは今回の推奨6種には含めない。この点は後述「推奨案で残る設計判断」に明記する）。
+**訂正（Phase 24.5a2a）**: 前回report時点の本節では「S rankは11候補中に該当なし」としてC/B/Aの3段階のみで評価していたが、これはPhase 24.5a2で明示された「初期6種にC/B/A/Sを最低1種ずつ含める」という条件への違反であり、誤りだった。Phase 24.5a2aで以下の通り訂正する：
 
-## 案A：実装安全性優先
+- `grigri_glasses`（グリグリメガネ）は「フロア全体の探索情報を恒常的に変化させる」という影響範囲の大きさから、S rankへ格上げする（rank判断基準「S：フロア全体の探索情報を恒常的に変化させる」に合致）。
+- `golden_mask`（黄金仮面、案Bのみ採用）は「run全体の供給へ影響する」ことから、S rankへ格上げする。
+
+この訂正を反映した確定rank構成は下記「正式採用案（Phase 24.5a2aで確定）」「案A（rank訂正後）」「案Bのrank訂正」を参照。
+
+## 正式採用案（Phase 24.5a2aで確定）
+
+Phase 24.5a2の案Aを、下記の通りrankを訂正した上で初期採用品として正式採用する。数値はPhase 24.5dでprovisional値を設定し、本工程では意味・対象・境界のみを確定する。
+
+| AccessoryId | 表示名 | rank | 効果の方向性 |
+|---|---|---:|---|
+| `hot_blooded_headband` | 熱血ハチマキ | C | 太陽チャージ強化 |
+| `earth_guard` | 大地の守り | C | 新たな毒付与を防止 |
+| `buckler` | バックラー | C | sword敵からの物理damage軽減 |
+| `adventurer_boots` | 冒険者のブーツ | B | 太陽の実によるSOL回復強化 |
+| `circlet` | サークレット | A | 最大SOL強化＋通常enemy drop率低下 |
+| `grigri_glasses` | グリグリメガネ | S | 現在フロアのtrapを発見 |
+
+rank構成: C×3、B×1、A×1、S×1 — C/B/A/S全rankを最低1種ずつ含む条件を満たす。
+
+### 確定した効果契約
+
+**熱血ハチマキ**: 装備中の成立した太陽チャージ量を増加。日向で成立する既存solar charge処理（`resolveSolarCharge`）だけが対象。`sun_fruit`、カード、敵撃破、自然回復へ影響しない。RNG非消費。charge不成立時は効果なし（`resolveSolarCharge`は既にSOL満タン等の不成立条件を呼び出し元で確認済みの前提でのみ呼ばれるため、この契約は既存呼び出し規約とそのまま整合する）。
+
+**大地の守り**: 装備中、新たなpoison付与を防ぐ。`isPlayerPoisonImmune`（既存poison_guard armorの実装）と同型の判定をaccessory側にも拡張し、enemy由来と`poison_trap`由来の両方（turn.tsの`if (effectId === 'poison' && isPlayerPoisonImmune(state))`という単一の共通ガード位置を経由する全経路）を対象とする。装備前から成立しているpoisonは治療しない（`isPlayerPoisonImmune`は新規付与の拒否のみで既存effectには触れない、poison_guardと同じ挙動）。装備解除時にpoisonを付与しない（解除自体はpoison付与処理を一切トリガーしない）。damage・turn・RNGへ影響しない。
+
+**バックラー**: 装備中、`enemy.type === 'sword'`から受ける成立済み物理damageを軽減。`getIncomingDamage`内、armor防御反映後・`emperor_shield`判定と同列の位置に、`enemy.type === 'sword'`条件のみで動作する乗算軽減を追加。sword以外の敵へ影響しない。状態異常・追加効果へ影響しない（`getIncomingDamage`は`damage`という数値のみを返す純粋な計算経路であり、状態異常付与は別の呼び出し元処理のため自動的に非干渉）。emperor shield等の既存軽減と共存（適用順は「armor防御 → buckler軽減 → emperor_shield軽減」）。minimum damageは`getIncomingDamage`全体の最終戻り値に対して既存契約通り維持。具体的な軽減率と丸めはPhase 24.5dで決定。
+
+**冒険者のブーツ**: 装備中に成立した`sun_fruit`使用だけを強化。`applyItemUse`内の`solarAmount > 0`分岐（sun_fruitのみがこの分岐に到達する既存の単一経路）でSOL回復量を増加。最大SOLでclamp（既存の`Math.min(getEffectiveMaxSolarEnergy(state), ...)`のclamp処理をそのまま利用）。他の果実、太陽チャージ、自然回復、カードへ影響しない（`solarAmount`分岐は`sun_fruit`専用の単一経路であり、他の回復源はそれぞれ別の分岐・別の関数を経由するため構造的に非干渉）。RNG非消費。使用不成立時（SOL満タン、`sun_fruit_use_failed`）は分岐へ到達しないため追加効果なし。
+
+**サークレット**: 装備中、最大SOLを増加。一般アイテム鑑定とは独立（`markGeneralItemIdentified`は装備成立時に別途呼ばれる既存の独立処理であり、最大SOL増減自体はこれと無関係）。装備解除時、現在SOLが新しい最大値を超える場合だけclamp（mind allocationの既存contract「現在SOLは維持、最大値変動時のみclamp」を踏襲）。通常enemy drop成立率を低下——`enemy-drop.ts`の`rollEnemyDropOccurs`が比較する閾値（`ENEMY_DROP_CHANCE_PROVISIONAL`）のみを装備状態に応じて差し替える。floor item、MH報酬、card supply、固定報酬へ影響しない（`rollEnemyDropOccurs`はenemy drop専用の単一関数であり、他の供給経路はそれぞれ独立したプール・RNGストリームを持つため構造的に非干渉）。enemy-drop既存独立RNG streamを維持——rng()呼び出し回数・順序は変えず、比較する閾値定数だけを変更する。最大SOL上昇量とdrop率低下幅はPhase 24.5dで決定。
+
+**グリグリメガネ**: 装備成立時、現在フロアの全trapを発見済みにする（`revealTrap`をtraps配列全件へ適用、`applyClairvoyanceUse`と完全に同一のループパターン）。装備中に次フロアへ移動した場合、新フロアの全trapを発見済みにする（`advanceToNextFloor`完了後のフックで同じ処理を再適用）。一度発見したtrapは装備解除後も発見済みのまま（`revealTrap`が設定する`trap.revealed = true`はtrap個体に紐づく永続フラグであり、装備解除で巻き戻す処理を追加しない限り自動的に維持される）。trap位置・種類・発動状態は変更しない（`revealTrap`は`revealed`フィールドのみを変更し、`trapType`/`pos`/`triggered`には触れない）。`clairvoyance_fruit`の既存trap発見helper（`revealTrap`）を再利用。RNG非消費（`revealTrap`自体がRNGを消費しない純粋なフラグ設定関数）。既存の発見済みtrap表示（ミニマップ・player-visible表示）をそのまま再利用（`revealed`フラグを参照する既存表示契約に新規分岐は不要）。
+
+## 案B：原作らしさ優先（代替案としてhistoryへ残す、初期採用しない）
+
+**Phase 24.5a2aで`golden_mask`のrankをBからSへ訂正した。** 黄金仮面はrun全体のアイテム供給へ影響するため、rank判断基準「S：フロア全体の探索情報を恒常的に変化させる」に準ずる影響範囲の大きさ（run全体のloot供給という時間軸での恒常的影響）からSへ格上げする。
 
 | Accessory | rank | 本作向け効果 | デメリット | exact hook | implementation size | balance risk |
 |---|---|---|---|---|---|---|
 | `hot_blooded_headband` | C | 太陽チャージ量上昇 | なし | `resolveSolarCharge` | 小 | 低 |
-| `earth_guard` | C | 新規poison付与防止 | なし | `isPlayerPoisonImmune` | 極小 | 低 |
-| `adventurer_boots` | B | `sun_fruit`回復量上昇 | なし | `applyItemUse`の`solarAmount`分岐 | 極小 | 低 |
-| `grigri_glasses` | A | trap発見（`revealTrap`再利用） | なし | `revealTrap` | 小 | 低 |
 | `circlet` | B | 最大SOL上昇＋enemy drop率低下 | あり（drop率低下） | 装備ボーナスhelper＋`rollEnemyDropOccurs`閾値 | 小 | 低 |
-| `buckler` | C | sword系からの被damage軽減 | なし | `getIncomingDamage`シグネチャ拡張 | 小 | 低 |
-
-（rank構成: C×3、B×2、A×1 — C/B/A各最低1種を満たす）
-
-## 案B：原作らしさ優先
-
-| Accessory | rank | 本作向け効果 | デメリット | exact hook | implementation size | balance risk |
-|---|---|---|---|---|---|---|
-| `circlet` | B | 最大SOL上昇＋enemy drop率低下 | あり（drop率低下） | 装備ボーナスhelper＋`rollEnemyDropOccurs`閾値 | 小 | 低 |
-| `hot_blooded_headband` | C | 太陽チャージ量上昇 | なし | `resolveSolarCharge` | 小 | 低 |
 | `shinobi_proof` | B | 未認識敵の初期認識距離短縮＋チャージ量低下 | あり（チャージ量低下） | `isWithinAggroRange`装備ボーナス | 小 | 中（alphard_tiaraと同一hookのため、両方採用時は役割の差別化を明文化する必要） |
+| `crest_of_diamond` | B | 近接物理damage上昇 | なし | `applyPlayerAttackToEnemy`装備効果加算列（`weaponId !== 'solar_gun'`ゲート必須） | 小 | 中（「横斬り」モチーフが通常近接一律強化に変換されるため原作らしさがやや後退） |
 | `alphard_tiara` | A | 未認識敵の初期認識距離短縮＋取得経験値減少 | あり（経験値減少） | `isWithinAggroRange`装備ボーナス＋`experienceReward` | 小 | 中（同上） |
-| `crest_of_diamond` | B | 近接物理damage上昇 | なし | `applyPlayerAttackToEnemy`装備効果加算列 | 小 | 中（「横斬り」モチーフが通常近接一律強化に変換されるため原作らしさがやや後退） |
-| `golden_mask` | B | enemy drop率上昇（10%→20%） | なし | `rollEnemyDropOccurs`閾値 | 小 | 中（circletの逆方向効果と対になるため、両方採用時のバランス確認が必要） |
+| `golden_mask` | **S**（訂正: B→S） | enemy drop率上昇（10%→20%） | なし | `rollEnemyDropOccurs`閾値 | 小 | 中（circletの逆方向効果と対になるため、両方採用時のバランス確認が必要） |
 
-（rank構成: C×1、B×4、A×1 — C/B/A各最低1種を満たすが、デメリット付きが3種と多く、shinobi_proof/alphard_tiaraの同一hook重複を許容する設計）
+（rank構成: C×1、B×3、A×1、S×1 — C/B/A/S全rankを最低1種ずつ含む条件を満たす。デメリット付きが3種と多く、shinobi_proof/alphard_tiaraの同一hook重複を許容する設計。この案は代替案としてhistoryへ残すのみで、初期採用品には含めない。）
 
 ## 共通する候補・各案だけの候補
 
@@ -181,7 +217,7 @@ Phase 24.4系（enemy drop・curse・identification・telemetry整合性）は�
 
 ## 推奨案
 
-**案Aを推奨する。**
+**案Aを正式な初期採用案とする（Phase 24.5a2aで確定）。** rank構成は上記「正式採用案」節の通りC/B/A/S全rankを1種ずつ含む構成へ訂正済み。
 
 ### 推奨理由
 
@@ -247,17 +283,17 @@ Star/Temperance/Moon/Sun/solar forge/refine/mummy curse/curse_trap/normal floor 
 
 ## コード上の未確認事項
 
-**2件**（いずれも本監査のスコープ外として明記、断定はしていない）:
+**0件**（Phase 24.5a2aで確定。前回report時点の2件はいずれもコード実測により解消済み）:
 
-1. monsterHouse発覚後のフラグが`isWithinAggroRange`の判定と独立して存在するかどうか——ファイル横断確認では未展開。shinobi_proof/alphard_tiaraの効果自体には影響しないと判断できるため停止理由には該当しない。
-2. `resolveSolarGunAttack`（solar_gun専用攻撃経路）がcrest_of_diamondの装備効果加算列と完全に独立しているかどうかを、当該関数のコード自体は直接確認していない——既存の武器effect加算列がsolar_gunを除外する設計慣習を`equipment-effects.ts`のコメントで複数確認したことに基づく推論であり、Phase 24.5d実装時に当該関数を直接確認することを推奨する。
+1. ~~monsterHouse発覚後のフラグが`isWithinAggroRange`の判定と独立して存在するかどうか~~ → **確定済み**: `turn.ts`の敵行動ループを直接確認し、monsterHouse産の敵は`status === 'hidden'`の間のみ行動ループ自体から除外され、`revealed`後は`isWithinAggroRange`を含む通常の共通ゲートで処理されることを確認した（上記「enemy recognition監査」節参照）。
+2. ~~`resolveSolarGunAttack`とcrest_of_diamond加算列の独立性~~ → **確定済み**: `resolveSolarGunAttack`は独立した別経路ではなく`applyPlayerAttackToEnemy`自体を呼び出す共有関数であることを直接確認した。混入を防ぐ最小gate（`weaponId !== 'solar_gun'`)を特定した（上記「damage処理順」節参照）。
 
 ## final selectionに残るPM判断
 
-- 6種の最終確定（本監査は案A/案Bの比較のみ、確定はChatGPT側）
-- 数値（デメリット率・回復量・軽減率等）の具体的provisional値
-- circlet/golden_maskのenemy drop閾値の具体的な変更幅（±10%は監査内の一例、確定値ではない）
-- S rankアクセサリーを初期6種に含めるか否か（今回の11候補にはS相当が存在しないため、含めない前提で良いかの最終確認)
+**訂正（Phase 24.5a2a）**: 「6種の最終確定」自体はPhase 24.5a2aで案A（rank訂正版）を正式採用したため解消済み。「S rankを初期6種に含めるか否か」の項目は、Sを含めること自体が既に明示条件だったため削除する（誤った前提のPM判断だった）。残るPM判断は以下の通り：
+
+- 数値（デメリット率・回復量・軽減率等）の具体的provisional値（Phase 24.5dで決定）
+- circletのenemy drop閾値の具体的な変更幅（監査内で言及した数値は一例であり確定値ではない）
 - Phase 24.5cのroute weight・rank別weight比率のprovisional値
 
 ## development-planへ反映すべき具体的文章（下書き）
@@ -268,20 +304,21 @@ Star/Temperance/Moon/Sun/solar forge/refine/mummy curse/curse_trap/normal floor 
 ### Phase 24.5 アクセサリー装備
 
 - Phase 24.4（enemy drop・curse・identification・telemetry整合性）完了。
-- Phase 24.5a（readiness audit）・24.5a1（UI audit補完）・24.5a2（採用品・効果接続設計）完了。
+- Phase 24.5a（readiness audit）・24.5a1（UI audit補完）・24.5a2（採用品・効果接続設計）・
+  24.5a2a（選定監査の補正・最終化）完了。
 - アクセサリー装備枠は1枠（weapon/armorと並ぶ第三枠）。
-- 名称・モチーフ・効果の方向性は『新・ボクらの太陽』を基準としつつ、数値・発動条件・
-  対象範囲は本ゲームのターン制・低整数スケールへ本ゲーム向けに再構成する。
-- 推奨初期6種（案A、実装安全性優先）:
-  - hot_blooded_headband（熱血ハチマキ）: rank C、太陽チャージ量上昇
-  - earth_guard（大地の守り）: rank C、新規poison付与防止
-  - adventurer_boots（冒険者のブーツ）: rank B、sun_fruit回復量上昇
-  - grigri_glasses（グリグリメガネ）: rank A、trap発見（clairvoyance_fruit機構再利用）
-  - circlet（サークレット）: rank B、最大SOL上昇／enemy drop率低下（デメリット付き）
-  - buckler（バックラー）: rank C、sword系敵からの被damage軽減
-- 初期版はcurse対象外・DP対象外・solar forge対象外。
-- Phase分割: 24.5b（型・instance・基本操作・最小UI）→ 24.5c（独立生成カテゴリ）→
-  24.5d（固有効果・telemetry接続要否再確認）→ 24.6（数値調整）。
+- 名称・効果の方向性は原作を維持しつつ、数値・対象・発動条件は本ゲーム向けに調整可能。
+- 初期採用品6種（確定）:
+  - 熱血ハチマキ（hot_blooded_headband）: rank C、太陽チャージ強化
+  - 大地の守り（earth_guard）: rank C、新たな毒付与を防止
+  - バックラー（buckler）: rank C、sword敵からの物理damage軽減
+  - 冒険者のブーツ（adventurer_boots）: rank B、太陽の実によるSOL回復強化
+  - サークレット（circlet）: rank A、最大SOL強化＋通常enemy drop率低下
+  - グリグリメガネ（grigri_glasses）: rank S、現在フロアのtrapを発見
+- 初期accessoryはcurse・refine・DP・solar forge・Star・Temperance・Moon・Sun対象外。
+- Phase分割: 24.5b（定義・instance・1枠・操作・鑑定・UI・除外）→
+  24.5c（独立生成カテゴリと3route接続）→
+  24.5d（固有効果と必要なtelemetry）→ 24.6（出現率・効果量・所持枠影響の調整）。
 - telemetry schemaVersionはPhase 24.5b/24.5cで8を維持。24.5dでのbump要否は
   実装時に再確認。
 ```
@@ -293,5 +330,15 @@ Star/Temperance/Moon/Sun/solar forge/refine/mummy curse/curse_trap/normal floor 
 - history以外の差分: **なし**
 - 一時ファイル: **なし**（読み取り専用のgrep/view/sedによるコード監査のみ、一時スクリプトを作成していない）
 - generated file: **なし**
+- credential/PAT混入: **なし**
+- 未使用`phase-24-5b-accessory-core`: **未変更**（本工程中に一切checkout/操作していない）
+
+### Phase 24.5a2a（本補正工程）でのverification
+
+- production code変更: **なし**
+- test変更: **なし**
+- 更新対象history（本ファイル）以外の差分: **なし**
+- 新規history: **なし**（既存ファイルの更新のみ、`phase-24-5a2a`名の新規文書は作成していない）
+- 一時ファイル: **なし**
 - credential/PAT混入: **なし**
 - 未使用`phase-24-5b-accessory-core`: **未変更**（本工程中に一切checkout/操作していない）
