@@ -407,8 +407,7 @@ function buildFloorState(
     cardBodyRng,
     accessoryRankRng,
     accessoryItemRng,
-    runConfig.runDepthTier,
-    floorProgressRatio(floor, runConfig.totalFloors),
+    { runDepthTier: runConfig.runDepthTier, progress: floorProgressRatio(floor, runConfig.totalFloors) },
   );
 
   // Phase 16.1 early-resource-and-combat-pressure rebalance: floor 1's
@@ -491,7 +490,10 @@ function buildFloorState(
       // moment it's on the floor, matching the pre-existing "結果が個体
       // へ固定される" contract this same curse roll already followed.
       const resolvedDefinitionId = isNormalEquipmentSlot(itemId)
-        ? selectNormalEquipmentDefinition(itemId, equipmentFloorRatio, equipmentDefinitionRng)
+        ? selectNormalEquipmentDefinition(itemId, equipmentFloorRatio, equipmentDefinitionRng, {
+            runDepthTier: runConfig.runDepthTier,
+            progress: equipmentFloorRatio,
+          })
         : itemId;
       const instance = mintEquipmentInstance(nextFloorEquipmentInstanceId, resolvedDefinitionId, cursed);
       nextFloorEquipmentInstanceId += 1;
@@ -607,8 +609,7 @@ function buildFloorState(
         cardBodyRng,
         accessoryRankRng,
         accessoryItemRng,
-        runConfig.runDepthTier,
-        floorProgressRatio(floor, runConfig.totalFloors),
+        { runDepthTier: runConfig.runDepthTier, progress: equipmentFloorRatio },
       );
       for (let i = 0; i < rewardPositions.length; i++) {
         const rewardItemId = rewardItemIds[i];
@@ -620,7 +621,10 @@ function buildFloorState(
           // generation above, same equipmentDefinitionRng stream
           // (continuing its consumption order, never a separate table).
           const resolvedRewardDefinitionId = isNormalEquipmentSlot(rewardItemId)
-            ? selectNormalEquipmentDefinition(rewardItemId, equipmentFloorRatio, equipmentDefinitionRng)
+            ? selectNormalEquipmentDefinition(rewardItemId, equipmentFloorRatio, equipmentDefinitionRng, {
+                runDepthTier: runConfig.runDepthTier,
+                progress: equipmentFloorRatio,
+              })
             : rewardItemId;
           const instance = mintEquipmentInstance(nextFloorEquipmentInstanceId, resolvedRewardDefinitionId, cursed);
           nextFloorEquipmentInstanceId += 1;

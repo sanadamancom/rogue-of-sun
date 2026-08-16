@@ -1,5 +1,6 @@
 import { CARD_DEFINITIONS, CARD_IDS_IN_ORDER, CardRarity } from './card-def';
 import { CardId, ItemId } from './types';
+import { ItemAvailabilityContext, isItemEligibleInContext } from './item-availability';
 
 /**
  * Phase 24.4c: the single source of truth for the "does this generation
@@ -70,6 +71,18 @@ function cardIdsOfRarity(rarity: CardRarity): CardId[] {
 }
 
 /**
+ * Phase 24.6b2a1: every CardId of `rarity` that is ALSO eligible under
+ * `context` (item-availability.ts's isItemEligibleAtProgress) — the
+ * pre-selection candidate filter this Phase replaces post-selection
+ * rejection with. With every current card at minimumRunDepth:'short'/
+ * unlockProgress:0, this returns exactly `cardIdsOfRarity(rarity)`
+ * unchanged for any real context — the filter is a no-op today.
+ */
+function eligibleCardIdsOfRarity(rarity: CardRarity, context: ItemAvailabilityContext): CardId[] {
+  return cardIdsOfRarity(rarity).filter((id) => isItemEligibleInContext(id, context));
+}
+
+/**
  * Whether one generation slot becomes a card at all (producer_decisions'
  * "routeごとにcardとexisting_non_cardを二者択一で抽選する"). Consumes
  * exactly one rng() call. `rng` should be a stream dedicated to this
@@ -83,17 +96,21 @@ export function rollIsCardSlot(rng: () => number): boolean {
 
 /**
  * Draws one rarity, weighted by CARD_RARITY_WEIGHT_PROVISIONAL, among
- * only the rarities that currently have at least one candidate card
- * (producer_decisions' "候補が存在するレアリティだけを抽選対象にする" /
- * "空レアリティを引いて再抽選する方式は使わない" — this is why: an empty
- * rarity is excluded from the weighted draw itself, never drawn and
- * retried). With all 17 cards' current provisional rarity assignment
- * every one of C/B/A/S has at least one member, so this defensive filter
- * is a no-op today but keeps the function correct if a future rarity
- * reassignment ever left one empty. Consumes exactly one rng() call.
+ * only the rarities that have at least one ELIGIBLE candidate card under
+ * `context` (Phase 24.6b2a1: pre-selection filtering — an ineligible
+ * rarity, or a rarity that becomes empty once ineligible cards are
+ * excluded, is removed from the weighted draw itself before the roll,
+ * never drawn and then rejected/re-drawn — producer_decisions' "候補が
+ * 存在するレアリティだけを抽選対象にする" / "空レアリティを引いて再抽選
+ * する方式は使わない" now also covers "空になったレアリティ"). The
+ * existing C60/B30/A8/S2 weights are automatically renormalized across
+ * only the eligible rarities (`totalWeight` sums only the eligible
+ * subset). With every current card at short/0, every rarity always has
+ * >=1 eligible member, so this is a no-op today. Consumes exactly one
+ * rng() call.
  */
-export function selectCardRarity(rng: () => number): CardRarity {
-  const eligible = ALL_RARITIES.filter((r) => cardIdsOfRarity(r).length > 0);
+export function selectCardRarity(rng: () => number, context: ItemAvailabilityContext): CardRarity {
+  const eligible = ALL_RARITIES.filter((r) => eligibleCardIdsOfRarity(r, context).length > 0);
   const totalWeight = eligible.reduce((sum, r) => sum + CARD_RARITY_WEIGHT_PROVISIONAL[r], 0);
   const roll = rng() * totalWeight;
   let cumulative = 0;
@@ -107,12 +124,28 @@ export function selectCardRarity(rng: () => number): CardRarity {
 }
 
 /**
- * Uniform draw among every card of `rarity` (producer_decisions' "選ば
- * れたレアリティ内のカードは均等抽選する"). Consumes exactly one rng()
- * call.
+ * Uniform draw among every ELIGIBLE card of `rarity` under `context`
+ * (Phase 24.6b2a1: pre-selection filtering, same rarity-internal-
+ * uniform-draw contract but only among eligible members — an ineligible
+ * card is never drawn and then rejected). With every current card at
+ * short/0, `candidates` is exactly `cardIdsOfRarity(rarity)` unchanged.
+ * Consumes exactly one rng() call. Caller must only pass a `rarity`
+ * selectCardRarity(..., context) itself returned for the same `context`
+ * (guaranteeing `candidates` here is never empty — see selectCardRarity's
+ * own eligible-rarity filter).
  */
-export function selectCardWithinRarity(rarity: CardRarity, rng: () => number): CardId {
-  const candidates = cardIdsOfRarity(rarity);
+export function selectCardWithinRarity(rarity: CardRarity, rng: () => number, context: ItemAvailabilityContext): CardId {
+  const candidates = eligibleCardIdsOfRarity(rarity, context);
+  if (candidates.length === 0) {
+    // Phase 24.6b2a1: reachable only if a caller passes a `rarity` that
+    // isn't what selectCardRarity(..., context) would have returned for
+    // the same context (a caller bug, not a normal run condition) — see
+    // this function's own doc comment on the "same context" contract.
+    // Never a random fallback or ineligible-card revival.
+    throw new Error(
+      `selectCardWithinRarity: no eligible card of rarity '${rarity}' for the given context — caller must pass a rarity selectCardRarity returned for the same context.`,
+    );
+  }
   const index = Math.min(candidates.length - 1, Math.floor(rng() * candidates.length));
   return candidates[index];
 }
@@ -130,10 +163,11 @@ export function resolveCardSlot(
   categoryRng: () => number,
   rarityRng: () => number,
   bodyRng: () => number,
+  context: ItemAvailabilityContext,
 ): CardId | null {
   if (!rollIsCardSlot(categoryRng)) return null;
-  const rarity = selectCardRarity(rarityRng);
-  return selectCardWithinRarity(rarity, bodyRng);
+  const rarity = selectCardRarity(rarityRng, context);
+  return selectCardWithinRarity(rarity, bodyRng, context);
 }
 
 /**
@@ -153,6 +187,7 @@ export function substituteCardSlots(
   categoryRng: () => number,
   rarityRng: () => number,
   bodyRng: () => number,
+  context: ItemAvailabilityContext,
 ): ItemId[] {
-  return itemIds.map((itemId) => resolveCardSlot(categoryRng, rarityRng, bodyRng) ?? itemId);
+  return itemIds.map((itemId) => resolveCardSlot(categoryRng, rarityRng, bodyRng, context) ?? itemId);
 }

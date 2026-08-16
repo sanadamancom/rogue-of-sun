@@ -106,9 +106,9 @@ describe('armor placement (Phase 15.4b random ground item generation)', () => {
   });
 
   it('armor is no longer floor-1-exclusive: it stays in the cumulative pool on floor 2 and floor 3 too (Phase 15.4b)', () => {
-    expect(getGroundItemPoolForFloor(1)).toContain('armor');
-    expect(getGroundItemPoolForFloor(2)).toContain('armor');
-    expect(getGroundItemPoolForFloor(3)).toContain('armor');
+    expect(getGroundItemPoolForFloor(1, 3, 'short')).toContain('armor');
+    expect(getGroundItemPoolForFloor(2, 3, 'short')).toContain('armor');
+    expect(getGroundItemPoolForFloor(3, 3, 'short')).toContain('armor');
   });
 
   it('is deterministic: the same seed places armor at the same coordinate', () => {

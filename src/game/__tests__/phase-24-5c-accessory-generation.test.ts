@@ -86,7 +86,7 @@ describe('Phase 24.5c: route/rarity weight contracts', () => {
       calls++;
       return 0.5;
     };
-    const rank = selectAccessoryRank(rng);
+    const rank = selectAccessoryRank(rng, { runDepthTier: 'deep', progress: 1 });
     expect(calls).toBe(1);
     expect(['C', 'B', 'A', 'S']).toContain(rank);
   });
@@ -96,7 +96,7 @@ describe('Phase 24.5c: route/rarity weight contracts', () => {
     const N = 6000;
     for (let i = 0; i < N; i++) {
       const value = ((i * 2654435761) % 1000000) / 1000000;
-      const rank = selectAccessoryRank(() => value);
+      const rank = selectAccessoryRank(() => value, { runDepthTier: 'deep', progress: 1 });
       counts[rank]++;
     }
     expect(counts.C / N).toBeGreaterThan(0.5);
@@ -108,7 +108,7 @@ describe('Phase 24.5c: route/rarity weight contracts', () => {
   it('selectAccessoryWithinRank never returns an accessory outside the requested rank', () => {
     for (const rank of ['C', 'B', 'A', 'S'] as const) {
       for (let i = 0; i < 50; i++) {
-        const id = selectAccessoryWithinRank(rank, () => i / 50);
+        const id = selectAccessoryWithinRank(rank, () => i / 50, { runDepthTier: 'deep', progress: 1 });
         expect(ACCESSORY_DEFINITIONS[id].rank).toBe(rank);
       }
     }
@@ -116,7 +116,7 @@ describe('Phase 24.5c: route/rarity weight contracts', () => {
 
   it('the single S-rank accessory (grigri_glasses) is always returned for S', () => {
     for (let i = 0; i < 10; i++) {
-      expect(selectAccessoryWithinRank('S', () => i / 10)).toBe('grigri_glasses');
+      expect(selectAccessoryWithinRank('S', () => i / 10, { runDepthTier: 'deep', progress: 1 })).toBe('grigri_glasses');
     }
   });
 });
@@ -133,7 +133,7 @@ describe('Phase 24.5c: resolveLootSlot / substituteLootSlots', () => {
       otherCalls++;
       return 0.5;
     };
-    const result = resolveLootSlot(categoryRng, other, other, other, other);
+    const result = resolveLootSlot(categoryRng, other, other, other, other, { runDepthTier: 'deep', progress: 1 });
     expect(result.category).toBe('non_card');
     expect(categoryCalls).toBe(1);
     expect(otherCalls).toBe(0);
@@ -151,7 +151,7 @@ describe('Phase 24.5c: resolveLootSlot / substituteLootSlots', () => {
       accessoryCalls++;
       return 0.5;
     };
-    const result = resolveLootSlot(categoryRng, cardStream, cardStream, accessoryStream, accessoryStream);
+    const result = resolveLootSlot(categoryRng, cardStream, cardStream, accessoryStream, accessoryStream, { runDepthTier: 'deep', progress: 1 });
     expect(result.category).toBe('accessory');
     if (result.category === 'accessory') {
       expect((ACCESSORY_IDS_IN_ORDER as readonly string[])).toContain(result.id);
@@ -172,7 +172,7 @@ describe('Phase 24.5c: resolveLootSlot / substituteLootSlots', () => {
       accessoryCalls++;
       return 0.5;
     };
-    const result = resolveLootSlot(categoryRng, cardStream, cardStream, accessoryStream, accessoryStream);
+    const result = resolveLootSlot(categoryRng, cardStream, cardStream, accessoryStream, accessoryStream, { runDepthTier: 'deep', progress: 1 });
     expect(result.category).toBe('card');
     if (result.category === 'card') {
       expect((CARD_IDS_IN_ORDER as readonly string[])).toContain(result.id);
@@ -190,6 +190,7 @@ describe('Phase 24.5c: resolveLootSlot / substituteLootSlots', () => {
       () => 0.5,
       () => 0.5,
       () => 0.5,
+      { runDepthTier: 'deep', progress: 1 },
     );
     expect(result).toHaveLength(input.length);
   });
@@ -203,6 +204,7 @@ describe('Phase 24.5c: resolveLootSlot / substituteLootSlots', () => {
       () => 0.5,
       () => 0.5,
       () => 0.5,
+      { runDepthTier: 'deep', progress: 1 },
     );
     expect(result).toEqual(input);
   });
@@ -241,7 +243,7 @@ describe('Phase 24.5c: 3-route reachability', () => {
   it('accessory is reachable via enemy drop across many enemyIds', () => {
     let sawAccessory = false;
     for (let enemyId = 0; enemyId < 800 && !sawAccessory; enemyId++) {
-      const picked = selectEnemyDropItemIdWithCards(2, 12345, enemyId);
+      const picked = selectEnemyDropItemIdWithCards(2, 12345, enemyId, 3, 'short');
       if (isAccessoryId(picked)) sawAccessory = true;
     }
     expect(sawAccessory).toBe(true);
@@ -340,7 +342,7 @@ describe('Phase 24.5c: RNG determinism and non-interference', () => {
   });
 
   it('selectEnemyDropItemIdWithCards is deterministic for the same (floor, floorSeed, enemyId)', () => {
-    expect(selectEnemyDropItemIdWithCards(1, 5, 5)).toBe(selectEnemyDropItemIdWithCards(1, 5, 5));
+    expect(selectEnemyDropItemIdWithCards(1, 5, 5, 3, 'short')).toBe(selectEnemyDropItemIdWithCards(1, 5, 5, 3, 'short'));
   });
 });
 

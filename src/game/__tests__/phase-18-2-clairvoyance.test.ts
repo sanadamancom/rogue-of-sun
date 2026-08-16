@@ -79,9 +79,9 @@ function freshState(overrides?: Partial<GameState>): GameState {
 
 describe('clairvoyance fruit (Phase 18.2)', () => {
   it('is available in the floor 1 ground item pool', () => {
-    expect(getGroundItemPoolForFloor(1)).toContain('clairvoyance_fruit');
-    expect(getGroundItemPoolForFloor(2)).toContain('clairvoyance_fruit');
-    expect(getGroundItemPoolForFloor(3)).toContain('clairvoyance_fruit');
+    expect(getGroundItemPoolForFloor(1, 3, 'short')).toContain('clairvoyance_fruit');
+    expect(getGroundItemPoolForFloor(2, 3, 'short')).toContain('clairvoyance_fruit');
+    expect(getGroundItemPoolForFloor(3, 3, 'short')).toContain('clairvoyance_fruit');
   });
 
   it('using it reveals every hidden trap on the floor', () => {

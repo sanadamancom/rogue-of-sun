@@ -157,9 +157,9 @@ describe('Phase 20.0d: card target selection foundation', () => {
     });
 
     it('hasAlternateTransformCategory is true for armor (Phase 24.3: 15 species), weapon, and consumable', () => {
-      expect(hasAlternateTransformCategory('armor')).toBe(true);
-      expect(hasAlternateTransformCategory('sword')).toBe(true);
-      expect(hasAlternateTransformCategory('apple')).toBe(true);
+      expect(hasAlternateTransformCategory('armor', 'deep', 1)).toBe(true);
+      expect(hasAlternateTransformCategory('sword', 'deep', 1)).toBe(true);
+      expect(hasAlternateTransformCategory('apple', 'deep', 1)).toBe(true);
     });
 
     it('excludes floor-generated (not-yet-picked-up) items', () => {

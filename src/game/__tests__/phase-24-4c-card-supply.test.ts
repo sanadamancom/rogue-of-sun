@@ -97,7 +97,7 @@ describe('selectCardRarity: weighted, only non-empty rarities eligible', () => {
     const N = 10000;
     for (let i = 0; i < N; i++) {
       const rng = createRng(i * 104729 + 3);
-      counts[selectCardRarity(rng)]++;
+      counts[selectCardRarity(rng, { runDepthTier: 'deep', progress: 1 })]++;
     }
     expect(counts.C / N).toBeGreaterThan(0.54);
     expect(counts.C / N).toBeLessThan(0.66);
@@ -115,7 +115,7 @@ describe('selectCardRarity: weighted, only non-empty rarities eligible', () => {
       calls++;
       return 0.5;
     };
-    selectCardRarity(rng);
+    selectCardRarity(rng, { runDepthTier: 'deep', progress: 1 });
     expect(calls).toBe(1);
   });
 });
@@ -125,7 +125,7 @@ describe('selectCardWithinRarity: uniform among that rarity\'s members', () => {
     for (const rarity of ['C', 'B', 'A', 'S'] as CardRarity[]) {
       for (let i = 0; i < 50; i++) {
         const rng = createRng(i * 13 + 1);
-        const picked = selectCardWithinRarity(rarity, rng);
+        const picked = selectCardWithinRarity(rarity, rng, { runDepthTier: 'deep', progress: 1 });
         expect(CARD_DEFINITIONS[picked].rarity).toBe(rarity);
       }
     }
@@ -134,7 +134,7 @@ describe('selectCardWithinRarity: uniform among that rarity\'s members', () => {
   it('the single S-rarity card (judgement) is always returned for S', () => {
     for (let i = 0; i < 20; i++) {
       const rng = createRng(i);
-      expect(selectCardWithinRarity('S', rng)).toBe('judgement');
+      expect(selectCardWithinRarity('S', rng, { runDepthTier: 'deep', progress: 1 })).toBe('judgement');
     }
   });
 });
@@ -152,7 +152,7 @@ describe('resolveCardSlot: full per-slot resolution', () => {
       bodyCalls++;
       return 0.5;
     };
-    const result = resolveCardSlot(categoryRng, rarityRng, bodyRng);
+    const result = resolveCardSlot(categoryRng, rarityRng, bodyRng, { runDepthTier: 'deep', progress: 1 });
     expect(result).toBeNull();
     expect(rarityCalls).toBe(0);
     expect(bodyCalls).toBe(0);
@@ -162,7 +162,7 @@ describe('resolveCardSlot: full per-slot resolution', () => {
     const categoryRng = () => 0.0; // always card
     const rarityRng = createRng(1);
     const bodyRng = createRng(2);
-    const result = resolveCardSlot(categoryRng, rarityRng, bodyRng);
+    const result = resolveCardSlot(categoryRng, rarityRng, bodyRng, { runDepthTier: 'deep', progress: 1 });
     expect(result).not.toBeNull();
     expect(CARD_IDS_IN_ORDER).toContain(result);
   });
@@ -174,7 +174,7 @@ describe('substituteCardSlots: applied to an already-drawn non-card array', () =
     const categoryRng = createRng(1);
     const rarityRng = createRng(2);
     const bodyRng = createRng(3);
-    const result = substituteCardSlots(items, categoryRng, rarityRng, bodyRng);
+    const result = substituteCardSlots(items, categoryRng, rarityRng, bodyRng, { runDepthTier: 'deep', progress: 1 });
     expect(result.length).toBe(items.length);
   });
 
@@ -183,7 +183,7 @@ describe('substituteCardSlots: applied to an already-drawn non-card array', () =
     const categoryRng = () => 0.99; // never a card
     const rarityRng = () => 0.5;
     const bodyRng = () => 0.5;
-    const result = substituteCardSlots(items, categoryRng, rarityRng, bodyRng);
+    const result = substituteCardSlots(items, categoryRng, rarityRng, bodyRng, { runDepthTier: 'deep', progress: 1 });
     expect(result).toEqual(items);
   });
 
@@ -192,7 +192,7 @@ describe('substituteCardSlots: applied to an already-drawn non-card array', () =
     const categoryRng = () => 0.0; // always a card
     const rarityRng = createRng(5);
     const bodyRng = createRng(6);
-    const result = substituteCardSlots(items, categoryRng, rarityRng, bodyRng);
+    const result = substituteCardSlots(items, categoryRng, rarityRng, bodyRng, { runDepthTier: 'deep', progress: 1 });
     expect(CARD_IDS_IN_ORDER).toContain(result[0]);
   });
 });
@@ -285,7 +285,7 @@ describe('enemy-drop route: card selection applied only after drop occurs', () =
   it('selectEnemyDropItemIdWithCards can return a card', () => {
     let sawCard = false;
     for (let enemyId = 0; enemyId < 500 && !sawCard; enemyId++) {
-      const picked = selectEnemyDropItemIdWithCards(2, 42, enemyId);
+      const picked = selectEnemyDropItemIdWithCards(2, 42, enemyId, 3, 'short');
       if ((CARD_IDS_IN_ORDER as readonly string[]).includes(picked)) sawCard = true;
     }
     expect(sawCard).toBe(true);
@@ -303,7 +303,7 @@ describe('enemy-drop route: card selection applied only after drop occurs', () =
   });
 
   it('is deterministic for the same (floor, floorSeed, enemyId)', () => {
-    expect(selectEnemyDropItemIdWithCards(1, 5, 5)).toBe(selectEnemyDropItemIdWithCards(1, 5, 5));
+    expect(selectEnemyDropItemIdWithCards(1, 5, 5, 3, 'short')).toBe(selectEnemyDropItemIdWithCards(1, 5, 5, 3, 'short'));
   });
 });
 
@@ -323,7 +323,7 @@ describe('existing_non_card branch: equipment exclusion rules unchanged', () => 
       }
     }
     for (let enemyId = 0; enemyId < 300; enemyId++) {
-      const picked = selectEnemyDropItemIdWithCards(2, 77, enemyId);
+      const picked = selectEnemyDropItemIdWithCards(2, 77, enemyId, 3, 'short');
       expect(picked).not.toBe('black_armor');
     }
   });
@@ -335,8 +335,8 @@ describe('existing_non_card branch: equipment exclusion rules unchanged', () => 
 
 describe('determinism: route/rarity/card weights are floor-count independent', () => {
   it('the same rng sequence yields the same rarity/card regardless of an unrelated floor/totalFloors context (card-loot.ts takes no floor argument at all)', () => {
-    const rarityA = selectCardRarity(createRng(123));
-    const rarityB = selectCardRarity(createRng(123));
+    const rarityA = selectCardRarity(createRng(123), { runDepthTier: 'deep', progress: 1 });
+    const rarityB = selectCardRarity(createRng(123), { runDepthTier: 'deep', progress: 1 });
     expect(rarityA).toBe(rarityB);
   });
 });

@@ -1,7 +1,7 @@
 import { ACCESSORY_DEFINITIONS, ACCESSORY_IDS_IN_ORDER } from './accessory-def';
-import { CardId, ItemId, RunDepthTier } from './types';
+import { CardId, ItemId } from './types';
 import { selectCardRarity, selectCardWithinRarity } from './card-loot';
-import { isItemEligibleAtProgress } from './item-availability';
+import { ItemAvailabilityContext, isItemEligibleInContext } from './item-availability';
 
 /**
  * Phase 24.5c: the single source of truth for the "does this generation
@@ -86,16 +86,29 @@ function accessoryIdsOfRank(rank: 'C' | 'B' | 'A' | 'S'): (typeof ACCESSORY_IDS_
 }
 
 /**
- * Draws one rank, weighted by ACCESSORY_RANK_WEIGHT_PROVISIONAL, among
- * only the ranks that currently have at least one candidate accessory
- * (rarity_contract's "候補が存在するrankだけで正規化" — mirrors
- * card-loot.ts's selectCardRarity's identical empty-rank exclusion).
- * With the 6 initial species covering all of C/B/A/S (Phase 24.5a2a's
- * finalized selection), this defensive filter is a no-op today. Consumes
- * exactly one rng() call.
+ * Phase 24.6b2a1: every AccessoryId of `rank` that is ALSO eligible
+ * under `context` -- the pre-selection candidate filter this Phase
+ * replaces post-selection rejection with (same pattern as card-loot.ts's
+ * eligibleCardIdsOfRarity). With every current accessory at
+ * minimumRunDepth:'short'/unlockProgress:0, this returns exactly
+ * `accessoryIdsOfRank(rank)` unchanged for any real context.
  */
-export function selectAccessoryRank(rng: () => number): 'C' | 'B' | 'A' | 'S' {
-  const eligible = ALL_ACCESSORY_RANKS.filter((r) => accessoryIdsOfRank(r).length > 0);
+function eligibleAccessoryIdsOfRank(rank: 'C' | 'B' | 'A' | 'S', context: ItemAvailabilityContext): (typeof ACCESSORY_IDS_IN_ORDER)[number][] {
+  return accessoryIdsOfRank(rank).filter((id) => isItemEligibleInContext(id, context));
+}
+
+/**
+ * Draws one rank, weighted by ACCESSORY_RANK_WEIGHT_PROVISIONAL, among
+ * only the ranks that have at least one ELIGIBLE candidate accessory
+ * under `context` (Phase 24.6b2a1: pre-selection filtering -- mirrors
+ * card-loot.ts's selectCardRarity exactly). The existing C60/B30/A8/S2
+ * weights are automatically renormalized across only the eligible
+ * ranks. With the 6 initial species covering all of C/B/A/S and every
+ * one at short/0, this is a no-op today. Consumes exactly one rng()
+ * call.
+ */
+export function selectAccessoryRank(rng: () => number, context: ItemAvailabilityContext): 'C' | 'B' | 'A' | 'S' {
+  const eligible = ALL_ACCESSORY_RANKS.filter((r) => eligibleAccessoryIdsOfRank(r, context).length > 0);
   const totalWeight = eligible.reduce((sum, r) => sum + ACCESSORY_RANK_WEIGHT_PROVISIONAL[r], 0);
   const roll = rng() * totalWeight;
   let cumulative = 0;
@@ -103,28 +116,43 @@ export function selectAccessoryRank(rng: () => number): 'C' | 'B' | 'A' | 'S' {
     cumulative += ACCESSORY_RANK_WEIGHT_PROVISIONAL[r];
     if (roll < cumulative) return r;
   }
-  // Defensive only — floating-point edge case at roll ~= totalWeight;
+  // Defensive only -- floating-point edge case at roll ~= totalWeight;
   // every real rank/weight combination above resolves in the loop.
   return eligible[eligible.length - 1];
 }
 
-/** Uniform draw among every accessory of `rank` (rarity_contract's "同rank内は均等抽選"). Consumes exactly one rng() call. */
-export function selectAccessoryWithinRank(rank: 'C' | 'B' | 'A' | 'S', rng: () => number): (typeof ACCESSORY_IDS_IN_ORDER)[number] {
-  const candidates = accessoryIdsOfRank(rank);
+/**
+ * Uniform draw among every ELIGIBLE accessory of `rank` under `context`
+ * (Phase 24.6b2a1: pre-selection filtering, mirrors card-loot.ts's
+ * selectCardWithinRarity exactly). Consumes exactly one rng() call.
+ * Caller must only pass a `rank` selectAccessoryRank(..., context)
+ * itself returned for the same `context`.
+ */
+export function selectAccessoryWithinRank(rank: 'C' | 'B' | 'A' | 'S', rng: () => number, context: ItemAvailabilityContext): (typeof ACCESSORY_IDS_IN_ORDER)[number] {
+  const candidates = eligibleAccessoryIdsOfRank(rank, context);
+  if (candidates.length === 0) {
+    // Phase 24.6b2a1: reachable only if a caller passes a `rank` that
+    // isn't what selectAccessoryRank(..., context) would have returned
+    // for the same context -- a caller bug, not a normal run condition.
+    // Never a random fallback or ineligible-accessory revival.
+    throw new Error(
+      `selectAccessoryWithinRank: no eligible accessory of rank '${rank}' for the given context -- caller must pass a rank selectAccessoryRank returned for the same context.`,
+    );
+  }
   const index = Math.min(candidates.length - 1, Math.floor(rng() * candidates.length));
   return candidates[index];
 }
 
 /**
- * The full per-slot accessory resolution (rank roll, then body roll) —
+ * The full per-slot accessory resolution (rank roll, then body roll) --
  * called only when rollLootCategory has already resolved to 'accessory'
  * for this slot (the caller-shared category roll lives in
  * resolveLootSlot below, never re-rolled here). Consumes exactly 2 rng()
  * calls.
  */
-function resolveAccessorySlot(rankRng: () => number, itemRng: () => number): (typeof ACCESSORY_IDS_IN_ORDER)[number] {
-  const rank = selectAccessoryRank(rankRng);
-  return selectAccessoryWithinRank(rank, itemRng);
+function resolveAccessorySlot(rankRng: () => number, itemRng: () => number, context: ItemAvailabilityContext): (typeof ACCESSORY_IDS_IN_ORDER)[number] {
+  const rank = selectAccessoryRank(rankRng, context);
+  return selectAccessoryWithinRank(rank, itemRng, context);
 }
 
 export type LootSlotResolution =
@@ -135,33 +163,36 @@ export type LootSlotResolution =
 /**
  * The full per-slot loot resolution shared by all 3 production routes:
  * one shared category roll (categoryRng, exactly one rng() call,
- * replacing card-loot.ts's old rollIsCardSlot at every call site — see
- * rollLootCategory's doc comment), then — depending on which of the 3
- * categories that single roll picked — either card-loot.ts's existing
+ * replacing card-loot.ts's old rollIsCardSlot at every call site -- see
+ * rollLootCategory's doc comment), then -- depending on which of the 3
+ * categories that single roll picked -- either card-loot.ts's existing
  * rarity+body draw (cardRarityRng/cardBodyRng, unchanged from Phase
  * 24.4c), this module's own rank+item draw (accessoryRankRng/
- * accessoryItemRng, new this Phase), or nothing at all (categoryRng's
+ * accessoryItemRng, new Phase 24.5c), or nothing at all (categoryRng's
  * one call is the only RNG consumed for a 'non_card' slot, exactly like
  * the old rollIsCardSlot-false case). Every stream is independent and
  * purpose-specific (rng_requirements' "route/rarity/item用途間でsaltを
- * 共有しない") — see state.ts/enemy-drop.ts's call sites for each
+ * 共有しない") -- see state.ts/enemy-drop.ts's call sites for each
  * stream's own salt derivation.
  *
- * Phase 24.6b2a: `runDepthTier`/`progress` (both optional, defaulting to
- * 'deep'/1 — i.e. unfiltered, since every card/accessory's registered
- * ItemAvailability is currently minimumRunDepth:'short'/
- * unlockProgress:0 and would never be excluded anyway) let the caller
- * apply item-availability.ts's shared eligibility check to whatever
- * card/accessory id this roll resolved to. If the resolved id turns out
- * ineligible, this returns `{ category: 'non_card' }` — exactly the same
- * shape the category roll itself would have produced by picking
- * 'non_card' in the first place — so callers' existing `?? itemId`
- * fallback (substituteLootSlots) or non-card re-draw (enemy-drop.ts)
- * need no special-casing. With every current card/accessory at
- * short/0, this branch is unreachable in production today (verified by
- * this Phase's focused tests) — it exists so a future 24.6b2b tier/
- * progress reassignment needs no route-level code change, only a
- * registry edit.
+ * Phase 24.6b2a1: `context` is required (no implicit default) and is
+ * threaded straight into selectCardRarity/selectCardWithinRarity/
+ * resolveAccessorySlot -- eligibility is now enforced as a
+ * PRE-selection candidate filter inside those functions (an ineligible
+ * rarity/rank or ineligible individual card/accessory is excluded from
+ * the weighted draw itself, with its share of that rarity/rank's weight
+ * automatically redistributed across the remaining eligible members),
+ * never as a post-selection rejection here. The category roll itself
+ * (rollLootCategory's card10/accessory10/nonCard80 weights) is
+ * completely unaffected by eligibility -- once the roll picks 'card' or
+ * 'accessory', a concrete eligible id is always returned for that
+ * category (never silently downgraded to 'non_card' after the fact),
+ * per this Phase's authoritative_contract: "eligibilityは抽選結果の棄却
+ * ではなく、抽選前candidate poolの制限" / "route weight
+ * card10/accessory10/nonCard80はeligibility変更後も維持". With every
+ * current card/accessory at short/0, every rarity/rank always has >=1
+ * eligible member, so this Phase's behavior is a no-op relative to
+ * 24.6b2a for every currently-registered id.
  */
 export function resolveLootSlot(
   categoryRng: () => number,
@@ -169,26 +200,26 @@ export function resolveLootSlot(
   cardBodyRng: () => number,
   accessoryRankRng: () => number,
   accessoryItemRng: () => number,
-  runDepthTier: RunDepthTier = 'deep',
-  progress: number = 1,
+  context: ItemAvailabilityContext,
 ): LootSlotResolution {
   const category = rollLootCategory(categoryRng);
   if (category === 'card') {
     // card-loot.ts's own rarity/body pieces (selectCardRarity/
-    // selectCardWithinRarity) are called directly here — never
+    // selectCardWithinRarity) are called directly here -- never
     // resolveCardSlot/rollIsCardSlot, which would perform a second,
     // redundant category roll on top of rollLootCategory's own roll
     // above. This still reuses card-loot.ts's exact rarity table and
     // per-rarity candidate selection verbatim (no duplicated logic),
-    // just without re-deciding "is this a card" a second time.
-    const rarity = selectCardRarity(cardRarityRng);
-    const cardId = selectCardWithinRarity(rarity, cardBodyRng);
-    if (!isItemEligibleAtProgress(cardId, runDepthTier, progress)) return { category: 'non_card' };
+    // just without re-deciding "is this a card" a second time. Both
+    // functions apply `context`'s eligibility filter internally before
+    // their own weighted roll, so the returned cardId is always
+    // eligible.
+    const rarity = selectCardRarity(cardRarityRng, context);
+    const cardId = selectCardWithinRarity(rarity, cardBodyRng, context);
     return { category: 'card', id: cardId };
   }
   if (category === 'accessory') {
-    const accessoryId = resolveAccessorySlot(accessoryRankRng, accessoryItemRng);
-    if (!isItemEligibleAtProgress(accessoryId, runDepthTier, progress)) return { category: 'non_card' };
+    const accessoryId = resolveAccessorySlot(accessoryRankRng, accessoryItemRng, context);
     return { category: 'accessory', id: accessoryId };
   }
   return { category: 'non_card' };
@@ -197,13 +228,13 @@ export function resolveLootSlot(
 /**
  * Applies resolveLootSlot independently to every entry of `itemIds`
  * (already the result of the existing non-card draw, unchanged length
- * and unchanged non-card content for every slot that stays non_card) —
+ * and unchanged non-card content for every slot that stays non_card) --
  * the shared 3-way substitution pass state.ts uses for both normal
  * floor generation and monsterHouse reward, replacing Phase 24.4c's
  * substituteCardSlots at those call sites (card-loot.ts's own
  * substituteCardSlots function itself remains unchanged and untouched,
  * for its own standalone unit tests). Each slot's streams continue their
- * consumption order across every slot in `itemIds` in array order —
+ * consumption order across every slot in `itemIds` in array order --
  * mirroring how equipmentDefinitionRng/equipmentCurseRng and card-loot's
  * own 3 streams already continue across both normal generation and the
  * monsterHouse reward loop in state.ts.
@@ -215,11 +246,10 @@ export function substituteLootSlots(
   cardBodyRng: () => number,
   accessoryRankRng: () => number,
   accessoryItemRng: () => number,
-  runDepthTier: RunDepthTier = 'deep',
-  progress: number = 1,
+  context: ItemAvailabilityContext,
 ): ItemId[] {
   return itemIds.map((itemId) => {
-    const resolved = resolveLootSlot(categoryRng, cardRarityRng, cardBodyRng, accessoryRankRng, accessoryItemRng, runDepthTier, progress);
+    const resolved = resolveLootSlot(categoryRng, cardRarityRng, cardBodyRng, accessoryRankRng, accessoryItemRng, context);
     return resolved.category === 'non_card' ? itemId : resolved.id;
   });
 }

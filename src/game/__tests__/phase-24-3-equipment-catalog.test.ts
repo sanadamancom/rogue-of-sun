@@ -156,7 +156,7 @@ describe('Phase 24.3 Stage 1: current floor generation is unchanged', () => {
   it('the staged ground-item pools (floors 1-3) still only ever include the pre-24.3 5 equipment species', () => {
     const preExisting = new Set(['sword', 'armor', 'spear', 'hammer', 'solar_gun']);
     for (const floor of [1, 2, 3]) {
-      const pool = getGroundItemPoolForFloor(floor);
+      const pool = getGroundItemPoolForFloor(floor, 3, 'short');
       const equipmentInPool = pool.filter((id) => WEAPON_IDS_IN_ORDER.includes(id as WeaponId) || ARMOR_IDS_IN_ORDER.includes(id as ArmorId));
       for (const id of equipmentInPool) {
         expect(preExisting.has(id)).toBe(true);

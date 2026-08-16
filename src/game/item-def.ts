@@ -658,13 +658,13 @@ const GROUND_ITEM_POOL_ALL: ReadonlyArray<ItemId> = [
  * The full ground-item candidate pool for `floor` of a run with
  * `totalFloors` total floors and `runDepthTier` tier (Phase 24.6b2a,
  * replacing Phase 15.4b's hardcoded floor===2/floor>=3 staging — see
- * GROUND_ITEM_POOL_ALL's own doc comment above). `totalFloors`/
- * `runDepthTier` default to 3/'short' so every pre-24.6b2a call site
- * that hasn't been updated to pass them explicitly still gets the exact
- * default-run behavior it always had (defensive only — every production
- * call site below is updated to pass the real run's values).
+ * GROUND_ITEM_POOL_ALL's own doc comment above). Phase 24.6b2a1:
+ * `totalFloors`/`runDepthTier` are required — no implicit default
+ * exists, so a caller that forgets to pass the real run's values gets a
+ * compile error rather than silently generating under an unintended
+ * (3, 'short') run condition.
  */
-export function getGroundItemPoolForFloor(floor: number, totalFloors: number = 3, runDepthTier: RunDepthTier = 'short'): ItemId[] {
+export function getGroundItemPoolForFloor(floor: number, totalFloors: number, runDepthTier: RunDepthTier): ItemId[] {
   const progress = floorProgressRatio(floor, totalFloors);
   return filterEligibleItemIds(GROUND_ITEM_POOL_ALL, runDepthTier, progress);
 }
@@ -769,9 +769,9 @@ export const BASE_GROUND_ITEM_WEIGHT = 10;
  */
 export function getWeightedGroundItemPoolForFloor(
   floor: number,
-  excludedIds?: ReadonlySet<ItemId>,
-  totalFloors: number = 3,
-  runDepthTier: RunDepthTier = 'short',
+  excludedIds: ReadonlySet<ItemId> | undefined,
+  totalFloors: number,
+  runDepthTier: RunDepthTier,
 ): WeightedGroundItemCandidate[] {
   const baseIds = getGroundItemPoolForFloor(floor, totalFloors, runDepthTier).filter((id) => !excludedIds?.has(id));
   const baseCandidates: WeightedGroundItemCandidate[] = baseIds.map((id) => ({

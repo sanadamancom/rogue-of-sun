@@ -170,7 +170,7 @@ export function getTemperanceCandidates(state: GameState): CardTargetRef[] {
  * progress reaches 2/3 of the run, exactly like they're excluded from
  * ground-item-pool generation before that point.
  */
-export function getTransformCandidatesForItem(itemId: ItemId, runDepthTier: RunDepthTier = 'deep', progress: number = 1): ItemId[] {
+export function getTransformCandidatesForItem(itemId: ItemId, runDepthTier: RunDepthTier, progress: number): ItemId[] {
   const category = ITEM_DEFINITIONS[itemId].category;
   return ITEM_IDS_IN_ORDER.filter(
     (candidateId) =>
@@ -197,7 +197,7 @@ export function getTransformCandidatesForItem(itemId: ItemId, runDepthTier: RunD
  * getTransformCandidatesForItem unchanged (same defaults, same
  * unfiltered pre-24.6b2a behavior when omitted).
  */
-export function hasAlternateTransformCategory(itemId: ItemId, runDepthTier: RunDepthTier = 'deep', progress: number = 1): boolean {
+export function hasAlternateTransformCategory(itemId: ItemId, runDepthTier: RunDepthTier, progress: number): boolean {
   return getTransformCandidatesForItem(itemId, runDepthTier, progress).length > 0;
 }
 

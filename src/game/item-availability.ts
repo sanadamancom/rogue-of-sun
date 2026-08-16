@@ -1,6 +1,32 @@
 import { ItemId, RunDepthTier } from './types';
 
 /**
+ * Phase 24.6b2a1: the required (runDepthTier, progress) pair every
+ * run-aware production API that needs eligibility now takes explicitly
+ * — no implicit default (3/'short'/'deep'/1) exists anywhere in
+ * production after this Phase, per the task's "黙示defaultを削除"
+ * requirement. Callers always derive this from the actual GameState
+ * (`state.runDepthTier`, `floorProgressRatio(state.floor,
+ * state.totalFloors)`) or, during floor construction itself, from the
+ * `RunConfig` in scope.
+ */
+export interface ItemAvailabilityContext {
+  runDepthTier: RunDepthTier;
+  progress: number;
+}
+
+/**
+ * `isItemEligibleAtProgress(itemId, context.runDepthTier,
+ * context.progress)` — convenience wrapper taking the bundled context
+ * object instead of two positional arguments, for call sites that
+ * already have an ItemAvailabilityContext on hand (equipment-loot.ts/
+ * card-loot.ts/accessory-loot.ts's pre-selection candidate filters).
+ */
+export function isItemEligibleInContext(itemId: ItemId, context: ItemAvailabilityContext): boolean {
+  return isItemEligibleAtProgress(itemId, context.runDepthTier, context.progress);
+}
+
+/**
  * Phase 24.6b2a: the coarse candidate-pool and depth-progress gate every
  * ItemId is registered under (docs/history/phase-24-6b0-depth-tier-budget-audit.md's
  * availability_model, now implemented). `minimumRunDepth` gates on the

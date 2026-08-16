@@ -513,7 +513,7 @@ function spawnEnemyDropIfAny(state: GameState, target: EnemyActor, events: GameE
   let resolvedDefinitionId: WeaponId | ArmorId | undefined;
   let cursed = false;
   if (isNormalEquipmentSlot(drawnItemId)) {
-    resolvedDefinitionId = resolveEnemyDropEquipmentDefinition(drawnItemId, state.floor, state.totalFloors, floorSeed, enemyId);
+    resolvedDefinitionId = resolveEnemyDropEquipmentDefinition(drawnItemId, state.floor, state.totalFloors, floorSeed, enemyId, state.runDepthTier);
     finalItemId = resolvedDefinitionId;
     cursed = rollEnemyDropCurse(floorSeed, enemyId);
   }

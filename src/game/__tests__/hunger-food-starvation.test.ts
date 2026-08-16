@@ -206,9 +206,9 @@ describe('hunger decrease (Phase 11.3)', () => {
 
 describe('chocolate (Phase 15.4b random ground item generation)', () => {
   it('is a valid candidate on every floor (in the cumulative pool from floor 1)', () => {
-    expect(getGroundItemPoolForFloor(1)).toContain('chocolate');
-    expect(getGroundItemPoolForFloor(2)).toContain('chocolate');
-    expect(getGroundItemPoolForFloor(3)).toContain('chocolate');
+    expect(getGroundItemPoolForFloor(1, 3, 'short')).toContain('chocolate');
+    expect(getGroundItemPoolForFloor(2, 3, 'short')).toContain('chocolate');
+    expect(getGroundItemPoolForFloor(3, 3, 'short')).toContain('chocolate');
   });
 
   it('floor 1 now guarantees at least one chocolate (Phase 16.1 minimum food supply)', () => {

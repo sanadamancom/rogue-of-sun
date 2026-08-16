@@ -148,9 +148,9 @@ describe('apple placement in real floor generation (createInitialState) (Phase 1
   });
 
   it('is a valid candidate on every floor (in the cumulative pool from floor 1)', () => {
-    expect(getGroundItemPoolForFloor(1)).toContain('apple');
-    expect(getGroundItemPoolForFloor(2)).toContain('apple');
-    expect(getGroundItemPoolForFloor(3)).toContain('apple');
+    expect(getGroundItemPoolForFloor(1, 3, 'short')).toContain('apple');
+    expect(getGroundItemPoolForFloor(2, 3, 'short')).toContain('apple');
+    expect(getGroundItemPoolForFloor(3, 3, 'short')).toContain('apple');
   });
 
   it('is deterministic: the same seed places groundItems identically', () => {

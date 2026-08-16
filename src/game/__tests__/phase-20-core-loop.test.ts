@@ -551,26 +551,26 @@ describe('Phase 20 core loop', () => {
     const notYetImplemented: CardId[] = ['emperor', 'justice', 'temperance', 'devil', 'tower', 'star', 'moon', 'sun'];
 
     it('no card (implemented or not) appears in the floor 1 weighted pool — floor loot design deferred to Phase 21+ (rogue-of-sun-development-plan.md), floorDropEnabled stays false for all 17', () => {
-      const pool = getWeightedGroundItemPoolForFloor(1);
+      const pool = getWeightedGroundItemPoolForFloor(1, undefined, 3, 'short');
       const cardIds = pool.filter((c) => (CARD_IDS_IN_ORDER as readonly string[]).includes(c.id)).map((c) => c.id);
       expect(cardIds).toEqual([]);
     });
 
     it('no card appears in the floor 2 weighted pool', () => {
-      const pool = getWeightedGroundItemPoolForFloor(2);
+      const pool = getWeightedGroundItemPoolForFloor(2, undefined, 3, 'short');
       const cardIds = pool.filter((c) => (CARD_IDS_IN_ORDER as readonly string[]).includes(c.id)).map((c) => c.id);
       expect(cardIds).toEqual([]);
     });
 
     it('no card appears in the floor 3 weighted pool, even though implemented cards\' effects now exist', () => {
-      const pool = getWeightedGroundItemPoolForFloor(3);
+      const pool = getWeightedGroundItemPoolForFloor(3, undefined, 3, 'short');
       const cardIds = pool.filter((c) => (implemented as readonly string[]).includes(c.id)).map((c) => c.id);
       expect(cardIds).toEqual([]);
     });
 
     it('none of the 8 not-yet-implemented cards ever appear in any floor pool', () => {
       for (const floor of [1, 2, 3]) {
-        const pool = getWeightedGroundItemPoolForFloor(floor);
+        const pool = getWeightedGroundItemPoolForFloor(floor, undefined, 3, 'short');
         for (const id of notYetImplemented) {
           expect(pool.some((c) => c.id === id)).toBe(false);
         }
@@ -579,7 +579,7 @@ describe('Phase 20 core loop', () => {
 
     it('weight-0 candidates never appear (defensive: every included card has weight > 0)', () => {
       for (const floor of [1, 2, 3]) {
-        const pool = getWeightedGroundItemPoolForFloor(floor);
+        const pool = getWeightedGroundItemPoolForFloor(floor, undefined, 3, 'short');
         for (const c of pool) {
           expect(c.weight).toBeGreaterThan(0);
         }
@@ -599,7 +599,7 @@ describe('Phase 20 core loop', () => {
     });
 
     it('pre-existing non-card items keep uniform relative weight (BASE_GROUND_ITEM_WEIGHT each)', () => {
-      const pool = getWeightedGroundItemPoolForFloor(1);
+      const pool = getWeightedGroundItemPoolForFloor(1, undefined, 3, 'short');
       const nonCardWeights = pool.filter((c) => !(CARD_IDS_IN_ORDER as readonly string[]).includes(c.id)).map((c) => c.weight);
       expect(new Set(nonCardWeights)).toEqual(new Set([10]));
     });
@@ -611,7 +611,7 @@ describe('Phase 20 core loop', () => {
     });
 
     it('drawWeightedGroundItemSelection consumes exactly one rng() call per draw', () => {
-      const pool = getWeightedGroundItemPoolForFloor(2);
+      const pool = getWeightedGroundItemPoolForFloor(2, undefined, 3, 'short');
       let calls = 0;
       const rng = () => {
         calls += 1;

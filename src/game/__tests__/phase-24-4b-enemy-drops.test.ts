@@ -69,9 +69,9 @@ describe('rollEnemyDropOccurs: determinism and statistical rate', () => {
 describe('selectEnemyDropItemId: candidates and determinism', () => {
   it('always returns an id from getGroundItemPoolForFloor(floor) — never a card, never black_armor', () => {
     for (const floor of [1, 2, 3]) {
-      const pool = new Set(getGroundItemPoolForFloor(floor));
+      const pool = new Set(getGroundItemPoolForFloor(floor, 3, 'short'));
       for (let enemyId = 0; enemyId < 100; enemyId++) {
-        const picked = selectEnemyDropItemId(floor, 55, enemyId);
+        const picked = selectEnemyDropItemId(floor, 55, enemyId, 3, 'short');
         expect(pool.has(picked)).toBe(true);
         expect(picked).not.toBe('black_armor');
       }
@@ -79,7 +79,7 @@ describe('selectEnemyDropItemId: candidates and determinism', () => {
   });
 
   it('is deterministic for the same (floor, floorSeed, enemyId)', () => {
-    expect(selectEnemyDropItemId(2, 99, 7)).toBe(selectEnemyDropItemId(2, 99, 7));
+    expect(selectEnemyDropItemId(2, 99, 7, 3, 'short')).toBe(selectEnemyDropItemId(2, 99, 7, 3, 'short'));
   });
 });
 
@@ -91,7 +91,7 @@ describe('resolveEnemyDropEquipmentDefinition: rank eligibility, exclusion, and 
       for (const totalFloors of [3, 10, 100]) {
         for (const floor of [1, Math.ceil(totalFloors / 2), totalFloors]) {
           for (let enemyId = 0; enemyId < 20; enemyId++) {
-            const picked = resolveEnemyDropEquipmentDefinition(slot, floor, totalFloors, 314, enemyId);
+            const picked = resolveEnemyDropEquipmentDefinition(slot, floor, totalFloors, 314, enemyId, 'short');
             expect(picked).not.toBe('black_armor');
             const isWeapon = (WEAPON_IDS_IN_ORDER as readonly string[]).includes(picked);
             const rank = isWeapon ? WEAPON_DEFINITIONS[picked as WeaponId].rank : ARMOR_DEFINITIONS[picked as ArmorId]?.rank;
@@ -106,9 +106,9 @@ describe('resolveEnemyDropEquipmentDefinition: rank eligibility, exclusion, and 
   it('every result is a member of equipment-loot.ts\'s own candidate list for the same ratio (single shared source of truth)', () => {
     for (const slot of SLOTS) {
       const ratio = floorProgressRatio(2, 3);
-      const candidateIds = new Set(getNormalEquipmentCandidates(slot, ratio).map((c) => c.definitionId));
+      const candidateIds = new Set(getNormalEquipmentCandidates(slot, ratio, { runDepthTier: 'short', progress: ratio }).map((c) => c.definitionId));
       for (let enemyId = 0; enemyId < 30; enemyId++) {
-        const picked = resolveEnemyDropEquipmentDefinition(slot, 2, 3, 1, enemyId);
+        const picked = resolveEnemyDropEquipmentDefinition(slot, 2, 3, 1, enemyId, 'short');
         expect(candidateIds.has(picked)).toBe(true);
       }
     }
@@ -117,8 +117,8 @@ describe('resolveEnemyDropEquipmentDefinition: rank eligibility, exclusion, and 
   it('7/10 and 70/100 resolve through the identical rank-weight rule (same picks for the same enemyId)', () => {
     for (const slot of SLOTS) {
       for (let enemyId = 0; enemyId < 10; enemyId++) {
-        const a = resolveEnemyDropEquipmentDefinition(slot, 7, 10, 5000, enemyId);
-        const b = resolveEnemyDropEquipmentDefinition(slot, 70, 100, 5000, enemyId);
+        const a = resolveEnemyDropEquipmentDefinition(slot, 7, 10, 5000, enemyId, 'short');
+        const b = resolveEnemyDropEquipmentDefinition(slot, 70, 100, 5000, enemyId, 'short');
         expect(a).toBe(b);
       }
     }

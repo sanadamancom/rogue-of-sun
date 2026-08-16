@@ -77,7 +77,7 @@ describe('getNormalEquipmentCandidates: rank eligibility and exclusion', () => {
   it('every returned rank is C/B/A only, at every ratio, for every slot', () => {
     for (const slot of SLOTS) {
       for (const ratio of RATIOS) {
-        const candidates = getNormalEquipmentCandidates(slot, ratio);
+        const candidates = getNormalEquipmentCandidates(slot, ratio, { runDepthTier: 'deep', progress: ratio });
         for (const c of candidates) {
           const isWeapon = (WEAPON_IDS_IN_ORDER as readonly string[]).includes(c.definitionId);
           const rank = isWeapon
@@ -91,7 +91,7 @@ describe('getNormalEquipmentCandidates: rank eligibility and exclusion', () => {
 
   it('black_armor never appears in armor candidates at any ratio', () => {
     for (const ratio of RATIOS) {
-      const ids = getNormalEquipmentCandidates('armor', ratio).map((c) => c.definitionId);
+      const ids = getNormalEquipmentCandidates('armor', ratio, { runDepthTier: 'deep', progress: ratio }).map((c) => c.definitionId);
       expect(ids).not.toContain('black_armor');
     }
   });
@@ -99,7 +99,7 @@ describe('getNormalEquipmentCandidates: rank eligibility and exclusion', () => {
   it('no S or R rank definitionId ever appears in any slot candidates', () => {
     for (const slot of SLOTS) {
       for (const ratio of RATIOS) {
-        const ids = getNormalEquipmentCandidates(slot, ratio).map((c) => c.definitionId);
+        const ids = getNormalEquipmentCandidates(slot, ratio, { runDepthTier: 'deep', progress: ratio }).map((c) => c.definitionId);
         for (const id of ids) {
           const isWeapon = (WEAPON_IDS_IN_ORDER as readonly string[]).includes(id);
           const rank = isWeapon ? WEAPON_DEFINITIONS[id as WeaponId].rank : ARMOR_DEFINITIONS[id as ArmorId].rank;
@@ -110,9 +110,14 @@ describe('getNormalEquipmentCandidates: rank eligibility and exclusion', () => {
     }
   });
 
-  it('sword/spear/hammer slots return exactly that family\'s C/B/A species (2 each = 6)', () => {
+  it('sword/spear/hammer slots return exactly that family\'s C/B/A species (2 each = 6) at full progress', () => {
+    // Phase 24.6b2a1: 'spear'/'hammer' have unlockProgress 2/3 (item-availability.ts),
+    // so this test — which checks every C/B/A species of a family is present —
+    // uses progress: 1 (fully unlocked) rather than 0.5, to isolate the rank/family
+    // filter this test targets from the separate eligibility gate (covered by its
+    // own dedicated tests below).
     for (const family of ['sword', 'spear', 'hammer'] as const) {
-      const ids = getNormalEquipmentCandidates(family, 0.5).map((c) => c.definitionId);
+      const ids = getNormalEquipmentCandidates(family, 0.5, { runDepthTier: 'deep', progress: 1 }).map((c) => c.definitionId);
       const expected = WEAPON_IDS_IN_ORDER.filter(
         (id) => WEAPON_DEFINITIONS[id].family === family && ['C', 'B', 'A'].includes(WEAPON_DEFINITIONS[id].rank),
       );
@@ -122,7 +127,7 @@ describe('getNormalEquipmentCandidates: rank eligibility and exclusion', () => {
   });
 
   it('armor slot returns every non-black_armor C/B/A armor species (2 + 5 + 4 = 11)', () => {
-    const ids = getNormalEquipmentCandidates('armor', 0.5).map((c) => c.definitionId);
+    const ids = getNormalEquipmentCandidates('armor', 0.5, { runDepthTier: 'deep', progress: 0.5 }).map((c) => c.definitionId);
     const expected = ARMOR_IDS_IN_ORDER.filter(
       (id) => id !== 'black_armor' && ['C', 'B', 'A'].includes(ARMOR_DEFINITIONS[id].rank),
     );
@@ -132,7 +137,7 @@ describe('getNormalEquipmentCandidates: rank eligibility and exclusion', () => {
 
   it('solar_gun slot always returns exactly [solar_gun]', () => {
     for (const ratio of RATIOS) {
-      const ids = getNormalEquipmentCandidates('solar_gun', ratio).map((c) => c.definitionId);
+      const ids = getNormalEquipmentCandidates('solar_gun', ratio, { runDepthTier: 'deep', progress: ratio }).map((c) => c.definitionId);
       expect(ids).toEqual(['solar_gun']);
     }
   });
@@ -141,7 +146,7 @@ describe('getNormalEquipmentCandidates: rank eligibility and exclusion', () => {
     for (const slot of ['sword', 'spear', 'hammer', 'armor'] as const) {
       let prevShare = -1;
       for (const ratio of [0, 0.25, 0.5, 0.75, 1]) {
-        const candidates = getNormalEquipmentCandidates(slot, ratio);
+        const candidates = getNormalEquipmentCandidates(slot, ratio, { runDepthTier: 'deep', progress: ratio });
         const total = candidates.reduce((s, c) => s + c.weight, 0);
         const ba = candidates
           .filter((c) => {
@@ -162,7 +167,7 @@ describe('getNormalEquipmentCandidates: rank eligibility and exclusion', () => {
   it('C-rank weight never drops to 0 (normal supply never disappears, even at ratio 0)', () => {
     expect(RANK_WEIGHT_PROVISIONAL.C.base).toBeGreaterThan(0);
     for (const slot of ['sword', 'spear', 'hammer', 'armor'] as const) {
-      const candidates = getNormalEquipmentCandidates(slot, 0);
+      const candidates = getNormalEquipmentCandidates(slot, 0, { runDepthTier: 'deep', progress: 0 });
       const cWeight = candidates
         .filter((c) => {
           const isWeapon = (WEAPON_IDS_IN_ORDER as readonly string[]).includes(c.definitionId);
@@ -180,11 +185,11 @@ describe('getNormalEquipmentCandidates: rank eligibility and exclusion', () => {
 describe('selectNormalEquipmentDefinition: candidate enumeration and selection share the same table', () => {
   it('every value ever selected across many rng values is present in getNormalEquipmentCandidates', () => {
     for (const slot of ['sword', 'spear', 'hammer', 'armor', 'solar_gun'] as const) {
-      const candidateIds = new Set(getNormalEquipmentCandidates(slot, 0.5).map((c) => c.definitionId));
+      const candidateIds = new Set(getNormalEquipmentCandidates(slot, 0.5, { runDepthTier: 'deep', progress: 0.5 }).map((c) => c.definitionId));
       for (let i = 0; i <= 20; i++) {
         const roll = i / 20;
         const rng = () => Math.min(roll, 0.999999);
-        const picked = selectNormalEquipmentDefinition(slot, 0.5, rng);
+        const picked = selectNormalEquipmentDefinition(slot, 0.5, rng, { runDepthTier: 'deep', progress: 0.5 });
         expect(candidateIds.has(picked)).toBe(true);
       }
     }
@@ -197,15 +202,15 @@ describe('selectNormalEquipmentDefinition: candidate enumeration and selection s
         calls++;
         return 0.42;
       };
-      selectNormalEquipmentDefinition(slot, 0.5, rng);
+      selectNormalEquipmentDefinition(slot, 0.5, rng, { runDepthTier: 'deep', progress: 0.5 });
       expect(calls).toBe(1);
     }
   });
 
   it('does not throw for extreme rng() edge values (0 and near-1)', () => {
     for (const slot of ['sword', 'spear', 'hammer', 'armor', 'solar_gun'] as const) {
-      expect(() => selectNormalEquipmentDefinition(slot, 0, () => 0)).not.toThrow();
-      expect(() => selectNormalEquipmentDefinition(slot, 1, () => 0.999999999)).not.toThrow();
+      expect(() => selectNormalEquipmentDefinition(slot, 0,  () => 0, { runDepthTier: 'deep', progress: 0 })).not.toThrow();
+      expect(() => selectNormalEquipmentDefinition(slot, 1,  () => 0.999999999, { runDepthTier: 'deep', progress: 1 })).not.toThrow();
     }
   });
 });
@@ -313,8 +318,8 @@ describe('monsterHouse equipment rewards', () => {
 describe('determinism across TOTAL_FLOORS 3/10/100', () => {
   it('selectNormalEquipmentDefinition is a pure function: same slot/ratio/rng-sequence always yields the same result', () => {
     for (const slot of ['sword', 'spear', 'hammer', 'armor', 'solar_gun'] as const) {
-      const a = selectNormalEquipmentDefinition(slot, 0.6, createRng(777));
-      const b = selectNormalEquipmentDefinition(slot, 0.6, createRng(777));
+      const a = selectNormalEquipmentDefinition(slot, 0.6, createRng(777), { runDepthTier: 'deep', progress: 0.6 });
+      const b = selectNormalEquipmentDefinition(slot, 0.6, createRng(777), { runDepthTier: 'deep', progress: 0.6 });
       expect(a).toBe(b);
     }
   });
@@ -324,7 +329,7 @@ describe('determinism across TOTAL_FLOORS 3/10/100', () => {
       for (const floor of [1, Math.ceil(totalFloors / 2), totalFloors]) {
         const ratio = floorProgressRatio(floor, totalFloors);
         for (const slot of ['sword', 'spear', 'hammer', 'armor', 'solar_gun'] as const) {
-          expect(() => selectNormalEquipmentDefinition(slot, ratio, createRng(floor ^ totalFloors))).not.toThrow();
+          expect(() => selectNormalEquipmentDefinition(slot, ratio, createRng(floor ^ totalFloors), { runDepthTier: 'deep', progress: ratio })).not.toThrow();
         }
       }
     }
@@ -336,7 +341,7 @@ describe('determinism across TOTAL_FLOORS 3/10/100', () => {
         for (const floor of [1, Math.ceil(totalFloors * 0.7), totalFloors]) {
           const ratio = floorProgressRatio(floor, totalFloors);
           for (const slot of ['sword', 'spear', 'hammer', 'armor', 'solar_gun'] as const) {
-            const picked = selectNormalEquipmentDefinition(slot, ratio, createRng(seed ^ floor ^ totalFloors));
+            const picked = selectNormalEquipmentDefinition(slot, ratio, createRng(seed ^ floor ^ totalFloors), { runDepthTier: 'deep', progress: ratio });
             expect(picked).not.toBe('black_armor');
             const isWeapon = (WEAPON_IDS_IN_ORDER as readonly string[]).includes(picked);
             const rank = isWeapon

@@ -1,6 +1,7 @@
 import { WeaponDefinition, WeaponFamily, WEAPON_DEFINITIONS, WEAPON_IDS_IN_ORDER } from './weapon-def';
 import { ARMOR_DEFINITIONS, ARMOR_IDS_IN_ORDER } from './armor-def';
 import { ArmorId, EquipmentRank, WeaponId } from './types';
+import { ItemAvailabilityContext, isItemEligibleInContext } from './item-availability';
 
 /**
  * Phase 24.4a: connects Phase 24.3's full equipment catalog to normal
@@ -69,18 +70,37 @@ interface WeightedCandidate<T extends string> {
   weight: number;
 }
 
-/** Every weapon species in `family` whose rank is C/B/A (never S/R), each with an equal per-species share of that rank's total `rankWeight` — so a family with an uneven per-rank species count (this game's are even, but future ones needn't be) still sums to the intended rank-level weight. black_armor has no weapon equivalent and is irrelevant here. */
-function weightedWeaponCandidates(family: WeaponFamily, ratio: number): WeightedCandidate<WeaponId>[] {
+/**
+ * Every weapon species in `family` whose rank is C/B/A (never S/R) AND
+ * eligible under `context` (Phase 24.6b2a1: pre-selection candidate
+ * filtering, not post-selection rejection — an ineligible species never
+ * enters `flattenByRank`'s per-rank species count at all, so its share
+ * of that rank's weight is automatically redistributed across the
+ * remaining eligible species of the same rank, never discarded). With
+ * every current weapon species at minimumRunDepth:'short'/
+ * unlockProgress:0 (item-availability.ts's ITEM_AVAILABILITY), this
+ * filter is a no-op today — every species that passed the rank check
+ * before also passes this eligibility check now. black_armor has no
+ * weapon equivalent and is irrelevant here.
+ */
+function weightedWeaponCandidates(family: WeaponFamily, ratio: number, context: ItemAvailabilityContext): WeightedCandidate<WeaponId>[] {
   const bySpecies: WeaponDefinition[] = WEAPON_IDS_IN_ORDER.map((id) => WEAPON_DEFINITIONS[id]).filter(
-    (def) => def.family === family && (NORMAL_RANKS as readonly string[]).includes(def.rank),
+    (def) => def.family === family && (NORMAL_RANKS as readonly string[]).includes(def.rank) && isItemEligibleInContext(def.id, context),
   );
   return flattenByRank(bySpecies, ratio);
 }
 
-/** Every armor species whose rank is C/B/A (never S/R) and whose id is not 'black_armor' — the sole always-on exclusion guard for black_armor's absence from normal/reward generation (producer_decisions' rank_supply: "black_armorは...通常床生成、monsterHouse報酬から必ず除外する"). */
-function weightedArmorCandidates(ratio: number): WeightedCandidate<ArmorId>[] {
+/**
+ * Every armor species whose rank is C/B/A (never S/R), whose id is not
+ * 'black_armor' (the sole always-on exclusion guard for black_armor's
+ * absence from normal/reward generation, producer_decisions' rank_supply),
+ * AND eligible under `context` — same pre-selection filtering as
+ * weightedWeaponCandidates above (a no-op today; every armor species is
+ * short/0).
+ */
+function weightedArmorCandidates(ratio: number, context: ItemAvailabilityContext): WeightedCandidate<ArmorId>[] {
   const bySpecies = ARMOR_IDS_IN_ORDER.map((id) => ARMOR_DEFINITIONS[id]).filter(
-    (def) => def.id !== 'black_armor' && (NORMAL_RANKS as readonly string[]).includes(def.rank),
+    (def) => def.id !== 'black_armor' && (NORMAL_RANKS as readonly string[]).includes(def.rank) && isItemEligibleInContext(def.id, context),
   );
   return flattenByRank(bySpecies, ratio);
 }
@@ -99,18 +119,25 @@ function flattenByRank<T extends { id: string; rank: EquipmentRank }>(
 }
 
 /**
- * The full flattened, ratio-weighted candidate list for `slot` — the
- * single source of truth both candidate enumeration (tests) and actual
- * selection (`selectNormalEquipmentDefinition` below) read from, so they
- * can never drift apart. Never empty: 'solar_gun' always returns exactly
- * its own 1-entry list (weight irrelevant, single candidate), and every
+ * The full flattened, ratio-weighted, eligibility-pre-filtered candidate
+ * list for `slot` — the single source of truth both candidate
+ * enumeration (tests) and actual selection
+ * (`selectNormalEquipmentDefinition` below) read from, so they can never
+ * drift apart. `context` (Phase 24.6b2a1, required — no implicit
+ * default) is required so no production caller can silently run under
+ * an unintended run condition (the task's "production呼び出し漏れが黙っ
+ * て別run条件として動く" risk this Phase removes). Never empty with the
+ * current item roster: 'solar_gun' always returns exactly its own
+ * 1-entry list (weight irrelevant, single candidate, always short/0 —
+ * see empty_candidate's metadata-validation contract), and every
  * family/armor list always has at least its C-rank entries (weight
- * RANK_WEIGHT_PROVISIONAL.C.base > 0 at every ratio).
+ * RANK_WEIGHT_PROVISIONAL.C.base > 0 at every ratio, and every C-rank
+ * species is short/0 today).
  */
-export function getNormalEquipmentCandidates(slot: NormalEquipmentSlot, ratio: number): WeightedCandidate<WeaponId | ArmorId>[] {
+export function getNormalEquipmentCandidates(slot: NormalEquipmentSlot, ratio: number, context: ItemAvailabilityContext): WeightedCandidate<WeaponId | ArmorId>[] {
   if (slot === 'solar_gun') return [{ definitionId: 'solar_gun', weight: 1 }];
-  if (slot === 'armor') return weightedArmorCandidates(ratio);
-  return weightedWeaponCandidates(slot, ratio);
+  if (slot === 'armor') return weightedArmorCandidates(ratio, context);
+  return weightedWeaponCandidates(slot, ratio, context);
 }
 
 /**
@@ -123,14 +150,25 @@ export function getNormalEquipmentCandidates(slot: NormalEquipmentSlot, ratio: n
  * returns 1 or the weight total is somehow non-positive, so this can
  * never throw on an empty/malformed candidate list.
  */
-export function selectNormalEquipmentDefinition(slot: NormalEquipmentSlot, ratio: number, rng: () => number): WeaponId | ArmorId {
-  const candidates = getNormalEquipmentCandidates(slot, ratio);
+export function selectNormalEquipmentDefinition(slot: NormalEquipmentSlot, ratio: number, rng: () => number, context: ItemAvailabilityContext): WeaponId | ArmorId {
+  const candidates = getNormalEquipmentCandidates(slot, ratio, context);
   const totalWeight = candidates.reduce((sum, c) => sum + c.weight, 0);
   const roll = rng();
   if (candidates.length === 0 || totalWeight <= 0) {
-    // Defensive only — every real slot/ratio combination above always
-    // yields at least one positive-weight candidate.
-    return slot === 'solar_gun' ? 'solar_gun' : slot === 'armor' ? 'armor' : (`${slot}` as WeaponId);
+    // Phase 24.6b2a1: an empty/non-positive-weight candidate list here
+    // means the item-availability.ts registry (or a future rank-curve
+    // change) has made an entire slot/rank/family ineligible for this
+    // context — a metadata configuration bug, not a normal run
+    // condition (task's empty_candidate contract: "metadata不整合時だけ
+    // 明示的invariant error" — never a silent random fallback, revival
+    // of an ineligible item, or a different-category re-draw). Throws
+    // before consuming `roll` for anything, so this never perturbs the
+    // caller's RNG stream in an inconsistent way relative to a
+    // successful draw (both paths consume exactly the one `rng()` call
+    // already made above).
+    throw new Error(
+      `selectNormalEquipmentDefinition: no eligible equipment candidates for slot '${slot}' at runDepthTier '${context.runDepthTier}', progress ${context.progress} — this indicates an item-availability.ts metadata configuration error, not a normal run state.`,
+    );
   }
   let threshold = roll * totalWeight;
   for (const candidate of candidates) {

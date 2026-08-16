@@ -549,9 +549,9 @@ describe('solar gun and sun fruit integration (Phase 09.2)', () => {
 
 describe('solar gun placement (Phase 15.4b random ground item generation)', () => {
   it('is a valid candidate on floor 1, floor 2, and floor 3 (cumulative pool, no longer floor-1-only)', () => {
-    expect(getGroundItemPoolForFloor(1)).toContain('solar_gun');
-    expect(getGroundItemPoolForFloor(2)).toContain('solar_gun');
-    expect(getGroundItemPoolForFloor(3)).toContain('solar_gun');
+    expect(getGroundItemPoolForFloor(1, 3, 'short')).toContain('solar_gun');
+    expect(getGroundItemPoolForFloor(2, 3, 'short')).toContain('solar_gun');
+    expect(getGroundItemPoolForFloor(3, 3, 'short')).toContain('solar_gun');
   });
 
   it('appearance is no longer guaranteed on any floor (Phase 15.4b): it varies across seeds', () => {
