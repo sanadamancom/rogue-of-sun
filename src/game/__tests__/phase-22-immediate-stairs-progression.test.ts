@@ -86,7 +86,7 @@ function krakenPullOntoExitState(): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
-    runConfig: DEFAULT_RUN_CONFIG,
+    runDepthTier: DEFAULT_RUN_CONFIG.runDepthTier,
     exit: { x: 8, y: 1 },
     regenProgress: 0,
     webs: [],

@@ -516,14 +516,13 @@ export interface TrapTile {
 export type RunDepthTier = 'short' | 'standard' | 'deep';
 
 /**
- * Phase 24.6b1: the small, run-lifetime-constant configuration a run is
- * created with. Currently just the two fields production generation code
- * needs a single source of truth for (previously `TOTAL_FLOORS`, a
- * module constant in floor.ts, was the only source — see that file's own
- * doc comment for why it's kept as a back-compat export). Neither field
- * changes across floor transitions within the same run — state.ts's
- * buildFloorState carries the same RunConfig reference forward via
- * advanceToNextFloor's `carry`, never rebuilding or mutating it.
+ * Phase 24.6b1/24.6b1a: the small run-creation input a run is started
+ * with (createInitialState's optional second argument). Not stored on
+ * GameState itself — GameState.totalFloors/runDepthTier (see below) are
+ * the sole canonical, run-lifetime-constant fields; RunConfig only
+ * exists as (1) this creation-time input and (2) buildFloorState's own
+ * internal parameter, copied field-by-field into the returned state,
+ * never stored as a nested object.
  */
 export interface RunConfig {
   /** Total floors in this run. Must be a finite integer >= 1. */
@@ -545,10 +544,22 @@ export interface GameState {
   runSeed: number;
   /** Current floor number, 1-indexed. */
   floor: number;
-  /** Total floors in this run. Kept in sync with runConfig.totalFloors (buildFloorState sets both from the same RunConfig) — retained as its own field rather than removed so every pre-24.6b1 read site (floorProgressRatio calls, victory check, etc.) keeps working unchanged. */
+  /**
+   * Phase 24.6b0/24.6b1: total floors in this run — the sole canonical
+   * source for a run's max floor (RunConfig.totalFloors, passed into
+   * createInitialState/buildFloorState, is only the run-creation *input*;
+   * this field is what production reads for the whole run's lifetime —
+   * see floorProgressRatio calls, turn.ts's victory check, and every
+   * other max-floor read site).
+   */
   totalFloors: number;
-  /** Phase 24.6b1: this run's configuration (totalFloors + runDepthTier), constant for the run's lifetime. `state.totalFloors` is always equal to `state.runConfig.totalFloors` — see that field's own doc comment for why both exist. */
-  runConfig: Readonly<RunConfig>;
+  /**
+   * Phase 24.6b1a: this run's candidate-pool tier (see RunDepthTier),
+   * the sole canonical source alongside totalFloors — same
+   * input-vs-canonical-state relationship as totalFloors above. Not yet
+   * read by any generation logic (Phase 24.6b2's job).
+   */
+  runDepthTier: RunDepthTier;
   exit: Vec2;
   /** Consumed-turn counter toward the player's next natural HP regeneration tick (0..REGEN_TURNS_PER_HP-1). */
   regenProgress: number;

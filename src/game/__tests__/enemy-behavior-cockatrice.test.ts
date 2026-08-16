@@ -74,7 +74,7 @@ function cockatriceState(
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
-    runConfig: DEFAULT_RUN_CONFIG,
+    runDepthTier: DEFAULT_RUN_CONFIG.runDepthTier,
     exit: { x: 199, y: 199 },
     regenProgress: 0,
     webs: [],

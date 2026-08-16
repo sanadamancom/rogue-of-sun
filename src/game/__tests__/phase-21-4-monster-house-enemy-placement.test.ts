@@ -342,7 +342,7 @@ describe('hidden suppression and reveal-turn participation (regression from Phas
       runSeed: 1,
       floor: 2,
       totalFloors: 3,
-      runConfig: DEFAULT_RUN_CONFIG,
+      runDepthTier: DEFAULT_RUN_CONFIG.runDepthTier,
       exit: { x: 12, y: 3 },
       regenProgress: 0,
       webs: [],

@@ -47,7 +47,7 @@ function singleEnemyState(type: EnemyType, hp: number): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
-    runConfig: DEFAULT_RUN_CONFIG,
+    runDepthTier: DEFAULT_RUN_CONFIG.runDepthTier,
     exit: { x: 99, y: 99 },
     regenProgress: 0,
     webs: [],

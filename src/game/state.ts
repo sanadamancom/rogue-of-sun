@@ -645,7 +645,7 @@ function buildFloorState(
     runSeed,
     floor,
     totalFloors: runConfig.totalFloors,
-    runConfig,
+    runDepthTier: runConfig.runDepthTier,
     exit: placement.exit,
     regenProgress: carry ? carry.regenProgress : 0,
     // Always fresh per floor build (enemy-behavior-02): a new floor,
@@ -886,7 +886,13 @@ export function advanceToNextFloor(state: GameState, events?: GameEvent[]): Game
     equippedAccessoryId: state.equippedAccessoryId ?? null,
     equippedAccessoryInstanceId: state.equippedAccessoryInstanceId ?? null,
   };
-  const nextState = buildFloorState(state.runSeed, state.floor + 1, state.turn, state.runConfig, carry);
+  const nextState = buildFloorState(
+    state.runSeed,
+    state.floor + 1,
+    state.turn,
+    { totalFloors: state.totalFloors, runDepthTier: state.runDepthTier },
+    carry,
+  );
   // Phase 24.3 effect_state floor_transition: floorTriggerUses/
   // defeatedEnemyTypes reset per floor; solSpentRemainder/
   // equippedTurnCounter (not touched here) persist across the
