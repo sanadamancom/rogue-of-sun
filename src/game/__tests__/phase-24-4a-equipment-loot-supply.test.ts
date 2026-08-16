@@ -114,8 +114,14 @@ describe('getNormalEquipmentCandidates: rank eligibility and exclusion', () => {
     // Phase 24.6b2a1: 'spear'/'hammer' have unlockProgress 2/3 (item-availability.ts),
     // so this test — which checks every C/B/A species of a family is present —
     // uses progress: 1 (fully unlocked) rather than 0.5, to isolate the rank/family
-    // filter this test targets from the separate eligibility gate (covered by its
-    // own dedicated tests below).
+    // filter this test targets from the separate eligibility gate. The eligibility
+    // gate's own progress-2/3 boundary (spear/hammer excluded below it, included
+    // at/above it) is covered by phase-24-6b2a-item-availability.test.ts's
+    // "progress 2/3 boundary" describe block and
+    // phase-24-6b2a2-availability-route-regression.test.ts's
+    // "10F/30F/99F unlock-floor boundaries" describe block (Phase 24.6b2a2 —
+    // added after 24.6b2a1a's provenance audit found this comment previously
+    // claimed dedicated tests existed when they did not).
     for (const family of ['sword', 'spear', 'hammer'] as const) {
       const ids = getNormalEquipmentCandidates(family, 0.5, { runDepthTier: 'deep', progress: 1 }).map((c) => c.definitionId);
       const expected = WEAPON_IDS_IN_ORDER.filter(
