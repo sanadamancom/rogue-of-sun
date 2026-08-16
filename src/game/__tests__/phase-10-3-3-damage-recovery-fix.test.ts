@@ -11,6 +11,7 @@ import { createEmptyInventory } from '../item-def';
 import { createInitialActor, createInitialEnemy, processTurn, REGEN_TURNS_PER_HP } from '../turn';
 import { advanceToNextFloor } from '../state';
 import { GameMap, GameState, PlayerAction, Tile } from '../types';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 const TEST_LAYOUT: string[] = [
   '##########',
@@ -43,6 +44,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 99, y: 99 },
     regenProgress: 0,
     webs: [],

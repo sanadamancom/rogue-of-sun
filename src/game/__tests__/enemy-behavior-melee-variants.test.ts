@@ -3,6 +3,7 @@ import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { EnemyType, GameMap, GameState, Tile } from '../types';
 import { ENEMY_DEFINITIONS } from '../enemy-def';
 import { createEmptyInventory } from '../item-def';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 // Open layout with a long straight corridor (row 5) for sword's 2-step
 // approach tests, plus a small walled pocket for "does not jump over
@@ -64,6 +65,7 @@ function singleEnemyState(
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 99, y: 99 },
     regenProgress: 0,
     webs: [],

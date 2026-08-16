@@ -25,6 +25,7 @@ import { createEmptyInventory } from '../item-def';
 import { createInitialActor, createInitialEnemy, ELEMENT_ENCHANTMENT_SOL_COST, processTurn } from '../turn';
 import { rollPercent } from '../rng';
 import { EnemyActor, EnemyType, GameMap, GameState, Tile, WeaponId, ArmorId } from '../types';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 // ---------------------------------------------------------------------
 // Pure-function coverage (enemy-drop.ts)
@@ -226,6 +227,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 99, y: 99 },
     regenProgress: 0,
     webs: [],

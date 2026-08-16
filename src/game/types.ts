@@ -504,6 +504,34 @@ export interface TrapTile {
   trapType: TrapType;
 }
 
+/**
+ * Phase 24.6b1: the coarse candidate-pool tier a run is generated under.
+ * Stored on RunConfig/GameState this phase but not yet read by any
+ * generation logic — item/enemy candidate eligibility by tier is Phase
+ * 24.6b2's job (see docs/history/phase-24-6b0-depth-tier-budget-audit.md's
+ * availability_model). Deliberately never derived from totalFloors — a
+ * 10-floor run and a 99-floor run could both be 'deep', or not; the two
+ * fields are independent per RunConfig's own contract.
+ */
+export type RunDepthTier = 'short' | 'standard' | 'deep';
+
+/**
+ * Phase 24.6b1: the small, run-lifetime-constant configuration a run is
+ * created with. Currently just the two fields production generation code
+ * needs a single source of truth for (previously `TOTAL_FLOORS`, a
+ * module constant in floor.ts, was the only source — see that file's own
+ * doc comment for why it's kept as a back-compat export). Neither field
+ * changes across floor transitions within the same run — state.ts's
+ * buildFloorState carries the same RunConfig reference forward via
+ * advanceToNextFloor's `carry`, never rebuilding or mutating it.
+ */
+export interface RunConfig {
+  /** Total floors in this run. Must be a finite integer >= 1. */
+  totalFloors: number;
+  /** This run's candidate-pool tier (see RunDepthTier). Not yet read by any generation logic — Phase 24.6b1 only stores it. */
+  runDepthTier: RunDepthTier;
+}
+
 export interface GameState {
   map: GameMap;
   player: Actor;
@@ -517,8 +545,10 @@ export interface GameState {
   runSeed: number;
   /** Current floor number, 1-indexed. */
   floor: number;
-  /** Total floors in this run. */
+  /** Total floors in this run. Kept in sync with runConfig.totalFloors (buildFloorState sets both from the same RunConfig) — retained as its own field rather than removed so every pre-24.6b1 read site (floorProgressRatio calls, victory check, etc.) keeps working unchanged. */
   totalFloors: number;
+  /** Phase 24.6b1: this run's configuration (totalFloors + runDepthTier), constant for the run's lifetime. `state.totalFloors` is always equal to `state.runConfig.totalFloors` — see that field's own doc comment for why both exist. */
+  runConfig: Readonly<RunConfig>;
   exit: Vec2;
   /** Consumed-turn counter toward the player's next natural HP regeneration tick (0..REGEN_TURNS_PER_HP-1). */
   regenProgress: number;

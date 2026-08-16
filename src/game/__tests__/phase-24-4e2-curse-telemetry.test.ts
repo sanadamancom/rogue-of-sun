@@ -15,6 +15,7 @@ import {
   buildExportFilename,
   RunTelemetry,
 } from '../telemetry';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 /**
  * Phase 24.4e2 focused tests: raw-event/summary derivation for every
@@ -52,6 +53,7 @@ function baseState(overrides: Partial<GameState> = {}): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 199, y: 199 },
     regenProgress: 0,
     webs: [],

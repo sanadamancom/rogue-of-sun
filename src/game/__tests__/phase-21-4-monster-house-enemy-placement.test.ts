@@ -17,6 +17,7 @@ import { createRng, roomIndexContaining } from '../mapgen';
 import { createInitialState, advanceToNextFloor } from '../state';
 import { createInitialActor, processTurn } from '../turn';
 import { createEmptyInventory } from '../item-def';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 describe('computeMonsterHouseEnemyCount (N formula)', () => {
   it('C=4 -> 4', () => expect(computeMonsterHouseEnemyCount(4)).toBe(4));
@@ -341,6 +342,7 @@ describe('hidden suppression and reveal-turn participation (regression from Phas
       runSeed: 1,
       floor: 2,
       totalFloors: 3,
+      runConfig: DEFAULT_RUN_CONFIG,
       exit: { x: 12, y: 3 },
       regenProgress: 0,
       webs: [],

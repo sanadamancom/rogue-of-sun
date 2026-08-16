@@ -23,6 +23,7 @@ import { createInitialState, advanceToNextFloor } from '../state';
 import { createEmptyInventory } from '../item-def';
 import { createInitialActor, createInitialEnemy, processTurn, isCardIdentified } from '../turn';
 import { EnemyActor, EnemyType, GameMap, GameState, ItemId, Tile } from '../types';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 // ---------------------------------------------------------------------
 // Rarity classification
@@ -372,6 +373,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 99, y: 99 },
     regenProgress: 0,
     webs: [],

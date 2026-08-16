@@ -11,6 +11,7 @@ import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { formatEvent, formatEvents } from '../message-log';
 import { createInitialState, advanceToNextFloor } from '../state';
 import { createEmptyInventory } from '../item-def';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 // Same 2-room fixture shape as Phase 21.3's tests: room A (start) at
 // x:[1,6), y:[1,6); room B (monster house target) at x:[10,16), y:[1,6),
@@ -48,6 +49,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     runSeed: 1,
     floor: 2,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 12, y: 3 },
     regenProgress: 0,
     webs: [],

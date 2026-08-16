@@ -6,6 +6,7 @@ import { createEmptyInventory } from '../item-def';
 import { GameMap, GameState, Tile, TrapTile, Vec2 } from '../types';
 import { formatEvent } from '../message-log';
 import { resolveCardTargetEffect } from '../card-target-selection';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 /**
  * Phase 24.4e1 focused tests: mummy's on-hit curse, curse_trap's
@@ -60,6 +61,7 @@ function mummyState(overrides: {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 199, y: 199 },
     regenProgress: 0,
     webs: [],
@@ -198,6 +200,7 @@ function trapPlayerState(trap: TrapTile, overrides: { weapon?: boolean; weaponEq
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 199, y: 199 },
     regenProgress: 0,
     webs: [],

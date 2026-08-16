@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createInitialActor, createInitialEnemy, processTurn, REGEN_TURNS_PER_HP } from '../turn';
 import { GameMap, GameState, Tile } from '../types';
 import { createEmptyInventory } from '../item-def';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 // Small fixed layout retained only for these turn-processing unit tests;
 // production maps now come from mapgen.ts.
@@ -39,6 +40,7 @@ function freshState(): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 99, y: 99 },
     regenProgress: 0,
     webs: [],

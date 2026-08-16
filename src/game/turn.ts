@@ -64,7 +64,7 @@ import {
   rollEnemyDropOccurs,
   selectEnemyDropItemIdWithCards,
 } from './enemy-drop';
-import { TOTAL_FLOORS } from './floor';
+
 import {
   createMummyCurseChanceRng,
   createMummyCurseTargetRng,
@@ -512,7 +512,7 @@ function spawnEnemyDropIfAny(state: GameState, target: EnemyActor, events: GameE
   let resolvedDefinitionId: WeaponId | ArmorId | undefined;
   let cursed = false;
   if (isNormalEquipmentSlot(drawnItemId)) {
-    resolvedDefinitionId = resolveEnemyDropEquipmentDefinition(drawnItemId, state.floor, TOTAL_FLOORS, floorSeed, enemyId);
+    resolvedDefinitionId = resolveEnemyDropEquipmentDefinition(drawnItemId, state.floor, state.totalFloors, floorSeed, enemyId);
     finalItemId = resolvedDefinitionId;
     cursed = rollEnemyDropCurse(floorSeed, enemyId);
   }

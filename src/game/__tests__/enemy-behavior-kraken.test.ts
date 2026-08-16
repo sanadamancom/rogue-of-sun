@@ -3,6 +3,7 @@ import { formatEvent } from '../message-log';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { EnemyActor, GameMap, GameState, Tile, Vec2 } from '../types';
 import { createEmptyInventory } from '../item-def';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 // Open layout with a large clear room, matching the style of the bat/mummy/
 // cockatrice behavior tests. Retained only for these kraken-specific unit
@@ -64,6 +65,7 @@ function krakenState(
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 199, y: 199 },
     regenProgress: 0,
     webs: [],

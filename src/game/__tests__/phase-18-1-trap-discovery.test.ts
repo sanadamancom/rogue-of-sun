@@ -3,6 +3,7 @@ import { advanceToNextFloor, createInitialState } from '../state';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { GameMap, GameState, Room, Tile, TrapTile } from '../types';
 import { createEmptyInventory } from '../item-def';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 const TEST_LAYOUT: string[] = [
   '####################',
@@ -38,6 +39,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 99, y: 99 },
     regenProgress: 0,
     webs: [],

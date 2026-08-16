@@ -4,6 +4,7 @@ import { WEAPON_DEFINITIONS, WEAPON_IDS_IN_ORDER } from '../weapon-def';
 import { advanceToNextFloor, createInitialState } from '../state';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { GameMap, GameState, Tile } from '../types';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 // Open room (no interior walls) so the solar gun's 5-tile ray can be
 // exercised along every direction without incidentally hitting a wall
@@ -53,6 +54,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 199, y: 199 },
     regenProgress: 0,
     webs: [],

@@ -11,6 +11,7 @@ import {
 import { ENEMY_DEFINITIONS } from '../enemy-def';
 import { ELEMENTAL_AFFINITY_BONUS_DAMAGE } from '../combat';
 import { EnemyActor, EnemyType, GameMap, GameState, Tile } from '../types';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 // Open room, no interior walls — matches the existing solar-gun test
 // file's layout so ray legality is never accidentally exercised here.
@@ -41,6 +42,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 99, y: 99 },
     regenProgress: 0,
     webs: [],

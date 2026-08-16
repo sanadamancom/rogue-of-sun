@@ -5,6 +5,7 @@ import { ENEMY_COUNT_BY_FLOOR } from '../mapgen';
 import { createInitialEnemy, processTurn } from '../turn';
 import { EnemyType, GameMap, GameState, Tile } from '../types';
 import { createEmptyInventory } from '../item-def';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 const RUN_SEEDS = Array.from({ length: 100 }, (_, i) => i * 17 + 5);
 
@@ -164,6 +165,7 @@ function freshSpiderState(): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 99, y: 99 },
     regenProgress: 0,
     webs: [],

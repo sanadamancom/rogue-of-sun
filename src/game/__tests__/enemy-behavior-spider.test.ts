@@ -3,6 +3,7 @@ import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { EnemyActor, GameMap, GameState, Tile, Vec2, WebTile } from '../types';
 import { WEB_DURATION_WORLD_TURNS } from '../web';
 import { createEmptyInventory } from '../item-def';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 // Open layout with a large clear room (rows 1-9) for range/line-of-sight
 // tests, plus a couple of dedicated wall-corner pockets (rows 11-14) for
@@ -72,6 +73,7 @@ function spiderState(
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 199, y: 199 },
     regenProgress: 0,
     webs: options?.webs ?? [],
@@ -537,6 +539,7 @@ describe('spider regression: no diagonal movement or corner-crossing for other s
       runSeed: 1,
       floor: 1,
       totalFloors: 3,
+      runConfig: DEFAULT_RUN_CONFIG,
       exit: { x: 99, y: 99 },
       regenProgress: 0,
       webs: [],

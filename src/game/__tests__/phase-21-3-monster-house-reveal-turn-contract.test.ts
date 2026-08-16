@@ -8,6 +8,7 @@ import { GameMap, GameState, Room, Tile } from '../types';
 import { applyMonsterHouseReveal } from '../monster-house';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { createEmptyInventory } from '../item-def';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 // Two rooms connected by a 1-wide corridor: room A (start) at x:[1,6),
 // y:[1,6); room B (monster house target) at x:[10,16), y:[1,6). Corridor
@@ -49,6 +50,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     runSeed: 1,
     floor: 2,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 12, y: 3 },
     regenProgress: 0,
     webs: [],

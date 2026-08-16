@@ -5,6 +5,7 @@ import { ENEMY_DEFINITIONS } from '../enemy-def';
 import { computeIncomingDamage } from '../combat';
 import { EnemyType, GameMap, GameState, Tile } from '../types';
 import { createEmptyInventory } from '../item-def';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 /**
  * Phase 16 shipped a runtime bug that a source-only test (enemy-type.test
@@ -61,6 +62,7 @@ function realBokAdjacentToRealPlayer(): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 99, y: 99 },
     regenProgress: 0,
     webs: [],

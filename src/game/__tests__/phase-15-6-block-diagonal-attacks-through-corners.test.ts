@@ -3,6 +3,7 @@ import { canMove, isDiagonalCornerOpen } from '../map';
 import { createEmptyInventory } from '../item-def';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { GameMap, GameState, Tile, Vec2 } from '../types';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 /**
  * Builds a fully-open rectangular room of the given size, with the given
@@ -27,6 +28,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 99, y: 99 },
     regenProgress: 0,
     webs: [],

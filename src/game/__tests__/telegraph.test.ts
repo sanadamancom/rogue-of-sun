@@ -3,6 +3,7 @@ import { getCockatriceTelegraph, getKrakenTelegraph } from '../telegraph';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { GameMap, GameState, Tile } from '../types';
 import { createEmptyInventory } from '../item-def';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 // Open layout with a large clear room, matching the style of the other
 // enemy-behavior unit tests. Retained only for these telegraph-specific
@@ -41,6 +42,7 @@ function baseState(map: GameMap): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 199, y: 199 },
     regenProgress: 0,
     webs: [],

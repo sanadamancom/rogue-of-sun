@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { advanceToNextFloor, createInitialState } from '../state';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { EnemyActor, GameMap, GameState, Tile } from '../types';
-import { deriveFloorSeed } from '../floor';
+import { deriveFloorSeed, DEFAULT_RUN_CONFIG } from '../floor';
 import { createEmptyInventory } from '../item-def';
 
 /**
@@ -86,6 +86,7 @@ function krakenPullOntoExitState(): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 8, y: 1 },
     regenProgress: 0,
     webs: [],

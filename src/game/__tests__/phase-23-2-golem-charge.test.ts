@@ -5,6 +5,7 @@ import { advanceToNextFloor } from '../state';
 import { ENEMY_DEFINITIONS } from '../enemy-def';
 import { getGolemChargeTelegraph } from '../telegraph';
 import { EnemyActor, EnemyType, GameMap, GameState, Tile } from '../types';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 // A large open room with a full-perimeter wall so charges have plenty of
 // room to run in every direction, plus dedicated small layouts below for
@@ -30,6 +31,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 199, y: 199 },
     regenProgress: 0,
     webs: [],

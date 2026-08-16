@@ -4,6 +4,7 @@ import { generateSunlightLayer, isSunlitAt } from '../sunlight';
 import { advanceToNextFloor, createInitialState } from '../state';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { GameMap, GameState, Tile } from '../types';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 function openMap(size = 20): GameMap {
   return {
@@ -35,6 +36,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 199, y: 199 },
     regenProgress: 0,
     webs: [],

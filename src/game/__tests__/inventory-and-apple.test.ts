@@ -11,6 +11,7 @@ import { bfsDistances, chooseGroundItemPosition, createRng } from '../mapgen';
 import { advanceToNextFloor, createInitialState } from '../state';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { GameMap, GameState, Tile } from '../types';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 // Small fixed layout retained only for these unit tests; production maps
 // come from mapgen.ts (see multi-floor-robustness.test.ts for coverage
@@ -46,6 +47,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 99, y: 99 },
     regenProgress: 0,
     webs: [],

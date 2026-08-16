@@ -6,6 +6,7 @@ import { ENEMY_DEFINITIONS } from '../enemy-def';
 import { getStepsTelegraph, getGolemChargeTelegraph } from '../telegraph';
 import { getMinimapStepsMarkers } from '../minimap';
 import { EnemyActor, EnemyType, GameMap, GameState, Tile } from '../types';
+import { DEFAULT_RUN_CONFIG } from '../floor';
 
 function mapFromLayout(layout: string[]): GameMap {
   const height = layout.length;
@@ -35,6 +36,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    runConfig: DEFAULT_RUN_CONFIG,
     exit: { x: 199, y: 199 },
     regenProgress: 0,
     webs: [],

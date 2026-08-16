@@ -26,7 +26,7 @@ import {
   selectMonsterHouseEnemyPositions,
   selectMonsterHouseRewardPositions,
 } from './monster-house';
-import { deriveFloorSeed, TOTAL_FLOORS } from './floor';
+import { deriveFloorSeed, DEFAULT_RUN_CONFIG, normalizeRunConfig } from './floor';
 import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
 import {
   createEmptyInventory,
@@ -55,7 +55,7 @@ import {
 } from './progression';
 import { INITIAL_ABILITY_VALUES } from './ability';
 import { normalizeIdentifiedGeneralItemIds } from './item-identification';
-import { Actor, ActiveEffect, AbilityValues, AccessoryId, CardId, ElementId, EnchantmentId, EnemyActor, EnemyType, EquipmentInstance, GameState, GroundItem, Inventory, ItemId, TrapTile, Vec2, WeaponId, ArmorId, Direction8 } from './types';
+import { Actor, ActiveEffect, AbilityValues, AccessoryId, CardId, ElementId, EnchantmentId, EnemyActor, EnemyType, EquipmentInstance, GameState, GroundItem, Inventory, ItemId, TrapTile, Vec2, WeaponId, ArmorId, Direction8, RunConfig } from './types';
 
 /** Generates a random run seed without relying on Math.random's implicit global state at call sites. */
 export function randomSeed(): number {
@@ -197,6 +197,7 @@ function buildFloorState(
   runSeed: number,
   floor: number,
   turn: number,
+  runConfig: Readonly<RunConfig>,
   carry?: CarryOverStats,
   enemyCount?: number,
   forcedSpecies?: EnemyType[],
@@ -458,7 +459,7 @@ function buildFloorState(
   // equipmentCurseRng — never perturbing itemCountRng/itemSelectionRng/
   // itemPlacementRng/equipmentCurseRng's own consumption counts.
   const equipmentDefinitionRng = createRng(floorSeed ^ 0xd4e8a273);
-  const equipmentFloorRatio = floorProgressRatio(floor, TOTAL_FLOORS);
+  const equipmentFloorRatio = floorProgressRatio(floor, runConfig.totalFloors);
   const floorEquipmentInstances: EquipmentInstance[] = carry ? carry.equipmentInstances.map((i) => ({ ...i })) : [];
   let nextFloorEquipmentInstanceId = carry ? carry.nextEquipmentInstanceId : 0;
   const groundItems: GroundItem[] = [];
@@ -643,7 +644,8 @@ function buildFloorState(
     seed: floorSeed,
     runSeed,
     floor,
-    totalFloors: TOTAL_FLOORS,
+    totalFloors: runConfig.totalFloors,
+    runConfig,
     exit: placement.exit,
     regenProgress: carry ? carry.regenProgress : 0,
     // Always fresh per floor build (enemy-behavior-02): a new floor,
@@ -794,9 +796,18 @@ function buildFloorState(
   return state;
 }
 
-/** Builds a fresh GameState for floor 1 of the given run seed. */
-export function createInitialState(runSeed: number): GameState {
-  return buildFloorState(runSeed, 1, 0);
+/**
+ * Builds a fresh GameState for floor 1 of the given run seed.
+ *
+ * `runConfig` (Phase 24.6b1, optional) — omitted (every pre-24.6b1
+ * caller) defaults to DEFAULT_RUN_CONFIG, producing byte-for-byte the
+ * same state a bare `createInitialState(runSeed)` always has. When
+ * supplied, it's validated and cloned by normalizeRunConfig before any
+ * state is built (throws RangeError first, constructs nothing on
+ * invalid input).
+ */
+export function createInitialState(runSeed: number, runConfig?: RunConfig): GameState {
+  return buildFloorState(runSeed, 1, 0, runConfig ? normalizeRunConfig(runConfig) : DEFAULT_RUN_CONFIG);
 }
 
 /**
@@ -875,7 +886,7 @@ export function advanceToNextFloor(state: GameState, events?: GameEvent[]): Game
     equippedAccessoryId: state.equippedAccessoryId ?? null,
     equippedAccessoryInstanceId: state.equippedAccessoryInstanceId ?? null,
   };
-  const nextState = buildFloorState(state.runSeed, state.floor + 1, state.turn, carry);
+  const nextState = buildFloorState(state.runSeed, state.floor + 1, state.turn, state.runConfig, carry);
   // Phase 24.3 effect_state floor_transition: floorTriggerUses/
   // defeatedEnemyTypes reset per floor; solSpentRemainder/
   // equippedTurnCounter (not touched here) persist across the
@@ -910,5 +921,5 @@ export function advanceToNextFloor(state: GameState, events?: GameEvent[]): Game
  * correctly together without changing normal floor density.
  */
 export function buildRosterPreviewFloorState(runSeed: number): GameState {
-  return buildFloorState(runSeed, 1, 0, undefined, ENEMY_TYPES_IN_ORDER.length, ENEMY_TYPES_IN_ORDER);
+  return buildFloorState(runSeed, 1, 0, DEFAULT_RUN_CONFIG, undefined, ENEMY_TYPES_IN_ORDER.length, ENEMY_TYPES_IN_ORDER);
 }
