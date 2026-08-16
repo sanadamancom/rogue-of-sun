@@ -1,6 +1,7 @@
 import { ACCESSORY_DEFINITIONS, ACCESSORY_IDS_IN_ORDER } from './accessory-def';
-import { CardId, ItemId } from './types';
+import { CardId, ItemId, RunDepthTier } from './types';
 import { selectCardRarity, selectCardWithinRarity } from './card-loot';
+import { isItemEligibleAtProgress } from './item-availability';
 
 /**
  * Phase 24.5c: the single source of truth for the "does this generation
@@ -145,6 +146,22 @@ export type LootSlotResolution =
  * purpose-specific (rng_requirements' "route/rarity/item用途間でsaltを
  * 共有しない") — see state.ts/enemy-drop.ts's call sites for each
  * stream's own salt derivation.
+ *
+ * Phase 24.6b2a: `runDepthTier`/`progress` (both optional, defaulting to
+ * 'deep'/1 — i.e. unfiltered, since every card/accessory's registered
+ * ItemAvailability is currently minimumRunDepth:'short'/
+ * unlockProgress:0 and would never be excluded anyway) let the caller
+ * apply item-availability.ts's shared eligibility check to whatever
+ * card/accessory id this roll resolved to. If the resolved id turns out
+ * ineligible, this returns `{ category: 'non_card' }` — exactly the same
+ * shape the category roll itself would have produced by picking
+ * 'non_card' in the first place — so callers' existing `?? itemId`
+ * fallback (substituteLootSlots) or non-card re-draw (enemy-drop.ts)
+ * need no special-casing. With every current card/accessory at
+ * short/0, this branch is unreachable in production today (verified by
+ * this Phase's focused tests) — it exists so a future 24.6b2b tier/
+ * progress reassignment needs no route-level code change, only a
+ * registry edit.
  */
 export function resolveLootSlot(
   categoryRng: () => number,
@@ -152,6 +169,8 @@ export function resolveLootSlot(
   cardBodyRng: () => number,
   accessoryRankRng: () => number,
   accessoryItemRng: () => number,
+  runDepthTier: RunDepthTier = 'deep',
+  progress: number = 1,
 ): LootSlotResolution {
   const category = rollLootCategory(categoryRng);
   if (category === 'card') {
@@ -164,10 +183,12 @@ export function resolveLootSlot(
     // just without re-deciding "is this a card" a second time.
     const rarity = selectCardRarity(cardRarityRng);
     const cardId = selectCardWithinRarity(rarity, cardBodyRng);
+    if (!isItemEligibleAtProgress(cardId, runDepthTier, progress)) return { category: 'non_card' };
     return { category: 'card', id: cardId };
   }
   if (category === 'accessory') {
     const accessoryId = resolveAccessorySlot(accessoryRankRng, accessoryItemRng);
+    if (!isItemEligibleAtProgress(accessoryId, runDepthTier, progress)) return { category: 'non_card' };
     return { category: 'accessory', id: accessoryId };
   }
   return { category: 'non_card' };
@@ -194,9 +215,11 @@ export function substituteLootSlots(
   cardBodyRng: () => number,
   accessoryRankRng: () => number,
   accessoryItemRng: () => number,
+  runDepthTier: RunDepthTier = 'deep',
+  progress: number = 1,
 ): ItemId[] {
   return itemIds.map((itemId) => {
-    const resolved = resolveLootSlot(categoryRng, cardRarityRng, cardBodyRng, accessoryRankRng, accessoryItemRng);
+    const resolved = resolveLootSlot(categoryRng, cardRarityRng, cardBodyRng, accessoryRankRng, accessoryItemRng, runDepthTier, progress);
     return resolved.category === 'non_card' ? itemId : resolved.id;
   });
 }

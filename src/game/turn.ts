@@ -36,6 +36,7 @@ import {
   isCardTargetStillValid,
   resolveCardTargetEffect,
 } from './card-target-selection';
+import { floorProgressRatio } from './equipment-loot';
 import {
   createEquipmentInstance,
   createEquipmentInstanceWithCurse,
@@ -507,7 +508,7 @@ function spawnEnemyDropIfAny(state: GameState, target: EnemyActor, events: GameE
   const dropChanceMultiplier = isCircletEquipped(state) ? CIRCLET_ENEMY_DROP_MULTIPLIER_PROVISIONAL : 1;
   if (!rollEnemyDropOccurs(floorSeed, enemyId, dropChanceMultiplier)) return;
 
-  const drawnItemId = selectEnemyDropItemIdWithCards(state.floor, floorSeed, enemyId);
+  const drawnItemId = selectEnemyDropItemIdWithCards(state.floor, floorSeed, enemyId, state.totalFloors, state.runDepthTier);
   let finalItemId: ItemId = drawnItemId;
   let resolvedDefinitionId: WeaponId | ArmorId | undefined;
   let cursed = false;
@@ -2342,7 +2343,11 @@ function resolveStarEffect(workingState: GameState, target: import('./card-targe
     targetIdentity = target.instanceId;
   }
 
-  const candidates = getTransformCandidatesForItem(originalItemId);
+  const candidates = getTransformCandidatesForItem(
+    originalItemId,
+    workingState.runDepthTier,
+    floorProgressRatio(workingState.floor, workingState.totalFloors),
+  );
   if (candidates.length === 0) return { success: false };
 
   let chosen: ItemId;

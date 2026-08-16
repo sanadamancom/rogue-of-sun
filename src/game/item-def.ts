@@ -1,6 +1,8 @@
-import { ItemId, Inventory, CardId } from './types';
+import { ItemId, Inventory, CardId, RunDepthTier } from './types';
 import { ELEMENT_DISPLAY_NAMES, ELEMENT_GLYPHS } from './element-def';
 import { CARD_DISPLAY_NAMES, CARD_GLYPH, CARD_IDS_IN_ORDER, CARD_DEFINITIONS } from './card-def';
+import { floorProgressRatio } from './equipment-loot';
+import { filterEligibleItemIds } from './item-availability';
 
 /**
  * A single item species' shared display/inventory data (Phase 08.2
@@ -613,13 +615,26 @@ export const ENCHANTMENT_ITEM_IDS: ReadonlyArray<ItemId> = [
   'earth_enchantment',
 ];
 
-// Phase 15.4b staged ground-item pool (replaces the previous per-item,
-// per-floor-condition guaranteed-placement blocks in state.ts's
-// buildFloorState). Cumulative: each floor's pool is the previous
-// floor's pool plus that floor's own additions — an item, once staged in
-// on floor N, remains a candidate on every floor >= N. Verified counts:
-// floor 1 = 11, floor 2 = 15, floor 3 = 16 (every registered item).
-const GROUND_ITEM_POOL_FLOOR_1: ReadonlyArray<ItemId> = [
+// Phase 15.4b staged ground-item pool, Phase 24.6b2a: the flat,
+// unstaged superset of every ground-item-pool slot id, in the same
+// relative order the old floor1 -> floor2-additions -> floor3-addition
+// concatenation always produced. getGroundItemPoolForFloor below no
+// longer branches on floor === 2 / >= 3 — instead it filters this same
+// fixed-order list through item-availability.ts's shared eligibility
+// helper, using floorProgressRatio(floor, totalFloors) so a 10/30/99-
+// floor run reaches the same candidate set at the same *progress*
+// rather than at a hardcoded floor number (see item-availability.ts's
+// ITEM_AVAILABILITY entries for 'spear'/'hammer'/'frost_enchantment'/
+// 'cloud_enchantment'/'earth_enchantment', the only 5 with a nonzero
+// unlockProgress — every other id here is unlockProgress: 0, i.e.
+// eligible from floor 1 exactly as before). At totalFloors === 3, floor
+// 2's progress (2/3) and floor 3's progress (1) reproduce the pre-
+// 24.6b2a floor===2/floor>=3 tiers exactly, and this array's relative
+// order is unchanged, so filtering it never reorders or drops/adds
+// anything at any of the 3 default floors — see
+// docs/history/phase-24-6b2a-item-availability.md for the full
+// before/after comparison.
+const GROUND_ITEM_POOL_ALL: ReadonlyArray<ItemId> = [
   'apple',
   'sword',
   'armor',
@@ -632,21 +647,26 @@ const GROUND_ITEM_POOL_FLOOR_1: ReadonlyArray<ItemId> = [
   'antidote',
   'panacea',
   'clairvoyance_fruit',
+  'spear',
+  'hammer',
+  'frost_enchantment',
+  'cloud_enchantment',
+  'earth_enchantment',
 ];
-const GROUND_ITEM_POOL_FLOOR_2_ADDITIONS: ReadonlyArray<ItemId> = ['spear', 'hammer', 'frost_enchantment', 'cloud_enchantment'];
-const GROUND_ITEM_POOL_FLOOR_3_ADDITIONS: ReadonlyArray<ItemId> = ['earth_enchantment'];
 
 /**
- * The full staged ground-item candidate pool for `floor` (Phase 15.4b),
- * per GROUND_ITEM_POOL_FLOOR_1/2/3_ADDITIONS above. Floor numbers below 1
- * are treated as floor 1; floor numbers above 3 keep the full (floor-3)
- * pool, since no floor-4+ additions are defined (this game's TOTAL_FLOORS
- * is 3 — see floor.ts).
+ * The full ground-item candidate pool for `floor` of a run with
+ * `totalFloors` total floors and `runDepthTier` tier (Phase 24.6b2a,
+ * replacing Phase 15.4b's hardcoded floor===2/floor>=3 staging — see
+ * GROUND_ITEM_POOL_ALL's own doc comment above). `totalFloors`/
+ * `runDepthTier` default to 3/'short' so every pre-24.6b2a call site
+ * that hasn't been updated to pass them explicitly still gets the exact
+ * default-run behavior it always had (defensive only — every production
+ * call site below is updated to pass the real run's values).
  */
-export function getGroundItemPoolForFloor(floor: number): ItemId[] {
-  if (floor <= 1) return [...GROUND_ITEM_POOL_FLOOR_1];
-  if (floor === 2) return [...GROUND_ITEM_POOL_FLOOR_1, ...GROUND_ITEM_POOL_FLOOR_2_ADDITIONS];
-  return [...GROUND_ITEM_POOL_FLOOR_1, ...GROUND_ITEM_POOL_FLOOR_2_ADDITIONS, ...GROUND_ITEM_POOL_FLOOR_3_ADDITIONS];
+export function getGroundItemPoolForFloor(floor: number, totalFloors: number = 3, runDepthTier: RunDepthTier = 'short'): ItemId[] {
+  const progress = floorProgressRatio(floor, totalFloors);
+  return filterEligibleItemIds(GROUND_ITEM_POOL_ALL, runDepthTier, progress);
 }
 
 /**
@@ -750,8 +770,10 @@ export const BASE_GROUND_ITEM_WEIGHT = 10;
 export function getWeightedGroundItemPoolForFloor(
   floor: number,
   excludedIds?: ReadonlySet<ItemId>,
+  totalFloors: number = 3,
+  runDepthTier: RunDepthTier = 'short',
 ): WeightedGroundItemCandidate[] {
-  const baseIds = getGroundItemPoolForFloor(floor).filter((id) => !excludedIds?.has(id));
+  const baseIds = getGroundItemPoolForFloor(floor, totalFloors, runDepthTier).filter((id) => !excludedIds?.has(id));
   const baseCandidates: WeightedGroundItemCandidate[] = baseIds.map((id) => ({
     id,
     weight: BASE_GROUND_ITEM_WEIGHT,

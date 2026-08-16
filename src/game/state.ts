@@ -364,7 +364,7 @@ function buildFloorState(
   // before cards existed — see drawWeightedGroundItemSelection's doc
   // comment.
   const alreadyUnlocked = getAlreadyUnlockedEnchantmentItemIds(carry);
-  const weightedFloorItemPool = getWeightedGroundItemPoolForFloor(floor, alreadyUnlocked);
+  const weightedFloorItemPool = getWeightedGroundItemPoolForFloor(floor, alreadyUnlocked, runConfig.totalFloors, runConfig.runDepthTier);
   const itemSelectionRng = createRng(floorSeed ^ 0x5c2e91d3);
   const drawnItemIds = drawWeightedGroundItemSelection(itemCount, weightedFloorItemPool, itemSelectionRng);
 
@@ -400,7 +400,16 @@ function buildFloorState(
   const cardBodyRng = createRng(floorSeed ^ 0x94b2d1c7);
   const accessoryRankRng = createRng(floorSeed ^ 0xa39f6e52);
   const accessoryItemRng = createRng(floorSeed ^ 0xe61c8b3d);
-  const selectedItemIds = substituteLootSlots(drawnItemIds, cardCategoryRng, cardRarityRng, cardBodyRng, accessoryRankRng, accessoryItemRng);
+  const selectedItemIds = substituteLootSlots(
+    drawnItemIds,
+    cardCategoryRng,
+    cardRarityRng,
+    cardBodyRng,
+    accessoryRankRng,
+    accessoryItemRng,
+    runConfig.runDepthTier,
+    floorProgressRatio(floor, runConfig.totalFloors),
+  );
 
   // Phase 16.1 early-resource-and-combat-pressure rebalance: floor 1's
   // ground-item pool has 11 candidate ids but 'chocolate' (the only
@@ -581,7 +590,7 @@ function buildFloorState(
       // generation this floor is excluded from the reward pool too.
       const alreadySelectedEnchantments = selectedItemIds.filter((id) => ENCHANTMENT_ITEM_IDS.includes(id));
       const rewardExcludedIds = new Set([...alreadyUnlocked, ...alreadySelectedEnchantments]);
-      const rewardPool = getWeightedGroundItemPoolForFloor(floor, rewardExcludedIds);
+      const rewardPool = getWeightedGroundItemPoolForFloor(floor, rewardExcludedIds, runConfig.totalFloors, runConfig.runDepthTier);
       const drawnRewardItemIds = drawWeightedGroundItemSelection(rewardPositions.length, rewardPool, rewardSelectionRng);
       // Phase 24.4c: same card-substitution pass as normal generation
       // above, continuing the same 3 dedicated card-selection streams
@@ -591,7 +600,16 @@ function buildFloorState(
       // 24.5c: also continues accessoryRankRng/accessoryItemRng in
       // their existing consumption order, via the same 3-way
       // substituteLootSlots normal generation above now uses.
-      const rewardItemIds = substituteLootSlots(drawnRewardItemIds, cardCategoryRng, cardRarityRng, cardBodyRng, accessoryRankRng, accessoryItemRng);
+      const rewardItemIds = substituteLootSlots(
+        drawnRewardItemIds,
+        cardCategoryRng,
+        cardRarityRng,
+        cardBodyRng,
+        accessoryRankRng,
+        accessoryItemRng,
+        runConfig.runDepthTier,
+        floorProgressRatio(floor, runConfig.totalFloors),
+      );
       for (let i = 0; i < rewardPositions.length; i++) {
         const rewardItemId = rewardItemIds[i];
         const rewardPos = rewardPositions[i];

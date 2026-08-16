@@ -112,8 +112,14 @@ export function rollEnemyDropOccurs(floorSeed: number, enemyId: number, chanceMu
  * (equal weight), matching the equal BASE_GROUND_ITEM_WEIGHT every
  * non-card id already shares in normal floor generation.
  */
-export function selectEnemyDropItemId(floor: number, floorSeed: number, enemyId: number): ItemId {
-  const pool = getGroundItemPoolForFloor(floor);
+export function selectEnemyDropItemId(
+  floor: number,
+  floorSeed: number,
+  enemyId: number,
+  totalFloors: number = 3,
+  runDepthTier: import('./types').RunDepthTier = 'short',
+): ItemId {
+  const pool = getGroundItemPoolForFloor(floor, totalFloors, runDepthTier);
   const rng = createEnemyDropRng(floorSeed, enemyId, SALT_ITEM_SELECTION);
   const index = Math.min(pool.length - 1, Math.floor(rng() * pool.length));
   return pool[index];
@@ -146,15 +152,29 @@ export function selectEnemyDropItemId(floor: number, floorSeed: number, enemyId:
  * candidate tables/weighting logic — both live solely in card-loot.ts/
  * accessory-loot.ts.
  */
-export function selectEnemyDropItemIdWithCards(floor: number, floorSeed: number, enemyId: number): ItemId {
+export function selectEnemyDropItemIdWithCards(
+  floor: number,
+  floorSeed: number,
+  enemyId: number,
+  totalFloors: number = 3,
+  runDepthTier: import('./types').RunDepthTier = 'short',
+): ItemId {
   const categoryRng = createEnemyDropRng(floorSeed, enemyId, SALT_CARD_CATEGORY);
   const rarityRng = createEnemyDropRng(floorSeed, enemyId, SALT_CARD_RARITY);
   const bodyRng = createEnemyDropRng(floorSeed, enemyId, SALT_CARD_BODY);
   const accessoryRankRng = createEnemyDropRng(floorSeed, enemyId, SALT_ACCESSORY_RANK);
   const accessoryItemRng = createEnemyDropRng(floorSeed, enemyId, SALT_ACCESSORY_ITEM);
-  const resolved = resolveLootSlot(categoryRng, rarityRng, bodyRng, accessoryRankRng, accessoryItemRng);
+  const resolved = resolveLootSlot(
+    categoryRng,
+    rarityRng,
+    bodyRng,
+    accessoryRankRng,
+    accessoryItemRng,
+    runDepthTier,
+    floorProgressRatio(floor, totalFloors),
+  );
   if (resolved.category !== 'non_card') return resolved.id;
-  return selectEnemyDropItemId(floor, floorSeed, enemyId);
+  return selectEnemyDropItemId(floor, floorSeed, enemyId, totalFloors, runDepthTier);
 }
 
 /**

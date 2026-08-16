@@ -8,10 +8,11 @@ import {
 } from './equipment-instance';
 import { ENCHANTMENT_ITEM_IDS, ITEM_DEFINITIONS, ITEM_IDS_IN_ORDER } from './item-def';
 import { getDisplayedItemName, isGeneralItemIdentified } from './item-identification';
-import { NORMAL_RANKS } from './equipment-loot';
+import { NORMAL_RANKS, floorProgressRatio } from './equipment-loot';
 import { WEAPON_DEFINITIONS } from './weapon-def';
 import { ARMOR_DEFINITIONS } from './armor-def';
-import { CardId, EquipmentInstance, GameState, ItemId } from './types';
+import { CardId, EquipmentInstance, GameState, ItemId, RunDepthTier } from './types';
+import { isItemEligibleAtProgress } from './item-availability';
 
 /**
  * Phase 20.0d card target selection foundation. This module is the
@@ -153,8 +154,23 @@ export function getTemperanceCandidates(state: GameState): CardTargetRef[] {
  * `itemId` itself. Pure item-roster question, independent of what the
  * player currently owns. hasAlternateTransformCategory below is exactly
  * `getTransformCandidatesForItem(itemId).length > 0`.
+ *
+ * Phase 24.6b2a: `runDepthTier`/`progress` (both optional, defaulting to
+ * 'deep'/1 — unfiltered, matching every pre-24.6b2a call site's existing
+ * behavior verbatim) additionally gate each candidate through
+ * item-availability.ts's shared isItemEligibleAtProgress — task's
+ * "star_transform: 変換結果が現在run/progressでeligibleな候補だけになる
+ * よう共通helperを再利用". With every current weapon/armor species at
+ * short/0 except the 'spear'/'hammer' *pool-slot* ids (which are
+ * themselves eligible transform-result candidates here, same as any
+ * other C-rank species — see item-availability.ts's own doc comment on
+ * why spear/hammer's nonzero unlockProgress applies to the pool slot,
+ * not a separate "species" concept), passing a real (runDepthTier,
+ * progress) can exclude 'spear'/'hammer' from a transform result before
+ * progress reaches 2/3 of the run, exactly like they're excluded from
+ * ground-item-pool generation before that point.
  */
-export function getTransformCandidatesForItem(itemId: ItemId): ItemId[] {
+export function getTransformCandidatesForItem(itemId: ItemId, runDepthTier: RunDepthTier = 'deep', progress: number = 1): ItemId[] {
   const category = ITEM_DEFINITIONS[itemId].category;
   return ITEM_IDS_IN_ORDER.filter(
     (candidateId) =>
@@ -162,7 +178,8 @@ export function getTransformCandidatesForItem(itemId: ItemId): ItemId[] {
       !CARD_ID_SET.has(candidateId) &&
       !STAR_INELIGIBLE_ITEM_IDS.has(candidateId) &&
       ITEM_DEFINITIONS[candidateId].category === category &&
-      isStarEligibleRank(candidateId),
+      isStarEligibleRank(candidateId) &&
+      isItemEligibleAtProgress(candidateId, runDepthTier, progress),
   );
 }
 
@@ -175,9 +192,13 @@ export function getTransformCandidatesForItem(itemId: ItemId): ItemId[] {
  * every armor instance therefore has 0 alternates and is excluded from
  * star's candidates by getStarCandidates below — an intentional, tested
  * consequence of the current item roster, not a bug.
+ *
+ * Phase 24.6b2a: `runDepthTier`/`progress` forward to
+ * getTransformCandidatesForItem unchanged (same defaults, same
+ * unfiltered pre-24.6b2a behavior when omitted).
  */
-export function hasAlternateTransformCategory(itemId: ItemId): boolean {
-  return getTransformCandidatesForItem(itemId).length > 0;
+export function hasAlternateTransformCategory(itemId: ItemId, runDepthTier: RunDepthTier = 'deep', progress: number = 1): boolean {
+  return getTransformCandidatesForItem(itemId, runDepthTier, progress).length > 0;
 }
 
 /**
@@ -190,6 +211,8 @@ export function hasAlternateTransformCategory(itemId: ItemId): boolean {
  */
 export function getStarCandidates(state: GameState): CardTargetRef[] {
   const candidates: CardTargetRef[] = [];
+  const runDepthTier = state.runDepthTier;
+  const progress = floorProgressRatio(state.floor, state.totalFloors);
 
   for (const itemId of ITEM_IDS_IN_ORDER) {
     if (CARD_ID_SET.has(itemId)) continue;
@@ -204,7 +227,7 @@ export function getStarCandidates(state: GameState): CardTargetRef[] {
     if (def.category === 'weapon' || def.category === 'armor' || def.category === 'accessory') continue; // handled via instances below
     const owned = state.inventory[itemId] ?? 0;
     if (owned <= 0) continue;
-    if (!hasAlternateTransformCategory(itemId)) continue;
+    if (!hasAlternateTransformCategory(itemId, runDepthTier, progress)) continue;
     candidates.push({ kind: 'inventory_item', itemId });
   }
 
@@ -223,7 +246,7 @@ export function getStarCandidates(state: GameState): CardTargetRef[] {
     if (!isWeaponOrArmorId(instance.definitionId)) continue;
     if (STAR_INELIGIBLE_ITEM_IDS.has(instance.definitionId)) continue;
     if (!isStarEligibleRank(instance.definitionId)) continue;
-    if (!hasAlternateTransformCategory(instance.definitionId)) continue;
+    if (!hasAlternateTransformCategory(instance.definitionId, runDepthTier, progress)) continue;
     // Phase 24.4d2: a currently-equipped instance whose discovered curse
     // locks it against ordinary equip-swap/discard/place (Phase 20.0c's
     // isEquippedWeaponCurseLocked/isEquippedArmorCurseLocked) must be
