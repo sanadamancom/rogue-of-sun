@@ -191,6 +191,26 @@ Do not perform broad filesystem searches outside the repository.
 
 If project work requires arbitrary access outside the repository, stop and ask the user first.
 
+## Claude Desktop permissions
+
+Required permission mode:
+- `acceptEdits`
+
+Do not use:
+- Auto mode
+- bypass permissions mode
+
+Project `.claude/settings.json` must keep Auto and bypass modes disabled.
+
+Repository-internal read/edit operations may proceed normally.
+
+If any operation requests access outside the repository:
+- do not request or accept permanent permission
+- do not retry through another tool or command
+- do not attempt to bypass the permission boundary
+- stop the affected operation and report it if repository-external access is actually required
+
+Repository-external access requires explicit user approval.
 ## Token policy
 
 Use repository files, working-tree changes, and Git as the primary agent-to-agent communication channel.
@@ -200,3 +220,4 @@ Minimize Claude <-> Codex communication aggressively.
 Do not duplicate information already available in the repository.
 
 Agent-to-agent messages do not need to be human-friendly when a shorter machine-oriented form is sufficient.
+
