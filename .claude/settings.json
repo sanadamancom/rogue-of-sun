@@ -2,6 +2,15 @@
   "permissions": {
     "defaultMode": "acceptEdits",
     "disableAutoMode": "disable",
-    "disableBypassPermissionsMode": "disable"
+    "disableBypassPermissionsMode": "disable",
+    "allow": [
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git show *)",
+      "Bash(git log *)",
+      "Bash(npm run typecheck *)",
+      "Bash(npm run build *)",
+      "Bash(npm test *)"
+    ]
   }
 }
