@@ -153,3 +153,17 @@ Minimize Claude <-> Codex communication aggressively.
 Git and repository files are the primary communication channel.
 
 Messages do not need to be human-friendly if a shorter machine-oriented form is sufficient.
+## Task handoff
+
+Use `.ai/task.md` as the implementation contract for Codex.
+
+Claude writes or updates `.ai/task.md`.
+Codex reads `.ai/task.md` and repository sources directly.
+
+Claude -> Codex message should normally be:
+
+Implement .ai/task.md. Inspect repo/docs directly. Commit locally. Return protocol only.
+
+Do not duplicate task details in agent messages.
+
+`.ai/` is local-only and must not be committed.
