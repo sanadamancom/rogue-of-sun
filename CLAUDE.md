@@ -4,10 +4,13 @@
 
 Claude Code:
 - PM / specification authority / integration owner / final reviewer
+- verifies and commits accepted worker changes
 
 Codex:
 - primary implementation worker
-- edits repo, runs checks, creates local commits
+- edits the working tree
+- runs relevant tests/checks
+- does not modify Git metadata
 
 Gemini / Antigravity:
 - independent read-only reviewer
@@ -37,15 +40,18 @@ Do not resume prior Codex sessions by default.
 
 Claude -> Codex message should normally be:
 
-Implement .ai/task.md. Inspect repo/docs directly. Commit locally. Return protocol only.
+Implement .ai/task.md. Inspect repo/docs directly. Modify working tree only. Return protocol only.
 
 Codex may:
-- inspect/edit repo
-- update tests and factual implementation history
-- run relevant checks
-- git add / git commit
+- inspect repository files
+- edit files within task scope
+- update tests and factual implementation history when required
+- run relevant tests/checks
+- inspect Git state/diffs read-only
 
 Codex must not:
+- git add or git commit
+- modify `.git`
 - expand scope or change product/roadmap decisions
 - push, merge, rebase
 - reset --hard, git clean
@@ -54,7 +60,7 @@ Codex must not:
 Completion protocol:
 
 Success:
-DONE <commit-sha>
+DONE
 
 Optional:
 NOTE <short-warning>
@@ -66,20 +72,38 @@ Do not return source, diffs, logs, or long summaries.
 
 `.ai/` is local-only and must not be committed.
 
-## Verification
+## Verification and commit
 
-Claude verifies Codex commits directly from repo/git.
+After Codex returns, Claude verifies the working tree directly.
 
-Prefer:
-- git status
-- git show --stat <sha>
-- targeted diff/files/checks as needed
+Start with:
+- git status --short
+- git diff --stat
+- git diff --name-only
 
-Do not ask Codex to re-explain commit contents.
+Then inspect only relevant diffs/files and run deterministic checks as needed.
 
-If correction is required, delegate a new bounded task.
+Claude must verify:
+- changes match `.ai/task.md`
+- no scope creep
+- no unexpected files
+- required tests/checks pass
+- git diff --check passes
 
-Claude owns roadmap, phase ordering, product requirements, unresolved design decisions, and canonical planning changes.
+Do not ask Codex to re-explain information available from the repository.
+
+If correction is required:
+- do not commit
+- write a bounded correction task
+- delegate it to a fresh Codex session
+- verify again
+
+If accepted:
+- Claude stages only accepted files
+- Claude creates the local commit
+- Claude verifies the resulting commit and clean working tree
+
+Claude owns roadmap, phase ordering, product requirements, unresolved design decisions, canonical planning changes, and commit acceptance.
 
 ## Gemini review
 
@@ -107,7 +131,7 @@ Default: one Claude Code session per development phase.
 Within a phase:
 - keep the current Claude session
 - delegate bounded tasks to fresh Codex sessions
-- verify each Codex commit
+- verify and commit each accepted result
 
 At a completed phase boundary:
 - ensure repo/docs contain all continuation state
@@ -134,13 +158,25 @@ Strict rules:
 - do not silently switch to a provider or model that may incur additional charges
 - when Claude, Codex, Gemini, or another included service reaches its usage limit, stop that affected operation and report the limit
 - prefer waiting for quota reset
-- another model/service may be used only if it is already included at no additional cost and consistent with project policy
+- another model/service may be used only if already included at no additional cost and consistent with project policy
 
 If cost status is uncertain, stop and ask the user before invoking the service.
 
+## Filesystem boundary
+
+For project work, access only:
+- the repository root and its descendants
+- tool-specific configuration strictly required to invoke approved workers
+
+Do not inspect, search, read, write, or enumerate unrelated user directories, unrelated paths, or other drives.
+
+Do not perform broad filesystem searches outside the repository.
+
+If project work requires arbitrary access outside the repository, stop and ask the user first.
+
 ## Token policy
 
-Use repo/git as the primary agent-to-agent communication channel.
+Use repository files, working-tree changes, and Git as the primary agent-to-agent communication channel.
 
 Minimize Claude <-> Codex communication aggressively.
 
