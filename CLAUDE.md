@@ -183,3 +183,8 @@ Minimize Claude <-> Codex communication aggressively.
 Do not duplicate information already available in the repository.
 
 Agent-to-agent messages do not need to be human-friendly when a shorter machine-oriented form is sufficient.
+
+Session handoff smoke test:
+`powershell -ExecutionPolicy Bypass -File scripts/start-next-claude.ps1 -HandoffTest`
+
+HandoffTest must not modify repository state or start development work.
