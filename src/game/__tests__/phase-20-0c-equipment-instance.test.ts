@@ -363,6 +363,7 @@ describe('Phase 20.0c: equipment instance foundation', () => {
       state.enemies = [
         {
           type: 'bok',
+          level: 1,
           pos: { x: state.player.pos.x + 1, y: state.player.pos.y },
           hp: 999,
           maxHp: 999,

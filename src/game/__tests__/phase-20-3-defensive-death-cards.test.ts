@@ -20,6 +20,7 @@ function withCard(state: GameState, cardId: import('../types').ItemId, count: nu
 function adjacentEnemy(state: GameState, attack: number, actionGauge = 0) {
   return {
     type: 'bok' as const,
+    level: 1 as const,
     pos: { x: state.player.pos.x + 1, y: state.player.pos.y },
     hp: 999,
     maxHp: 999,

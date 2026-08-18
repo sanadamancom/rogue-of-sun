@@ -1,4 +1,4 @@
-import { EnemyType, ElementId, ElementalAffinity } from './types';
+import { EnemyLevel, EnemyType, ElementId, ElementalAffinity } from './types';
 
 /**
  * behaviorType: AI dispatch key used by turn.ts.
@@ -189,6 +189,32 @@ export interface EnemyDefinition {
    * 生成順は変更しない".
    */
   traits?: EnemyTrait[];
+}
+
+export interface EnemyLevelStats {
+  hp: number;
+  attack: number;
+  defense: number;
+  accuracy: number;
+  evasion: number;
+  experienceReward: number;
+}
+
+/** Applies the common EnemyLevel stat table to an immutable species definition. */
+export function applyEnemyLevelMultiplier(def: EnemyDefinition, level: EnemyLevel): EnemyLevelStats {
+  const hpMultiplier = level === 1 ? 1 : level === 2 ? 1.55 : 2.3;
+  const attackMultiplier = level === 1 ? 1 : level === 2 ? 1.25 : 1.55;
+  const flatIndex = level - 1;
+  const experienceMultiplier = level === 1 ? 1 : level === 2 ? 3 : 8;
+
+  return {
+    hp: Math.ceil(def.hp * hpMultiplier),
+    attack: Math.round(def.attack * attackMultiplier),
+    defense: def.defense + flatIndex,
+    accuracy: Math.min(95, def.accuracy + flatIndex * 2),
+    evasion: def.evasion + (level === 1 ? 0 : level === 2 ? 3 : 5),
+    experienceReward: def.experienceReward * experienceMultiplier,
+  };
 }
 
 /** Phase 24.3 enemy_traits: the trait vocabulary maul/silver_flail's bonus damage checks against. */

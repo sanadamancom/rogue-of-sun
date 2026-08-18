@@ -27,7 +27,7 @@ import {
   selectMonsterHouseRewardPositions,
 } from './monster-house';
 import { deriveFloorSeed, DEFAULT_RUN_CONFIG, normalizeRunConfig } from './floor';
-import { ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
+import { applyEnemyLevelMultiplier, ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
 import {
   createEmptyInventory,
   drawGroundItemCount,
@@ -156,7 +156,9 @@ export function buildEnemies(positions: Vec2[], types: EnemyType[], spawnTurn: n
   return positions.map((pos, i) => {
     const type = types[i];
     const def = ENEMY_DEFINITIONS[type];
-    return createInitialEnemy(type, pos, def.hp, def.attack, spawnTurn, idOffset + i, def.defense, def.accuracy, def.evasion);
+    const level = 1;
+    const stats = applyEnemyLevelMultiplier(def, level);
+    return createInitialEnemy(type, pos, stats.hp, stats.attack, spawnTurn, idOffset + i, stats.defense, stats.accuracy, stats.evasion, level);
   });
 }
 

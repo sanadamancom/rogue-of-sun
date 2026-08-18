@@ -175,9 +175,12 @@ export type EnemyType =
   | 'ghost'
   | 'steps';
 
+export type EnemyLevel = 1 | 2 | 3;
+
 /** An enemy Actor tagged with its species; used for AI branching and sprite/texture selection. */
 export interface EnemyActor extends Actor {
   type: EnemyType;
+  level: EnemyLevel;
   /**
    * World turn count (GameState.turn) at the moment this enemy was
    * created; used only by 'slow_melee' (golem) to derive its act/wait

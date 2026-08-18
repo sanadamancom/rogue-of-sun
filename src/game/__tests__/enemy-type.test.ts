@@ -156,8 +156,8 @@ function freshSpiderState(): GameState {
       alive: true,
     },
     enemies: [
-      { pos: { x: 1, y: 1 }, hp: 2, maxHp: 2, attack: 1, defense: 0, accuracy: 90, evasion: 0, facing: 'S', alive: true, type: 'bok', actionGauge: 0 },
-      { pos: { x: 1, y: 6 }, hp: 2, maxHp: 2, attack: 1, defense: 0, accuracy: 90, evasion: 0, facing: 'S', alive: true, type: 'spider', actionGauge: 0 },
+      { pos: { x: 1, y: 1 }, hp: 2, maxHp: 2, attack: 1, defense: 0, accuracy: 90, evasion: 0, facing: 'S', alive: true, type: 'bok', level: 1, actionGauge: 0 },
+      { pos: { x: 1, y: 6 }, hp: 2, maxHp: 2, attack: 1, defense: 0, accuracy: 90, evasion: 0, facing: 'S', alive: true, type: 'spider', level: 1, actionGauge: 0 },
     ],
     turn: 0,
     phase: 'playing',

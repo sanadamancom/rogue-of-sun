@@ -353,6 +353,7 @@ describe('Phase 20 core loop', () => {
       state.enemies = [
         {
           type: 'bok',
+          level: 1,
           pos: { x: state.player.pos.x + 1, y: state.player.pos.y },
           hp: 10,
           maxHp: 10,
@@ -403,6 +404,7 @@ describe('Phase 20 core loop', () => {
         state.enemies = [
           {
             type: 'bok',
+            level: 1,
             pos: { x: state.player.pos.x + 1, y: state.player.pos.y },
             hp: 10,
             maxHp: 10,
@@ -678,6 +680,7 @@ describe('Phase 20 core loop', () => {
       state.enemies = [
         {
           type: 'bok',
+          level: 1,
           pos: { x: state.player.pos.x + 1, y: state.player.pos.y },
           hp: 10,
           maxHp: 10,
@@ -794,6 +797,7 @@ describe('Phase 20 core loop', () => {
       state.enemies = [
         {
           type: 'bok',
+          level: 1,
           pos: { x: state.player.pos.x + 1, y: state.player.pos.y },
           hp: 10,
           maxHp: 10,

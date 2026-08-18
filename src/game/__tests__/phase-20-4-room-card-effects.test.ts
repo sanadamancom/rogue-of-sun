@@ -18,6 +18,7 @@ function stateWithSingleRoom(): GameState {
 function enemyAt(pos: { x: number; y: number }, hp = 20) {
   return {
     type: 'bok' as const,
+    level: 1 as const,
     pos,
     hp,
     maxHp: hp,

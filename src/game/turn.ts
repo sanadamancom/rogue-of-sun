@@ -3,7 +3,7 @@ import { applyMonsterHouseReveal } from './monster-house';
 import { canMove, destinationOf, isDiagonalCornerOpen, isInBounds, isWalkable } from './map';
 import { pointKey, chebyshevDistance } from './visibility';
 import { isStepsDetectionRange, getStepsSpikeCells } from './steps';
-import { ENEMY_DEFINITIONS } from './enemy-def';
+import { applyEnemyLevelMultiplier, ENEMY_DEFINITIONS } from './enemy-def';
 import { ITEM_DEFINITIONS } from './item-def';
 import { hasInventoryCapacity, inventoryEntries } from './inventory';
 import {
@@ -656,7 +656,7 @@ function defeatEnemyIfNeeded(
   target.alive = false;
   events.push({ type: 'enemy_defeated', enemyType: target.type, targetId });
 
-  const experienceReward = ENEMY_DEFINITIONS[target.type].experienceReward;
+  const experienceReward = applyEnemyLevelMultiplier(ENEMY_DEFINITIONS[target.type], target.level).experienceReward;
   const gainResult = applyExperienceGain(state, experienceReward);
   events.push({
     type: 'experience_gained',
@@ -5505,10 +5505,12 @@ export function createInitialEnemy(
   defense: number = 0,
   accuracy: number = 90,
   evasion: number = 0,
+  level: EnemyActor['level'] = 1,
 ): EnemyActor {
   return {
     ...createInitialActor(pos, hp, attack, defense, accuracy, evasion),
     type,
+    level,
     spawnTurn,
     recovering: false,
     id,
