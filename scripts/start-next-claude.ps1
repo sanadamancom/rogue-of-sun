@@ -5,23 +5,22 @@ param(
 $ErrorActionPreference = "Stop"
 
 $RepoDir = "D:\rogue-of-sun"
-Set-Location $RepoDir
 
 if ($HandoffTest) {
     $Prompt = @"
-This is a Claude session handoff smoke test.
+This is a Claude Code Desktop session handoff smoke test.
 
 Read CLAUDE.md and inspect the current repository state.
 
 Do not:
 - modify any file
+- modify .ai/task.md
 - invoke Codex or Gemini
 - create a commit
 - push
 - start or advance any development phase
-- create or update .ai/task.md
 
-After verifying the repository context, output only:
+Output only:
 
 HANDOFF_OK
 BRANCH <current-branch>
@@ -43,4 +42,9 @@ Determine the current phase and next bounded task, then proceed according to pro
 "@
 }
 
-claude $Prompt
+$EncodedPrompt = [System.Uri]::EscapeDataString($Prompt)
+$EncodedFolder = [System.Uri]::EscapeDataString($RepoDir)
+
+$Uri = "claude://code/new?q=$EncodedPrompt&folder=$EncodedFolder"
+
+Start-Process $Uri

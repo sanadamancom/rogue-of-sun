@@ -126,23 +126,40 @@ Planned future work is not an unexpected blocker.
 
 ## Session lifecycle
 
-Default: one Claude Code session per development phase.
+Default: one Claude Code Desktop session per development phase.
 
 Within a phase:
-- keep the current Claude session
+- keep the current Claude Code Desktop session
 - delegate bounded tasks to fresh Codex sessions
 - verify and commit each accepted result
 
 At a completed phase boundary:
-- ensure repo/docs contain all continuation state
+- ensure repository and canonical docs contain all continuation state
 - ensure working tree is clean
-- launch:
-  `powershell -ExecutionPolicy Bypass -File scripts/start-next-claude.ps1`
+- launch a fresh Claude Code Desktop session with:
+  `powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-next-claude.ps1`
+- do not use CLI session handoff
 - do not use `--continue` or `--resume`
-- stop work in the old Claude session
+- stop work in the old Desktop session after launching the new one
 - do not start the next phase in the old session
 
-Start a fresh Claude session earlier if context becomes bloated or stale.
+The Desktop deep link may require the user to:
+1. approve the requested repository workspace
+2. submit the prefilled bootstrap prompt
+
+These user confirmation steps are expected and must not be bypassed by UI automation.
+
+Session handoff smoke test:
+`powershell -NoProfile -ExecutionPolicy Bypass -File scripts/start-next-claude.ps1 -HandoffTest`
+
+HandoffTest must:
+- open a fresh Claude Code Desktop session
+- use the repository workspace
+- not modify repository state
+- not invoke Codex or Gemini
+- not start development work
+
+Start a fresh Claude Code Desktop session earlier if context becomes bloated or stale.
 
 Repository state must make session replacement safe.
 
@@ -183,8 +200,3 @@ Minimize Claude <-> Codex communication aggressively.
 Do not duplicate information already available in the repository.
 
 Agent-to-agent messages do not need to be human-friendly when a shorter machine-oriented form is sufficient.
-
-Session handoff smoke test:
-`powershell -ExecutionPolicy Bypass -File scripts/start-next-claude.ps1 -HandoffTest`
-
-HandoffTest must not modify repository state or start development work.
