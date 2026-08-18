@@ -165,6 +165,7 @@ function freshSpiderState(): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    leg: 'descent',
     runDepthTier: DEFAULT_RUN_CONFIG.runDepthTier,
     exit: { x: 99, y: 99 },
     regenProgress: 0,

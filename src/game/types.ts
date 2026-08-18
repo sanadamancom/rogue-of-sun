@@ -545,6 +545,12 @@ export interface GameState {
   /** Current floor number, 1-indexed. */
   floor: number;
   /**
+   * Phase 24.6c1: the current run leg. `ascent` is not yet reachable in
+   * production because the return-leg implementation does not exist yet;
+   * this stable field is reserved for telemetry and future phases.
+   */
+  leg: 'descent' | 'ascent';
+  /**
    * Phase 24.6b0/24.6b1: total floors in this run — the sole canonical
    * source for a run's max floor (RunConfig.totalFloors, passed into
    * createInitialState/buildFloorState, is only the run-creation *input*;

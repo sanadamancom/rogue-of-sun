@@ -49,6 +49,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    leg: 'descent',
     runDepthTier: DEFAULT_RUN_CONFIG.runDepthTier,
     exit: { x: 99, y: 99 },
     regenProgress: 0,
@@ -88,6 +89,9 @@ describe('run lifecycle (Phase 10.3.1)', () => {
   it('creates one run_started and one floor_started event on a new run', () => {
     const state = freshState();
     const telemetry = createRunTelemetry(state);
+    expect(state.leg).toBe('descent');
+    expect(telemetry.schemaVersion).toBe(9);
+    expect(telemetry.events.every((event) => event.leg === 'descent' && event.depth === event.floor)).toBe(true);
     expect(telemetry.events.filter((e) => e.type === 'run_started')).toHaveLength(1);
     expect(telemetry.events.filter((e) => e.type === 'floor_started')).toHaveLength(1);
   });
@@ -470,7 +474,7 @@ describe('JSON export (Phase 10.3.1)', () => {
     const state = freshState({ enemies: [] });
     const telemetry = createRunTelemetry(state);
     const doc = buildTelemetryDocument(telemetry, state);
-    expect(doc.schemaVersion).toBe(8);
+    expect(doc.schemaVersion).toBe(9);
   });
 
   it('the exported document round-trips through JSON.stringify/parse', () => {
@@ -480,7 +484,7 @@ describe('JSON export (Phase 10.3.1)', () => {
     const doc = buildTelemetryDocument(telemetry, state);
     const json = JSON.stringify(doc);
     const parsed = JSON.parse(json);
-    expect(parsed.schemaVersion).toBe(8);
+    expect(parsed.schemaVersion).toBe(9);
     expect(parsed.events.length).toBe(doc.events.length);
   });
 
@@ -493,7 +497,7 @@ describe('JSON export (Phase 10.3.1)', () => {
     });
     const telemetry = createRunTelemetry(state);
     step(state, { type: 'wait' }, telemetry);
-    expect(buildExportFilename(telemetry)).toBe('rogue-of-sun-run-v8-12345-death.json');
+    expect(buildExportFilename(telemetry)).toBe('rogue-of-sun-run-v9-12345-death.json');
   });
 
   it('building the document twice from the same finalized telemetry gives identical JSON', () => {

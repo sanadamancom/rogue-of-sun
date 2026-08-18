@@ -53,6 +53,7 @@ function baseState(overrides: Partial<GameState> = {}): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    leg: 'descent',
     runDepthTier: DEFAULT_RUN_CONFIG.runDepthTier,
     exit: { x: 199, y: 199 },
     regenProgress: 0,
@@ -515,13 +516,13 @@ describe('Phase 24.4e2: discarded and floor transition', () => {
 // --- schema ---
 
 describe('Phase 24.4e2: schema', () => {
-  it('schemaVersion is 8 on RunTelemetry, TelemetryDocument, and export filename', () => {
+  it('schemaVersion is 9 on RunTelemetry, TelemetryDocument, and export filename', () => {
     const state = baseState();
     const telemetry = createRunTelemetry(state);
-    expect(telemetry.schemaVersion).toBe(8);
+    expect(telemetry.schemaVersion).toBe(9);
     const doc = buildTelemetryDocument(telemetry, state);
-    expect(doc.schemaVersion).toBe(8);
-    expect(buildExportFilename(telemetry)).toMatch(/^rogue-of-sun-run-v8-/);
+    expect(doc.schemaVersion).toBe(9);
+    expect(buildExportFilename(telemetry)).toMatch(/^rogue-of-sun-run-v9-/);
   });
 
   it('a run with no curse activity zero-defaults every curses counter', () => {

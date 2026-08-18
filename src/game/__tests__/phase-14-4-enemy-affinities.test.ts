@@ -36,6 +36,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    leg: 'descent',
     exit: { x: 99, y: 99 },
     regenProgress: 0,
     webs: [],
@@ -450,6 +451,6 @@ describe('Phase 14.4: events, log, and telemetry integration', () => {
   it('telemetry schemaVersion stays 7', () => {
     const state = freshState();
     const telemetry = createRunTelemetry(state);
-    expect(telemetry.schemaVersion).toBe(8);
+    expect(telemetry.schemaVersion).toBe(9);
   });
 });

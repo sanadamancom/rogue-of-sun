@@ -44,6 +44,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    leg: 'descent',
     runDepthTier: DEFAULT_RUN_CONFIG.runDepthTier,
     exit: { x: 99, y: 99 },
     regenProgress: 0,
@@ -351,7 +352,7 @@ describe('schema v3 (Phase 10.3.3)', () => {
     const state = freshState({ enemies: [] });
     const telemetry = createRunTelemetry(state);
     const doc = buildTelemetryDocument(telemetry, state);
-    expect(doc.schemaVersion).toBe(8);
+    expect(doc.schemaVersion).toBe(9);
   });
 
   it('filename uses the v3 prefix', () => {
@@ -363,7 +364,7 @@ describe('schema v3 (Phase 10.3.3)', () => {
     });
     const telemetry = createRunTelemetry(state);
     step(state, { type: 'wait' }, telemetry);
-    expect(buildExportFilename(telemetry)).toMatch(/^rogue-of-sun-run-v8-777-/);
+    expect(buildExportFilename(telemetry)).toMatch(/^rogue-of-sun-run-v9-777-/);
   });
 
   it('the same seed and input sequence produce an identical JSON document', () => {

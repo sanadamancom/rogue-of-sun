@@ -49,6 +49,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     runSeed: 1,
     floor: 2,
     totalFloors: 3,
+    leg: 'descent',
     runDepthTier: DEFAULT_RUN_CONFIG.runDepthTier,
     exit: { x: 12, y: 3 },
     regenProgress: 0,

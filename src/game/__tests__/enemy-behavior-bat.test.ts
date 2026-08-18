@@ -63,6 +63,7 @@ function batState(
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    leg: 'descent',
     runDepthTier: DEFAULT_RUN_CONFIG.runDepthTier,
     exit: { x: 199, y: 199 },
     regenProgress: 0,

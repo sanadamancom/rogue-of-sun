@@ -57,6 +57,7 @@ function freshState(unspentAbilityPoints = 0): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    leg: 'descent',
     runDepthTier: DEFAULT_RUN_CONFIG.runDepthTier,
     exit: { x: 99, y: 99 },
     regenProgress: 0,
@@ -217,7 +218,7 @@ describe('Phase 13.3c telemetry schemaVersion 7', () => {
   it('createRunTelemetry produces schemaVersion 7', () => {
     const state = freshState();
     const telemetry = createRunTelemetry(state);
-    expect(telemetry.schemaVersion).toBe(8);
+    expect(telemetry.schemaVersion).toBe(9);
   });
 
   it('the final export document is schemaVersion 7', () => {
@@ -226,7 +227,7 @@ describe('Phase 13.3c telemetry schemaVersion 7', () => {
     const telemetry = createRunTelemetry(s);
     step(s, { type: 'wait' }, telemetry);
     const doc = buildTelemetryDocument(telemetry, s);
-    expect(doc.schemaVersion).toBe(8);
+    expect(doc.schemaVersion).toBe(9);
   });
 
   it('the export filename uses the v7 prefix', () => {
@@ -234,7 +235,7 @@ describe('Phase 13.3c telemetry schemaVersion 7', () => {
     s.enemies = [];
     const telemetry = createRunTelemetry(s);
     step(s, { type: 'wait' }, telemetry);
-    expect(buildExportFilename(telemetry)).toMatch(/^rogue-of-sun-run-v8-/);
+    expect(buildExportFilename(telemetry)).toMatch(/^rogue-of-sun-run-v9-/);
   });
 
   it('JSON.stringify/parse round-trips abilityRanks (endingAbilityRanks) intact', () => {
@@ -367,7 +368,7 @@ describe('maintenance-game-version-policy: gameVersion', () => {
     const telemetry = createRunTelemetry(s);
     step(s, { type: 'wait' }, telemetry);
     const doc = buildTelemetryDocument(telemetry, s);
-    expect(doc.schemaVersion).toBe(8);
+    expect(doc.schemaVersion).toBe(9);
     expect(doc.gameVersion).toBe('phase-20');
     // Neither field is derived from the other — confirms they are two
     // independently-tracked identifiers (gameplay milestone vs payload

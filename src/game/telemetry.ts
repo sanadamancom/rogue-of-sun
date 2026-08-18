@@ -72,6 +72,8 @@ export interface RunEventCommon {
   eventIndex: number;
   turn: number;
   floor: number;
+  leg: 'descent' | 'ascent';
+  depth: number;
   turnConsumed: boolean;
 }
 
@@ -327,7 +329,9 @@ export interface RunTelemetry {
   // shim is provided — this remains an export-only format (no
   // save/load, no importer — schema_policy's "古いrun JSONを読み込む
   // migrationは、現在import機構がなければ不要").
-  schemaVersion: 8;
+  // Phase 24.6c1: bumped from 8 to 9; every event now includes `leg`
+  // and the backward-compatible `depth` alias in its common fields.
+  schemaVersion: 9;
   seed: number;
   result: 'in_progress' | 'clear' | 'death';
   endCause: string | null;
@@ -401,7 +405,7 @@ function pushFloorTransitionCurseEvent(telemetry: RunTelemetry, state: GameState
  */
 export function createRunTelemetry(state: GameState): RunTelemetry {
   const telemetry: RunTelemetry = {
-    schemaVersion: 8,
+    schemaVersion: 9,
     seed: state.runSeed,
     result: 'in_progress',
     endCause: null,
@@ -420,6 +424,8 @@ function pushEvent(telemetry: RunTelemetry, state: GameState, turnConsumed: bool
     eventIndex: telemetry.events.length,
     turn: state.turn,
     floor: state.floor,
+    leg: state.leg,
+    depth: state.floor,
     turnConsumed,
     ...event,
   } as RunEvent);
@@ -1383,6 +1389,8 @@ export function finalizeRun(telemetry: RunTelemetry, state: GameState): void {
     eventIndex: telemetry.events.length,
     turn: state.turn,
     floor: state.floor,
+    leg: state.leg,
+    depth: state.floor,
     turnConsumed: false,
     type: 'run_completed',
     result,
@@ -1998,15 +2006,15 @@ function sanitizeForFilename(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, '');
 }
 
-/** Phase 24.4e2: schemaVersion 7 -> 8 (curse lifecycle telemetry now shipped), "v7" -> "v8" filenames, so old exports are never confused with the new ones. */
+/** Phase 24.6c1: schemaVersion 8 -> 9 (`leg`/`depth` common event fields), "v8" -> "v9" filenames, so old exports are never confused with the new ones. */
 export function buildExportFilename(telemetry: RunTelemetry): string {
   const seedPart = sanitizeForFilename(String(telemetry.seed));
   const resultPart = telemetry.result === 'clear' ? 'clear' : 'death';
-  return `rogue-of-sun-run-v8-${seedPart}-${resultPart}.json`;
+  return `rogue-of-sun-run-v9-${seedPart}-${resultPart}.json`;
 }
 
 export interface TelemetryDocument {
-  schemaVersion: 8;
+  schemaVersion: 9;
   /**
    * The most recently main-integrated, fully-completed development
    * Phase's identifier (maintenance-game-version-policy), independent of
@@ -2076,7 +2084,7 @@ export const CURRENT_GAME_VERSION = 'phase-20';
 export function buildTelemetryDocument(telemetry: RunTelemetry, finalState: GameState): TelemetryDocument {
   const summary = computeRunSummary(telemetry, finalState);
   return {
-    schemaVersion: 8,
+    schemaVersion: 9,
     gameVersion: CURRENT_GAME_VERSION,
     run: {
       seed: telemetry.seed,

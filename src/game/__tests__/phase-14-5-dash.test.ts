@@ -22,6 +22,7 @@ function freshState(map: GameMap, playerPos: { x: number; y: number }, overrides
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    leg: 'descent',
     exit: map.exit,
     regenProgress: 0,
     webs: [],

@@ -47,6 +47,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    leg: 'descent',
     runDepthTier: DEFAULT_RUN_CONFIG.runDepthTier,
     exit: { x: 99, y: 99 },
     regenProgress: 0,
@@ -418,7 +419,7 @@ describe('JSON schema v2 (Phase 10.3.2)', () => {
     const state = freshState({ enemies: [] });
     const telemetry = createRunTelemetry(state);
     const doc = buildTelemetryDocument(telemetry, state);
-    expect(doc.schemaVersion).toBe(8);
+    expect(doc.schemaVersion).toBe(9);
   });
 
   it('filename uses the v2 prefix', () => {
@@ -430,7 +431,7 @@ describe('JSON schema v2 (Phase 10.3.2)', () => {
     });
     const telemetry = createRunTelemetry(state);
     step(state, { type: 'wait' }, telemetry);
-    expect(buildExportFilename(telemetry)).toBe('rogue-of-sun-run-v8-555-death.json');
+    expect(buildExportFilename(telemetry)).toBe('rogue-of-sun-run-v9-555-death.json');
   });
 
   it('no NaN or Infinity anywhere in the exported document', () => {

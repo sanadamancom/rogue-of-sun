@@ -666,6 +666,7 @@ function buildFloorState(
     seed: floorSeed,
     runSeed,
     floor,
+    leg: 'descent',
     totalFloors: runConfig.totalFloors,
     runDepthTier: runConfig.runDepthTier,
     exit: placement.exit,

@@ -43,6 +43,7 @@ function freshState(overrides?: Partial<GameState>): GameState {
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
+    leg: 'descent',
     runDepthTier: DEFAULT_RUN_CONFIG.runDepthTier,
     exit: { x: 99, y: 99 },
     regenProgress: 0,
@@ -186,7 +187,7 @@ describe('schema stability after the field rename (Phase 10.3.3a)', () => {
     const state = freshState({ enemies: [] });
     const telemetry = createRunTelemetry(state);
     const doc = buildTelemetryDocument(telemetry, state);
-    expect(doc.schemaVersion).toBe(8);
+    expect(doc.schemaVersion).toBe(9);
   });
 
   it('the export filename still uses the v3 prefix', () => {
@@ -198,7 +199,7 @@ describe('schema stability after the field rename (Phase 10.3.3a)', () => {
     });
     const telemetry = createRunTelemetry(state);
     step(state, { type: 'wait' }, telemetry);
-    expect(buildExportFilename(telemetry)).toMatch(/^rogue-of-sun-run-v8-888-/);
+    expect(buildExportFilename(telemetry)).toMatch(/^rogue-of-sun-run-v9-888-/);
   });
 
   it('the saved JSON re-parses and no player_healed event contains actualAmount', () => {
