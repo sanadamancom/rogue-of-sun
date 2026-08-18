@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$RepoDir = "D:\rogue-of-sun"
+$RepoDir = "C:\dev\rogue-of-sun"
 
 if ($HandoffTest) {
     $Prompt = @"
