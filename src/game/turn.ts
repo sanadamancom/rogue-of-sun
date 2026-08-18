@@ -5438,6 +5438,7 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
     actualMoveHappened && state.player.pos.x === state.exit.x && state.player.pos.y === state.exit.y;
 
   state.turn += 1;
+  state.floorTurn = (state.floorTurn ?? 0) + 1;
   // Phase 24.3 black_armor (black_armor): ticks once per completed world
   // turn, only while equipped — a no-op (including counter itself) when
   // unequipped. May bring player.hp to 0; the existing playerDefeated

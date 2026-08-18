@@ -269,7 +269,7 @@ describe('Phase 14.1 element foundation: telemetry compatibility', () => {
   it('keeps telemetry schemaVersion at 7', () => {
     const state = freshState();
     const telemetry = createRunTelemetry(state);
-    expect(telemetry.schemaVersion).toBe(9);
+    expect(telemetry.schemaVersion).toBe(10);
   });
 
   it('records neutral sol additionalDamage as 2, calculatedDamage as physical+2 (Phase 15.3 rebalance)', () => {

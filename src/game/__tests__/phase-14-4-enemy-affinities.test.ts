@@ -451,6 +451,6 @@ describe('Phase 14.4: events, log, and telemetry integration', () => {
   it('telemetry schemaVersion stays 7', () => {
     const state = freshState();
     const telemetry = createRunTelemetry(state);
-    expect(telemetry.schemaVersion).toBe(9);
+    expect(telemetry.schemaVersion).toBe(10);
   });
 });

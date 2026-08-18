@@ -44,12 +44,15 @@ function freshState(overrides?: Partial<GameState>): GameState {
     player: createInitialActor({ x: 2, y: 1 }, 30, 10, 0, 90, 0),
     enemies: [createInitialEnemy('bok', { x: 3, y: 1 }, 1000, 10, 0, 0, 0, 90, 0)],
     turn: 0,
+    floorTurn: 0,
     phase: 'playing',
     seed: 1,
     runSeed: 1,
     floor: 1,
     totalFloors: 3,
     leg: 'descent',
+    floorVisitOrdinal: 1,
+    reinforcementOrdinal: 0,
     runDepthTier: DEFAULT_RUN_CONFIG.runDepthTier,
     exit: { x: 99, y: 99 },
     regenProgress: 0,
@@ -90,10 +93,40 @@ describe('run lifecycle (Phase 10.3.1)', () => {
     const state = freshState();
     const telemetry = createRunTelemetry(state);
     expect(state.leg).toBe('descent');
-    expect(telemetry.schemaVersion).toBe(9);
+    expect(telemetry.schemaVersion).toBe(10);
     expect(telemetry.events.every((event) => event.leg === 'descent' && event.depth === event.floor)).toBe(true);
+    expect(telemetry.events.every((event) =>
+      event.floorVisitOrdinal === 1 && event.floorTurn === 0 && event.reinforcementOrdinal === 0
+    )).toBe(true);
     expect(telemetry.events.filter((e) => e.type === 'run_started')).toHaveLength(1);
     expect(telemetry.events.filter((e) => e.type === 'floor_started')).toHaveLength(1);
+  });
+
+  it('tracks floor visits and per-floor turns on state and every event', () => {
+    let state = createInitialState(1234);
+    const telemetry = createRunTelemetry(state);
+    expect(state).toMatchObject({ floorVisitOrdinal: 1, floorTurn: 0, reinforcementOrdinal: 0 });
+
+    state.enemies = [];
+    step(state, { type: 'wait' }, telemetry);
+    expect(state.floorTurn).toBe(1);
+    expect(telemetry.events.slice(2).every((event) =>
+      event.floorVisitOrdinal === 1 && event.floorTurn === 1 && event.reinforcementOrdinal === 0
+    )).toBe(true);
+
+    state = advanceToNextFloor(state);
+    const eventCountBeforeFloorStart = telemetry.events.length;
+    recordFloorStarted(telemetry, state);
+    expect(state).toMatchObject({ floor: 2, floorVisitOrdinal: 2, floorTurn: 0, reinforcementOrdinal: 0 });
+    expect(telemetry.events.slice(eventCountBeforeFloorStart).every((event) =>
+      event.floorVisitOrdinal === 2 && event.floorTurn === 0 && event.reinforcementOrdinal === 0
+    )).toBe(true);
+    expect(telemetry.events.find((event) => event.type === 'floor_started' && event.floor === 2)).toMatchObject({
+      type: 'floor_started',
+      floorVisitOrdinal: 2,
+      floorTurn: 0,
+      reinforcementOrdinal: 0,
+    });
   });
 
   it('a normal move keeps the same telemetry object (not a new run)', () => {
@@ -474,7 +507,7 @@ describe('JSON export (Phase 10.3.1)', () => {
     const state = freshState({ enemies: [] });
     const telemetry = createRunTelemetry(state);
     const doc = buildTelemetryDocument(telemetry, state);
-    expect(doc.schemaVersion).toBe(9);
+    expect(doc.schemaVersion).toBe(10);
   });
 
   it('the exported document round-trips through JSON.stringify/parse', () => {
@@ -484,7 +517,7 @@ describe('JSON export (Phase 10.3.1)', () => {
     const doc = buildTelemetryDocument(telemetry, state);
     const json = JSON.stringify(doc);
     const parsed = JSON.parse(json);
-    expect(parsed.schemaVersion).toBe(9);
+    expect(parsed.schemaVersion).toBe(10);
     expect(parsed.events.length).toBe(doc.events.length);
   });
 
@@ -497,7 +530,7 @@ describe('JSON export (Phase 10.3.1)', () => {
     });
     const telemetry = createRunTelemetry(state);
     step(state, { type: 'wait' }, telemetry);
-    expect(buildExportFilename(telemetry)).toBe('rogue-of-sun-run-v9-12345-death.json');
+    expect(buildExportFilename(telemetry)).toBe('rogue-of-sun-run-v10-12345-death.json');
   });
 
   it('building the document twice from the same finalized telemetry gives identical JSON', () => {

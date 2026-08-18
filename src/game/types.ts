@@ -537,6 +537,8 @@ export interface GameState {
   /** Fixed-order list of this floor's enemies (index 0 = bok, index 1 = spider); dead enemies stay in the array with alive=false. */
   enemies: EnemyActor[];
   turn: number;
+  /** Number of turns consumed on the current floor; reset on floor entry. */
+  floorTurn?: number;
   phase: GamePhase;
   /** Seed used to generate this floor's map (derived from runSeed + floor). */
   seed: number;
@@ -550,6 +552,10 @@ export interface GameState {
    * this stable field is reserved for telemetry and future phases.
    */
   leg: 'descent' | 'ascent';
+  /** 1-indexed count of floor visits during this run, independent of depth. */
+  floorVisitOrdinal?: number;
+  /** Number of reinforcement spawns triggered on this floor. */
+  reinforcementOrdinal?: number;
   /**
    * Phase 24.6b0/24.6b1: total floors in this run — the sole canonical
    * source for a run's max floor (RunConfig.totalFloors, passed into

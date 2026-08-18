@@ -74,6 +74,9 @@ export interface RunEventCommon {
   floor: number;
   leg: 'descent' | 'ascent';
   depth: number;
+  floorVisitOrdinal: number;
+  floorTurn: number;
+  reinforcementOrdinal: number;
   turnConsumed: boolean;
 }
 
@@ -331,7 +334,10 @@ export interface RunTelemetry {
   // migrationは、現在import機構がなければ不要").
   // Phase 24.6c1: bumped from 8 to 9; every event now includes `leg`
   // and the backward-compatible `depth` alias in its common fields.
-  schemaVersion: 9;
+  // Phase 24.6c1b: bumped from 9 to 10; every event now includes the
+  // floor-visit, per-floor-turn, and reinforcement ordinals required
+  // for unambiguous floor-unit aggregation across repeated depths.
+  schemaVersion: 10;
   seed: number;
   result: 'in_progress' | 'clear' | 'death';
   endCause: string | null;
@@ -405,7 +411,7 @@ function pushFloorTransitionCurseEvent(telemetry: RunTelemetry, state: GameState
  */
 export function createRunTelemetry(state: GameState): RunTelemetry {
   const telemetry: RunTelemetry = {
-    schemaVersion: 9,
+    schemaVersion: 10,
     seed: state.runSeed,
     result: 'in_progress',
     endCause: null,
@@ -426,6 +432,9 @@ function pushEvent(telemetry: RunTelemetry, state: GameState, turnConsumed: bool
     floor: state.floor,
     leg: state.leg,
     depth: state.floor,
+    floorVisitOrdinal: state.floorVisitOrdinal ?? state.floor,
+    floorTurn: state.floorTurn ?? 0,
+    reinforcementOrdinal: state.reinforcementOrdinal ?? 0,
     turnConsumed,
     ...event,
   } as RunEvent);
@@ -1391,6 +1400,9 @@ export function finalizeRun(telemetry: RunTelemetry, state: GameState): void {
     floor: state.floor,
     leg: state.leg,
     depth: state.floor,
+    floorVisitOrdinal: state.floorVisitOrdinal ?? state.floor,
+    floorTurn: state.floorTurn ?? 0,
+    reinforcementOrdinal: state.reinforcementOrdinal ?? 0,
     turnConsumed: false,
     type: 'run_completed',
     result,
@@ -2006,15 +2018,15 @@ function sanitizeForFilename(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, '');
 }
 
-/** Phase 24.6c1: schemaVersion 8 -> 9 (`leg`/`depth` common event fields), "v8" -> "v9" filenames, so old exports are never confused with the new ones. */
+/** Phase 24.6c1b: schemaVersion 9 -> 10 (`floorVisitOrdinal`/`floorTurn`/`reinforcementOrdinal` common event fields), "v9" -> "v10" filenames, so floor visits and per-floor turns can be aggregated without confusing old exports. */
 export function buildExportFilename(telemetry: RunTelemetry): string {
   const seedPart = sanitizeForFilename(String(telemetry.seed));
   const resultPart = telemetry.result === 'clear' ? 'clear' : 'death';
-  return `rogue-of-sun-run-v9-${seedPart}-${resultPart}.json`;
+  return `rogue-of-sun-run-v10-${seedPart}-${resultPart}.json`;
 }
 
 export interface TelemetryDocument {
-  schemaVersion: 9;
+  schemaVersion: 10;
   /**
    * The most recently main-integrated, fully-completed development
    * Phase's identifier (maintenance-game-version-policy), independent of
@@ -2084,7 +2096,7 @@ export const CURRENT_GAME_VERSION = 'phase-20';
 export function buildTelemetryDocument(telemetry: RunTelemetry, finalState: GameState): TelemetryDocument {
   const summary = computeRunSummary(telemetry, finalState);
   return {
-    schemaVersion: 9,
+    schemaVersion: 10,
     gameVersion: CURRENT_GAME_VERSION,
     run: {
       seed: telemetry.seed,

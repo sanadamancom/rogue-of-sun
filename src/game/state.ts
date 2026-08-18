@@ -197,6 +197,7 @@ function buildFloorState(
   runSeed: number,
   floor: number,
   turn: number,
+  floorVisitOrdinal: number,
   runConfig: Readonly<RunConfig>,
   carry?: CarryOverStats,
   enemyCount?: number,
@@ -662,11 +663,14 @@ function buildFloorState(
     player,
     enemies,
     turn,
+    floorTurn: 0,
     phase: 'playing',
     seed: floorSeed,
     runSeed,
     floor,
     leg: 'descent',
+    floorVisitOrdinal,
+    reinforcementOrdinal: 0,
     totalFloors: runConfig.totalFloors,
     runDepthTier: runConfig.runDepthTier,
     exit: placement.exit,
@@ -830,7 +834,7 @@ function buildFloorState(
  * invalid input).
  */
 export function createInitialState(runSeed: number, runConfig?: RunConfig): GameState {
-  return buildFloorState(runSeed, 1, 0, runConfig ? normalizeRunConfig(runConfig) : DEFAULT_RUN_CONFIG);
+  return buildFloorState(runSeed, 1, 0, 1, runConfig ? normalizeRunConfig(runConfig) : DEFAULT_RUN_CONFIG);
 }
 
 /**
@@ -913,6 +917,7 @@ export function advanceToNextFloor(state: GameState, events?: GameEvent[]): Game
     state.runSeed,
     state.floor + 1,
     state.turn,
+    (state.floorVisitOrdinal ?? state.floor) + 1,
     { totalFloors: state.totalFloors, runDepthTier: state.runDepthTier },
     carry,
   );
@@ -950,5 +955,5 @@ export function advanceToNextFloor(state: GameState, events?: GameEvent[]): Game
  * correctly together without changing normal floor density.
  */
 export function buildRosterPreviewFloorState(runSeed: number): GameState {
-  return buildFloorState(runSeed, 1, 0, DEFAULT_RUN_CONFIG, undefined, ENEMY_TYPES_IN_ORDER.length, ENEMY_TYPES_IN_ORDER);
+  return buildFloorState(runSeed, 1, 0, 1, DEFAULT_RUN_CONFIG, undefined, ENEMY_TYPES_IN_ORDER.length, ENEMY_TYPES_IN_ORDER);
 }

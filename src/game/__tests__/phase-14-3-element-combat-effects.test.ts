@@ -482,7 +482,7 @@ describe('Phase 14.3: telemetry', () => {
   it('keeps schemaVersion 7 and export filename v7', () => {
     const state = freshState();
     const telemetry = createRunTelemetry(state);
-    expect(telemetry.schemaVersion).toBe(9);
+    expect(telemetry.schemaVersion).toBe(10);
   });
 
   for (const element of OTHER_ELEMENTS) {
