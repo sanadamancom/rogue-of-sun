@@ -94,9 +94,12 @@ Do not ask Codex to re-explain information available from the repository.
 
 If correction is required:
 - do not commit
+- Claude must not directly edit production code or tests
+- this applies even to trivial, mechanical, obvious, or one-line fixes
 - write a bounded correction task
 - delegate it to a fresh Codex session
 - verify again
+- if Claude directly edits production code or tests, treat and report it as a workflow deviation
 
 If accepted:
 - Claude stages only accepted files
@@ -220,4 +223,3 @@ Minimize Claude <-> Codex communication aggressively.
 Do not duplicate information already available in the repository.
 
 Agent-to-agent messages do not need to be human-friendly when a shorter machine-oriented form is sufficient.
-
