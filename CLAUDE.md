@@ -196,3 +196,11 @@ Start a fresh session earlier if:
 - stale conversational assumptions could interfere with repository truth
 
 Repository state, not Claude session history, must make session replacement safe.
+
+At a completed phase boundary, when the repository state is finalized and clean:
+
+- launch the next Claude Code session with:
+  `powershell -ExecutionPolicy Bypass -File scripts/start-next-claude.ps1`
+- do not use `--continue` or `--resume`
+- after the new session is launched, stop work in the current session
+- do not continue implementing the next phase in the old session
