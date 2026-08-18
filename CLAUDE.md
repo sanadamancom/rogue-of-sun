@@ -167,3 +167,32 @@ Implement .ai/task.md. Inspect repo/docs directly. Commit locally. Return protoc
 Do not duplicate task details in agent messages.
 
 `.ai/` is local-only and must not be committed.
+
+## Session lifecycle
+
+Use one Claude Code session per development phase by default.
+
+Within a phase:
+- keep the same Claude session
+- delegate bounded implementation tasks to Codex
+- verify each Codex commit before continuing
+
+At a phase boundary:
+- finish and verify the current phase
+- ensure repository state and canonical docs contain everything needed for continuation
+- do not rely on conversation-only context
+- tell the user that the current Claude session can be closed
+- provide one minimal bootstrap prompt for a new Claude session
+
+The bootstrap prompt should normally be:
+
+Continue ROGUE OF SOL development. Read CLAUDE.md, current git state, canonical planning/spec/history docs, determine the current phase and next bounded task, then proceed according to project policy.
+
+Do not carry large summaries between Claude sessions when the information is already present in the repository.
+
+Start a fresh session earlier if:
+- conversation context has become unnecessarily large
+- the task changes to a substantially different phase or objective
+- stale conversational assumptions could interfere with repository truth
+
+Repository state, not Claude session history, must make session replacement safe.
