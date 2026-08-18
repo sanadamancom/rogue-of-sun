@@ -125,15 +125,32 @@ If implementation exposes an unresolved game-design, UX, balance, product, or ar
 
 Routine implementation details that do not change product behavior or architecture may be resolved autonomously.
 
-## Gemini review
+## Antigravity review
 
-Use Gemini selectively for:
+Antigravity is the optional independent reviewer and design consultant.
+Do not use Antigravity as a normal implementation worker.
+
+Use Antigravity selectively for:
 - phase-boundary review
 - high-risk changes
 - regression-risk review
 - independent second opinion
+- technical or design consultation where a third-party assessment is useful
 
-Treat Gemini findings as advisory and verify them against repo/docs.
+Invoke Antigravity as a fresh non-interactive CLI call.
+Do not continue a prior Antigravity conversation by default.
+
+Normal review invocation on this VM:
+`agy --effort high --print "<review prompt>"`
+
+For lightweight consultation, Claude may use lower reasoning effort when appropriate.
+
+Antigravity should inspect and review, not commit or push.
+Review prompts should explicitly instruct it not to modify repository files.
+
+Because Antigravity print mode is not treated as a hard read-only security boundary, Claude must inspect repository status/diff after the invocation and must not accept unintended Antigravity modifications.
+
+Treat Antigravity findings as advisory and verify them against repo/docs.
 
 Review categories:
 - unexpected_blocker
@@ -143,6 +160,13 @@ Review categories:
 - minor
 
 Planned future work is not an unexpected blocker.
+
+Do not use Antigravity when:
+- Codex completed a routine low-risk bounded task and Claude can verify it directly
+- the question is already resolved by canonical repository documentation
+- using it would create additional paid usage without explicit user approval
+
+Antigravity must not make unresolved product, game-design, UX, balance, or architecture decisions on behalf of the user.
 
 ## Session lifecycle
 
@@ -176,7 +200,7 @@ HandoffTest must:
 - open a fresh Claude Code Desktop session
 - use the repository workspace
 - not modify repository state
-- not invoke Codex or Gemini
+- not invoke Codex or Antigravity
 - not start development work
 
 Start a fresh Claude Code Desktop session earlier if context becomes bloated or stale.
