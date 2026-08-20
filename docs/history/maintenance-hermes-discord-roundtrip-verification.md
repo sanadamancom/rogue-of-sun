@@ -50,3 +50,5 @@ documentationへの記録→通常workflow復帰）は、`4591b8b`の2つの修�
 （`Write-JsonAtomic`のfile-replace crash修正、notify targetの
 `discord:#rogue-of-sun` default化）を適用した状態で、実repository・実
 binaryに対して最後まで機能した。
+
+- headless commit verification: this line was appended and committed by a Hermes-launched non-interactive Claude session with no human present to approve tool calls, confirming the headless permission bypass lets a session complete its own accepted git commit.
