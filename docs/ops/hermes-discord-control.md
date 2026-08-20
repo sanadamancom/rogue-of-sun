@@ -13,8 +13,43 @@ A fresh Claude session writes `USER_DECISION_REQUIRED` with a self-contained rea
 
 Hermes and this control layer never generate, infer, select, or improve an answer. Only literal text supplied by a human through `answer` is forwarded.
 
-## Safety and remaining wiring
+## Project-local Discord skill
+
+The project-local skill at
+`.hermes/skills/software-development/rogue-of-sun-dev-control/SKILL.md`
+routes natural-language Hermes Discord requests to the same four bounded
+`start`, `status`, `stop`, and `answer` operations. It summarizes results in
+natural Japanese and forwards a human decision answer literally. It is not a
+general shell interface and must never execute arbitrary commands.
+
+The repository must be trusted once by a human before Hermes loads this skill:
+
+```powershell
+hermes skills trust C:\dev\rogue-of-sun
+```
+
+This manual trust step is required. Repository automation must not run it.
+
+## Human-facing language policy
+
+Discord-facing text is Japanese: fixed orchestrator notification labels,
+`USER_DECISION_REQUIRED` and `BLOCKED` reason content, replies composed by the
+project-local skill, and optional short in-session progress notifications.
+Decision and blocker reasons are authored in Japanese by Claude and forwarded
+verbatim; Hermes and Codex do not translate, summarize, or alter them.
+
+The internal machine protocol remains English/original. This includes
+`.ai/status.json` status values and JSON field names, phase/task values when
+they are identifiers, code identifiers, commit SHAs, CLI command names, and
+Claude/Codex prompts and logs. None of those are translated. Optional
+in-session progress lines are informational only: they neither update control
+state nor replace the required `.ai/status.json` result.
+
+## Safety
 
 The normal git invariants remain in force: no push, merge, rebase, history rewrite, `git reset --hard`, or `git clean`; only Claude creates development commits; and an unexpected dirty tree fails closed.
 
-One manual step remains: register a Hermes Discord-side hook/tool mapping home-channel `start`, `status`, `stop`, and `answer <text>` messages to `scripts/hermes-dev-control.ps1 -Command <...>`. This requires editing the live Gateway configuration (`~/.hermes/config.yaml` shell-hooks, as described by `hermes hooks --help`) and is deliberately outside this repository-only change. Until then, invoke the commands manually as the user or from an interactive Hermes/Claude session operating on this repository. The supported mapping must expose only these bounded commands, never arbitrary shell execution.
+The project-local skill is the Discord-side natural-language routing layer. Its
+supported mapping exposes only the four bounded commands and never arbitrary
+shell execution. No Hermes installation or `~/.hermes/config.yaml` change is
+part of this repository integration.
