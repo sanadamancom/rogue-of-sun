@@ -519,10 +519,10 @@ describe('Phase 24.4e2: schema', () => {
   it('schemaVersion is 9 on RunTelemetry, TelemetryDocument, and export filename', () => {
     const state = baseState();
     const telemetry = createRunTelemetry(state);
-    expect(telemetry.schemaVersion).toBe(10);
+    expect(telemetry.schemaVersion).toBe(11);
     const doc = buildTelemetryDocument(telemetry, state);
-    expect(doc.schemaVersion).toBe(10);
-    expect(buildExportFilename(telemetry)).toMatch(/^rogue-of-sun-run-v10-/);
+    expect(doc.schemaVersion).toBe(11);
+    expect(buildExportFilename(telemetry)).toMatch(/^rogue-of-sun-run-v11-/);
   });
 
   it('a run with no curse activity zero-defaults every curses counter', () => {

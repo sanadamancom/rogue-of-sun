@@ -218,7 +218,7 @@ describe('Phase 13.3c telemetry schemaVersion 7', () => {
   it('createRunTelemetry produces schemaVersion 7', () => {
     const state = freshState();
     const telemetry = createRunTelemetry(state);
-    expect(telemetry.schemaVersion).toBe(10);
+    expect(telemetry.schemaVersion).toBe(11);
   });
 
   it('the final export document is schemaVersion 7', () => {
@@ -227,7 +227,7 @@ describe('Phase 13.3c telemetry schemaVersion 7', () => {
     const telemetry = createRunTelemetry(s);
     step(s, { type: 'wait' }, telemetry);
     const doc = buildTelemetryDocument(telemetry, s);
-    expect(doc.schemaVersion).toBe(10);
+    expect(doc.schemaVersion).toBe(11);
   });
 
   it('the export filename uses the v7 prefix', () => {
@@ -235,7 +235,7 @@ describe('Phase 13.3c telemetry schemaVersion 7', () => {
     s.enemies = [];
     const telemetry = createRunTelemetry(s);
     step(s, { type: 'wait' }, telemetry);
-    expect(buildExportFilename(telemetry)).toMatch(/^rogue-of-sun-run-v10-/);
+    expect(buildExportFilename(telemetry)).toMatch(/^rogue-of-sun-run-v11-/);
   });
 
   it('JSON.stringify/parse round-trips abilityRanks (endingAbilityRanks) intact', () => {
@@ -368,7 +368,7 @@ describe('maintenance-game-version-policy: gameVersion', () => {
     const telemetry = createRunTelemetry(s);
     step(s, { type: 'wait' }, telemetry);
     const doc = buildTelemetryDocument(telemetry, s);
-    expect(doc.schemaVersion).toBe(10);
+    expect(doc.schemaVersion).toBe(11);
     expect(doc.gameVersion).toBe('phase-20');
     // Neither field is derived from the other — confirms they are two
     // independently-tracked identifiers (gameplay milestone vs payload

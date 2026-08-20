@@ -323,7 +323,7 @@ export interface EnemyActor extends Actor {
    * hidden. Never itself read by combat, AI, or drop logic — purely an
    * origin tag.
    */
-  spawnSource?: 'normal' | 'monster_house';
+  spawnSource?: 'normal' | 'monster_house' | 'reinforcement';
   /**
    * Skeleton-only (Phase 23.1 solar gun element foundation +
    * skeleton revival): which of the two forms this skeleton is

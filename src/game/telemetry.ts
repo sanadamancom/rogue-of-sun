@@ -171,6 +171,7 @@ export type RunEventPayload =
     }
   | { type: 'attack_invalid'; actor: 'player'; weaponOrAttackType: WeaponId | 'unarmed'; reason: string }
   | { type: 'enemy_defeated'; targetType: EnemyType; targetId: number }
+  | { type: 'reinforcement_spawned'; floor: number; enemyType: EnemyType; reinforcementOrdinal: number }
   // Phase 12.3: `source` is widened from EnemyType-only to also allow
   // 'poison' — poison is the first non-enemy damage source, so this
   // player_damaged event (and everything downstream that reads its
@@ -337,7 +338,7 @@ export interface RunTelemetry {
   // Phase 24.6c1b: bumped from 9 to 10; every event now includes the
   // floor-visit, per-floor-turn, and reinforcement ordinals required
   // for unambiguous floor-unit aggregation across repeated depths.
-  schemaVersion: 10;
+  schemaVersion: 11;
   seed: number;
   result: 'in_progress' | 'clear' | 'death';
   endCause: string | null;
@@ -411,7 +412,7 @@ function pushFloorTransitionCurseEvent(telemetry: RunTelemetry, state: GameState
  */
 export function createRunTelemetry(state: GameState): RunTelemetry {
   const telemetry: RunTelemetry = {
-    schemaVersion: 10,
+    schemaVersion: 11,
     seed: state.runSeed,
     result: 'in_progress',
     endCause: null,
@@ -894,6 +895,15 @@ function translateGameEvent(
     }
     case 'enemy_defeated': {
       pushEvent(telemetry, after, consumed, { type: 'enemy_defeated', targetType: event.enemyType, targetId: event.targetId });
+      break;
+    }
+    case 'reinforcement_spawned': {
+      pushEvent(telemetry, after, consumed, {
+        type: 'reinforcement_spawned',
+        floor: event.floor,
+        enemyType: event.enemyType,
+        reinforcementOrdinal: event.reinforcementOrdinal,
+      });
       break;
     }
     case 'experience_gained': {
@@ -2018,15 +2028,15 @@ function sanitizeForFilename(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, '');
 }
 
-/** Phase 24.6c1b: schemaVersion 9 -> 10 (`floorVisitOrdinal`/`floorTurn`/`reinforcementOrdinal` common event fields), "v9" -> "v10" filenames, so floor visits and per-floor turns can be aggregated without confusing old exports. */
+/** Phase 24.6c2c: schemaVersion 10 -> 11 (`reinforcement_spawned`), "v10" -> "v11" filenames, so reinforcement lifecycle events cannot be confused with older exports. */
 export function buildExportFilename(telemetry: RunTelemetry): string {
   const seedPart = sanitizeForFilename(String(telemetry.seed));
   const resultPart = telemetry.result === 'clear' ? 'clear' : 'death';
-  return `rogue-of-sun-run-v10-${seedPart}-${resultPart}.json`;
+  return `rogue-of-sun-run-v11-${seedPart}-${resultPart}.json`;
 }
 
 export interface TelemetryDocument {
-  schemaVersion: 10;
+  schemaVersion: 11;
   /**
    * The most recently main-integrated, fully-completed development
    * Phase's identifier (maintenance-game-version-policy), independent of
@@ -2096,7 +2106,7 @@ export const CURRENT_GAME_VERSION = 'phase-20';
 export function buildTelemetryDocument(telemetry: RunTelemetry, finalState: GameState): TelemetryDocument {
   const summary = computeRunSummary(telemetry, finalState);
   return {
-    schemaVersion: 10,
+    schemaVersion: 11,
     gameVersion: CURRENT_GAME_VERSION,
     run: {
       seed: telemetry.seed,

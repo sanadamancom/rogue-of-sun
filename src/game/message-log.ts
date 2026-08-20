@@ -44,6 +44,8 @@ export function formatEvent(event: GameEvent): string {
       const name = ENEMY_DEFINITIONS[event.enemyType].displayName;
       return `${name}をたおした。`;
     }
+    case 'reinforcement_spawned':
+      return '';
     // Phase 23.1 skeleton revival: only skeleton ever produces these
     // three event types, so the display name is a fixed literal rather
     // than an ENEMY_DEFINITIONS lookup (these events carry no

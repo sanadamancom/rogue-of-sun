@@ -52,8 +52,10 @@ const FLOOR_MIX = 0x9e3779b9;
  * can be derived in any order and always produce the same result for the
  * same (runSeed, floor) pair. Never reads Date.now or Math.random.
  */
-export function deriveFloorSeed(runSeed: number, floor: number): number {
-  const mixed = ((runSeed >>> 0) ^ Math.imul(floor, FLOOR_MIX)) >>> 0;
+export function deriveFloorSeed(runSeed: number, floor: number, leg: 'descent' | 'ascent' = 'descent'): number {
+  // The zero descent salt preserves the original byte-for-byte contract.
+  const legSalt = leg === 'ascent' ? 0xa53c9e17 : 0;
+  const mixed = ((runSeed >>> 0) ^ Math.imul(floor, FLOOR_MIX) ^ legSalt) >>> 0;
   const rng = createRng(mixed);
   return Math.floor(rng() * 0x100000000) >>> 0;
 }

@@ -20,7 +20,7 @@ describe('Phase 15.5: normal generation uses the per-floor count', () => {
   // enemy with spawnSource absent, matching every enemy's default
   // treatment as normal — see monster-house.ts/turn.ts's hidden-check).
   // The expected values themselves (6/7/8) are unchanged.
-  const isNormalEnemy = (e: { spawnSource?: 'normal' | 'monster_house' }) => e.spawnSource !== 'monster_house';
+  const isNormalEnemy = (e: { spawnSource?: 'normal' | 'monster_house' | 'reinforcement' }) => e.spawnSource !== 'monster_house';
 
   it('floor 1 always generates exactly 6 enemies', () => {
     for (let seed = 0; seed < 60; seed++) {
@@ -171,7 +171,7 @@ describe('Phase 15.5: robustness (1000 seeds per floor, 300 multi-floor runs)', 
     }).not.toThrow();
   });
 
-  const isNormalEnemy = (e: { spawnSource?: 'normal' | 'monster_house' }) => e.spawnSource !== 'monster_house';
+  const isNormalEnemy = (e: { spawnSource?: 'normal' | 'monster_house' | 'reinforcement' }) => e.spawnSource !== 'monster_house';
 
   it('a full 3-floor run never throws across 300 seeds, and every floor has the correct enemy count', () => {
     for (let seed = 0; seed < 300; seed++) {

@@ -93,7 +93,7 @@ describe('run lifecycle (Phase 10.3.1)', () => {
     const state = freshState();
     const telemetry = createRunTelemetry(state);
     expect(state.leg).toBe('descent');
-    expect(telemetry.schemaVersion).toBe(10);
+    expect(telemetry.schemaVersion).toBe(11);
     expect(telemetry.events.every((event) => event.leg === 'descent' && event.depth === event.floor)).toBe(true);
     expect(telemetry.events.every((event) =>
       event.floorVisitOrdinal === 1 && event.floorTurn === 0 && event.reinforcementOrdinal === 0
@@ -507,7 +507,7 @@ describe('JSON export (Phase 10.3.1)', () => {
     const state = freshState({ enemies: [] });
     const telemetry = createRunTelemetry(state);
     const doc = buildTelemetryDocument(telemetry, state);
-    expect(doc.schemaVersion).toBe(10);
+    expect(doc.schemaVersion).toBe(11);
   });
 
   it('the exported document round-trips through JSON.stringify/parse', () => {
@@ -517,7 +517,7 @@ describe('JSON export (Phase 10.3.1)', () => {
     const doc = buildTelemetryDocument(telemetry, state);
     const json = JSON.stringify(doc);
     const parsed = JSON.parse(json);
-    expect(parsed.schemaVersion).toBe(10);
+    expect(parsed.schemaVersion).toBe(11);
     expect(parsed.events.length).toBe(doc.events.length);
   });
 
@@ -530,7 +530,7 @@ describe('JSON export (Phase 10.3.1)', () => {
     });
     const telemetry = createRunTelemetry(state);
     step(state, { type: 'wait' }, telemetry);
-    expect(buildExportFilename(telemetry)).toBe('rogue-of-sun-run-v10-12345-death.json');
+    expect(buildExportFilename(telemetry)).toBe('rogue-of-sun-run-v11-12345-death.json');
   });
 
   it('building the document twice from the same finalized telemetry gives identical JSON', () => {

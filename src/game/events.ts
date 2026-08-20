@@ -46,6 +46,7 @@ export type GameEvent =
   | { type: 'player_attack_missed'; enemyType: EnemyType; targetId: number; weaponId?: WeaponId; hitChance: number; roll: number }
   | { type: 'enemy_attack_missed'; enemyType: EnemyType; attackerId: number; hitChance: number; roll: number }
   | { type: 'enemy_defeated'; enemyType: EnemyType; targetId: number }
+  | { type: 'reinforcement_spawned'; floor: number; enemyType: EnemyType; reinforcementOrdinal: number }
   // Phase 24.4b enemy drops: pushed once, immediately after
   // 'enemy_defeated', when this genuine terminal defeat's drop roll
   // succeeded and a valid placement cell was found (never pushed on a

@@ -1,9 +1,9 @@
 import { directionBetweenAdjacent, isAdjacent, isOrthogonallyAdjacent } from './direction';
 import { applyMonsterHouseReveal } from './monster-house';
 import { canMove, destinationOf, isDiagonalCornerOpen, isInBounds, isWalkable } from './map';
-import { pointKey, chebyshevDistance } from './visibility';
+import { pointKey, chebyshevDistance, computeCurrentVisibility } from './visibility';
 import { isStepsDetectionRange, getStepsSpikeCells } from './steps';
-import { applyEnemyLevelMultiplier, ENEMY_DEFINITIONS } from './enemy-def';
+import { applyEnemyLevelMultiplier, ENEMY_DEFINITIONS, getEnemyPoolForFloor } from './enemy-def';
 import { ITEM_DEFINITIONS } from './item-def';
 import { hasInventoryCapacity, inventoryEntries } from './inventory';
 import {
@@ -26,7 +26,8 @@ import { canPlaceWebNow, expireWebs, placeWeb } from './web';
 import { isSunlitAt } from './sunlight';
 import { GameEvent } from './events';
 import { applyExperienceGain, getLevel } from './progression';
-import { roomIndexContaining, createRng } from './mapgen';
+import { roomIndexContaining, createRng, ENEMY_COUNT_BY_FLOOR, ENEMY_COUNT_PER_FLOOR } from './mapgen';
+import { getReinforcementRule } from './reinforcement';
 import { getPowerDamageBonus, getPlayerSpeed, getElementalMindBonus, getAbilities, BODY_MAX_HP_PER_RANK, MIND_MAX_SOL_PER_RANK } from './ability';
 import { markGeneralItemIdentified, getDisplayedItemName } from './item-identification';
 import { CARD_DEFINITIONS, CARD_IDS_IN_ORDER } from './card-def';
@@ -5111,6 +5112,69 @@ function resolveSkeletonRevivals(state: GameState, events: GameEvent[]): void {
   }
 }
 
+const REINFORCEMENT_RNG_SALT = 0xd1b54a35;
+
+/** Attempts the cadence spawn without consuming any mutable RNG stream. */
+export function resolveRegularReinforcement(state: GameState, events: GameEvent[]): void {
+  const rule = getReinforcementRule(state.floor);
+  const floorTurn = state.floorTurn ?? 0;
+  if (floorTurn <= 0 || floorTurn % rule.cadenceTurns !== 0) return;
+
+  const ordinal = (state.reinforcementOrdinal ?? 0) + 1;
+  state.reinforcementOrdinal = ordinal;
+
+  const initialCount = ENEMY_COUNT_BY_FLOOR[state.floor] ?? ENEMY_COUNT_PER_FLOOR;
+  const aliveCount = state.enemies.filter((enemy) => enemy.alive && enemy.spawnSource !== 'monster_house').length;
+  if (aliveCount >= initialCount + rule.capBonus) return;
+
+  const visible = new Set(computeCurrentVisibility(state.map, state.map.rooms, state.player.pos).map(pointKey));
+  const occupied = new Set<string>([
+    pointKey(state.player.pos),
+    pointKey(state.exit),
+    ...state.enemies.filter((enemy) => enemy.alive).map((enemy) => pointKey(enemy.pos)),
+    ...state.groundItems.map((item) => pointKey(item.pos)),
+    ...(state.traps ?? []).map((trap) => pointKey(trap.pos)),
+    ...state.webs.map((web) => pointKey(web.pos)),
+  ]);
+
+  const reachable: Vec2[] = [];
+  const seen = new Set<string>([pointKey(state.player.pos)]);
+  const queue: Vec2[] = [{ ...state.player.pos }];
+  for (let head = 0; head < queue.length; head++) {
+    const current = queue[head];
+    for (const direction of ALL_DIRECTIONS) {
+      if (!canMove(state.map, current, direction)) continue;
+      const next = destinationOf(current, direction);
+      const key = pointKey(next);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      queue.push(next);
+      reachable.push(next);
+    }
+  }
+  const candidates = reachable.filter((pos) =>
+    !visible.has(pointKey(pos)) &&
+    chebyshevDistance(pos, state.player.pos) > 1 &&
+    !occupied.has(pointKey(pos)),
+  );
+  if (candidates.length === 0) return;
+
+  const legSalt = state.leg === 'ascent' ? 0x9e3779b9 : 0;
+  const rngSeed = (state.seed ^ Math.imul(state.floor, 0x85ebca6b) ^ Math.imul(ordinal, 0xc2b2ae35) ^ legSalt ^ REINFORCEMENT_RNG_SALT) >>> 0;
+  const rng = createRng(rngSeed);
+  const pool = getEnemyPoolForFloor(state.floor);
+  if (pool.length === 0) return;
+  const enemyType = pool[Math.floor(rng() * pool.length)];
+  const pos = candidates[Math.floor(rng() * candidates.length)];
+  const def = ENEMY_DEFINITIONS[enemyType];
+  const stats = applyEnemyLevelMultiplier(def, 1);
+  const nextId = state.enemies.reduce((max, enemy) => Math.max(max, enemy.id ?? -1), -1) + 1;
+  const enemy = createInitialEnemy(enemyType, pos, stats.hp, stats.attack, state.turn, nextId, stats.defense, stats.accuracy, stats.evasion, 1);
+  enemy.spawnSource = 'reinforcement';
+  state.enemies.push(enemy);
+  events.push({ type: 'reinforcement_spawned', floor: state.floor, enemyType, reinforcementOrdinal: ordinal });
+}
+
 export function processTurn(state: GameState, action: PlayerAction): TurnResult {
   if (state.phase !== 'playing') {
     return {
@@ -5456,6 +5520,7 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
   // once per processTurn call, right after the turn counter increments
   // — mirroring expireWebs' own placement in this per-turn sequence.
   resolveSkeletonRevivals(state, events);
+  resolveRegularReinforcement(state, events);
 
   if (playerDefeated) {
     state.phase = 'gameover';
