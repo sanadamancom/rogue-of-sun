@@ -70,3 +70,5 @@ control layerが、Japanese化された通知文言を経由しても
 `USER_DECISION_REQUIRED` → Discord通知 → `answer` → 新規session起動 →
 canonical documentationへの記録、という往復を最後まで問題なく再現できた
 ことのみを記録する。
+
+- 2026-08-21 final integration verification: a Hermes-launched headless Claude session committed this synthetic docs-only marker after the Japanese decision/progress contract update.
