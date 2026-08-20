@@ -3,7 +3,7 @@
 `scripts/hermes-dev-control.ps1` is the repository-side, bounded interface for detached Hermes orchestration. Invoke it with `-Command start`, `status`, `stop`, or `answer` from the repository host.
 
 - `start` rejects a pending decision, a live single-instance lock, or a dirty working tree; clears stale locks and stop requests; then launches the orchestrator detached with notifications enabled.
-- `status` quickly reports the live PID check, last control state, full pending decision, current commit, and dirty-tree state. Add `-Json` for machine-readable output.
+- `status` quickly reports the live PID check, last control state, full pending decision, current commit, and dirty-tree state. Add `-Json` for machine-readable output. When the project-local skill turns this data into a Discord reply, it uses a short Markdown heading or bold label, inline code for commit SHA/phase/task identifiers, and one or two bullets for pending-decision information; it never pastes the raw output.
 - `stop` writes a cooperative request. It never kills Claude or changes repository content; the orchestrator honors it between sessions.
 - `answer -Answer <text> [-DecisionId <id>]` rejects missing, stale, or racing decisions, then launches a fresh session with the literal answer explicitly labeled as a human decision. The pending file is removed only after launch succeeds.
 
@@ -35,8 +35,24 @@ This manual trust step is required. Repository automation must not run it.
 Discord-facing text is Japanese: fixed orchestrator notification labels,
 `USER_DECISION_REQUIRED` and `BLOCKED` reason content, replies composed by the
 project-local skill, and optional short in-session progress notifications.
-Decision and blocker reasons are authored in Japanese by Claude and forwarded
-verbatim; Hermes and Codex do not translate, summarize, or alter them.
+Decision and blocker reasons are authored in Japanese Discord Markdown by
+Claude and forwarded verbatim; Hermes and Codex do not translate, summarize,
+prefix, reconstruct, reformat, or otherwise alter them. A decision uses the
+`## ⚠️ 人による判断が必要です` heading, an inline-code Phase/Task line, and
+separate bold-labeled sections for the decision, bulleted options and impacts,
+stop reason, and requested answer. A blocker uses
+`## 🛑 開発がブロックされました` with sections for the problem, checks
+already attempted, why bounded correction cannot continue, and the human
+action needed.
+
+Other notifications use lightweight Discord Markdown: `##` headings for
+development start, committed task, and cooperative stop; `###` headings for
+implementing, verification, and session turnover; and a short bold failure
+label for orchestration errors. Phase, task, and commit SHA identifiers use
+inline code. Messages remain mobile-readable and normally only a few lines.
+No Discord-bound message includes raw stdout, full diffs, full test listings,
+or unbounded content, and every message stays comfortably below Discord's
+message-length limit.
 
 The internal machine protocol remains English/original. This includes
 `.ai/status.json` status values and JSON field names, phase/task values when

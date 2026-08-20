@@ -18,7 +18,7 @@ function Stop-HermesWithError {
     if ($script:ControlStatePath) {
         Write-ControlState -Status "failed" -Reason $Message
     }
-    Send-HermesNotification "ROGUE OF SOL オーケストレーション失敗: $Message"
+    Send-HermesNotification "**失敗**`n`n理由: ``$Message``"
     Write-Error "Hermes fail-closed: $Message"
     exit 1
 }
@@ -85,8 +85,8 @@ $HermesCommand = Get-Command hermes -ErrorAction SilentlyContinue
 $script:HermesCommandPath = if ($HermesCommand) { $HermesCommand.Source } else { $null }
 if ($Notify -and $script:HermesCommandPath) {
     $SessionNotificationContract = @"
-Notifications are enabled for this session. You may send at most 3 short, one-line Japanese progress notifications, and only at these checkpoints: (1) immediately after identifying the bounded phase/task, (2) immediately after delegating to Codex and before waiting for it, and (3) immediately after tests/build verification completes, with only a pass/fail summary. Use the Hermes terminal tool to invoke exactly:
-& '$($script:HermesCommandPath)' send --to '$NotifyTarget' --quiet '<short Japanese line>'
+Notifications are enabled for this session. You may send at most 3 short Japanese Discord Markdown progress notifications, and only at these checkpoints: (1) immediately after identifying the bounded phase/task, (2) immediately after delegating to Codex and before waiting for it, and (3) immediately after tests/build verification completes, with only a pass/fail summary. For checkpoints (1) and (2), use the heading "### 🔨 実装中", put phase/task identifier-like tokens in inline code, and add only 1-2 short lines. For checkpoint (3), use the heading "### 🧪 検証中", followed by only a short pass/fail summary in 1-2 lines. Use the Hermes terminal tool to invoke exactly:
+& '$($script:HermesCommandPath)' send --to '$NotifyTarget' --quiet '<short Discord Markdown message>'
 Do not send at any other checkpoint. Never include raw Claude/Codex stdout, full diffs, full test output, or long English narration. These messages are purely informational Discord narration: they do not update .ai/status.json or .ai/control/state.json, carry no machine-protocol meaning, and never replace the required final .ai/status.json write. The orchestrator's own notifications remain separate and unchanged.
 "@
 }
@@ -102,9 +102,43 @@ This is a Hermes non-interactive orchestration session, not an interactive or De
 
 Regardless of outcome--successful continuation, a finished bounded task, a decision needed from a human, or an unresolved blocker--you must write a valid .ai/status.json according to docs/ops/hermes-status-protocol.md as your last action before exiting. There is no exit path that skips this requirement.
 
-If a game-design, UX, balance, product, or architecture decision requires a human under CLAUDE.md, do not merely ask the question in prose and stop. Write status "USER_DECISION_REQUIRED". Its reason must be natural, self-contained Japanese so an upstream notification surface such as Discord can forward it verbatim without translating, summarizing, or altering it: state the decision needed, why it blocks progress, the concrete options being considered (for example, "A: ... / B: ..."), the impact of each option, all context the human needs, and exactly what answer is wanted from the human.
+If a game-design, UX, balance, product, or architecture decision requires a human under CLAUDE.md, do not merely ask the question in prose and stop. Write status "USER_DECISION_REQUIRED". The reason remains one JSON string, but you must author that string itself as natural, self-contained Japanese Discord Markdown in exactly this section shape (with real newlines encoded correctly by JSON):
+## ⚠️ 人による判断が必要です
+**Phase:** `<phase>` / **Task:** `<task>`
 
-For an unresolved blocker, write status "BLOCKED". Its reason must likewise be natural, self-contained Japanese and explain what is blocked, why work is stopped, why the normal bounded Codex-correction workflow could not resolve it, any concrete options and their impacts, and what answer or action is wanted from the human. Only the reason field for USER_DECISION_REQUIRED and BLOCKED has this authored-language requirement. Keep phase, task, commit_sha, every other protocol field, prompt/log content, and code identifiers in their original English or source form. CONTINUE and SESSION_BOUNDARY reasons may be English or Japanese. For "CONTINUE" or "SESSION_BOUNDARY", ensure reason, phase, task, and commit_sha accurately reflect what this session actually did.
+**判断事項:**
+<what needs to be decided>
+
+**選択肢:**
+- **A:** <option A> — <impact>
+- **B:** <option B> — <impact>
+
+**停止理由:**
+<why work is currently stopped>
+
+**人間に求める回答:**
+<what answer is wanted>
+
+Use every heading and bold section label above verbatim, including **人間に求める回答:**; do not shorten, rename, translate, or omit any label. Replace every placeholder with complete Japanese content and put phase/task identifier-like tokens in inline code. The reason must contain all context the human needs.
+
+For an unresolved blocker, write status "BLOCKED". The reason remains one JSON string, but you must author that string itself as natural, self-contained Japanese Discord Markdown in exactly this section shape:
+## 🛑 開発がブロックされました
+
+**Phase:** `<phase>` / **Task:** `<task>`
+
+**問題:**
+<what is blocked>
+
+**実施済み確認:**
+<what was already checked or attempted>
+
+**なぜ自動継続できないか:**
+<why the normal bounded Codex-correction workflow could not resolve it>
+
+**人間に必要な対応:**
+<what action or answer is needed>
+
+Use every heading and bold section label above verbatim; do not shorten, rename, translate, or omit any label. Replace every placeholder with complete Japanese content and put phase/task identifier-like tokens in inline code. Claude authors the final Markdown while writing reason. Hermes, Codex, and every downstream layer must forward reason verbatim exactly as written, Markdown and all; they must never reconstruct, re-summarize, translate, prefix, or reformat Claude's decision or blocker content. Only the reason field for USER_DECISION_REQUIRED and BLOCKED has this authored-language requirement. Keep phase, task, commit_sha, every other protocol field, prompt/log content, and code identifiers in their original English or source form. CONTINUE and SESSION_BOUNDARY reasons may be English or Japanese. For "CONTINUE" or "SESSION_BOUNDARY", ensure reason, phase, task, and commit_sha accurately reflect what this session actually did.
 
 $SessionNotificationContract
 
@@ -181,13 +215,13 @@ $KnownStatuses = @("CONTINUE", "SESSION_BOUNDARY", "USER_DECISION_REQUIRED", "BL
 $PreviousCommitSha = $null
 try { $PreviousCommitSha = (& git -C $ResolvedRepoDir log -1 --format=%H 2>$null) } catch {}
 Write-ControlState -Status "running" -Reason "orchestration started"
-Send-HermesNotification "ROGUE OF SOL 開発を開始しました。"
+Send-HermesNotification "## 🚀 開発開始`n`nROGUE OF SOL の開発を開始しました。"
 
 while ($SessionCount -lt $MaxSessions) {
     if (Test-Path -LiteralPath $StopRequestPath) {
         Remove-Item -LiteralPath $StopRequestPath -Force
         Write-ControlState -Status "stopped_by_request" -Reason "Cooperative stop request honored between sessions."
-        Send-HermesNotification "ROGUE OF SOL オーケストレーションを手動停止しました。"
+        Send-HermesNotification "## ⏹️ 開発停止`n`n協調停止リクエストにより安全に停止しました。"
         exit 0
     }
     $DisplaySession = $SessionCount + 1
@@ -272,7 +306,7 @@ while ($SessionCount -lt $MaxSessions) {
 
     $CurrentCommitSha = [string]$SessionStatus.commit_sha
     if ($CurrentCommitSha -and $CurrentCommitSha -ne $PreviousCommitSha) {
-        Send-HermesNotification "ROGUE OF SOL 限定タスクをコミットしました: $CurrentCommitSha"
+        Send-HermesNotification "## ✅ タスク完了`n`nコミット: ``$CurrentCommitSha```n限定タスクをコミットしました。"
         $PreviousCommitSha = $CurrentCommitSha
     }
 
@@ -287,10 +321,10 @@ while ($SessionCount -lt $MaxSessions) {
             createdAt = [DateTimeOffset]::UtcNow.ToString('o')
         }
         Write-JsonAtomic -Path $PendingDecisionPath -Value $Pending
-        Send-HermesNotification "ROGUE OF SOL 人による判断が必要です: $($SessionStatus.reason)"
+        Send-HermesNotification ([string]$SessionStatus.reason)
     }
     elseif ($SessionStatus.status -eq 'BLOCKED') {
-        Send-HermesNotification "ROGUE OF SOL ブロックされています: $($SessionStatus.reason)"
+        Send-HermesNotification ([string]$SessionStatus.reason)
     }
 
     if ($SessionStatus.status -in @('USER_DECISION_REQUIRED', 'BLOCKED')) {
@@ -304,7 +338,7 @@ while ($SessionCount -lt $MaxSessions) {
     }
 
     if ($SessionStatus.status -eq 'SESSION_BOUNDARY') {
-        Send-HermesNotification "ROGUE OF SOL セッションを交代し、新しいセッションで自動継続します。"
+        Send-HermesNotification "### 🔄 セッション交代`n`n新しいセッションで自動継続します。"
     }
     Write-Host "Hermes: status permits autonomous continuation; starting a fresh session."
 }

@@ -22,13 +22,13 @@ Status values mean:
 - `USER_DECISION_REQUIRED`: A game-design, UX, balance, product, architecture, or other explicit human decision is unresolved. Hermes must stop and never answer for the user.
 - `BLOCKED`: A serious blocker could not be resolved safely through Claude's normal bounded Codex-correction workflow. Hermes must stop.
 
-For `USER_DECISION_REQUIRED`, `reason` must be self-contained enough for an upstream human-facing surface to forward directly. It must state what decision is needed, the concrete options, why the decision blocks progress, and the context the human needs to answer. For example, this hypothetical status is sufficiently self-contained:
+For `USER_DECISION_REQUIRED`, `reason` remains a single string, but Claude must author that string as self-contained Japanese Discord Markdown. It uses a heading, a bold phase/task line with identifier-like values in inline code, and the verbatim section labels `判断事項`, `選択肢`, `停止理由`, and `人間に求める回答`; labels must not be shortened or renamed. `BLOCKED` follows the same rule with the verbatim sections `問題`, `実施済み確認`, `なぜ自動継続できないか`, and `人間に必要な対応`. Hermes, Codex, and downstream surfaces forward the string verbatim; they never reconstruct, summarize, translate, prefix, or reformat it. For example, this synthetic status is sufficiently self-contained:
 
 ```json
 {
   "protocol_version": 1,
   "status": "USER_DECISION_REQUIRED",
-  "reason": "Choose how a hypothetical depth-40 enemy affix pool should combine bonuses: A: add bonuses together, producing gentler scaling; or B: multiply bonuses, producing sharper late-game difficulty. Implementation is blocked because this balance choice changes both the stat formula and encounter tuning. Please choose A or B based on the intended late-game difficulty curve.",
+  "reason": "## ⚠️ 人による判断が必要です\n\n**Phase:** `synthetic-verification` / **Task:** `depth-40-affix-stacking`\n\n**判断事項:**\n架空の深度40敵アフィックスプールで、ボーナスをどのように合成するか決定が必要です。\n\n**選択肢:**\n- **A:** 加算する — 後半の難易度上昇が緩やかになります。\n- **B:** 乗算する — 後半の難易度上昇が急になります。\n\n**停止理由:**\nこの選択で能力値の式と遭遇調整の両方が変わるため、実装を停止しています。\n\n**人間に求める回答:**\n意図する後半の難易度曲線に基づき、A または B を回答してください。",
   "phase": "hypothetical phase",
   "task": "Define hypothetical depth-40 affix stacking",
   "commit_sha": null

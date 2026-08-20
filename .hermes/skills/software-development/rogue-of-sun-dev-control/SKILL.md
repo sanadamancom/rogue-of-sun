@@ -43,8 +43,10 @@ Japanese; this skill grants no general shell-execution capability.
    `scripts\hermes-dev-control.ps1 -Command status -Json` (the non-JSON form
    is also allowed). Compose a natural Japanese summary covering whether it
    is running, the current phase/task, the last commit, and whether a decision
-   is pending and what it concerns. Never paste raw JSON or an English
-   key-value dump into Discord.
+   is pending and what it concerns. Format the Discord reply with a short
+   Markdown heading or bold label, inline code for commit SHA/phase/task
+   identifiers, and one or two bullets for pending-decision information.
+   Never paste raw JSON or an English key-value dump into Discord.
 
 3. For a stop request, use `terminal` to run
    `scripts\hermes-dev-control.ps1 -Command stop`. Tell the user in Japanese
