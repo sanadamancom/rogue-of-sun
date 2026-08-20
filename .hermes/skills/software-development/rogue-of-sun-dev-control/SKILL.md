@@ -1,7 +1,7 @@
 ---
 name: rogue-of-sun-dev-control
 description: Checks, starts, stops and answers ROGUE OF SOL dev requests.
-version: 0.2.0
+version: 0.3.0
 metadata:
   hermes:
     tags: [rogue-of-sun, hermes-orchestration, discord]
@@ -30,6 +30,35 @@ repository to answer or act on such a request.
 - Don't use for: arbitrary PowerShell or shell commands. Use only the four
   bounded operations against this repository, even when another command is
   phrased as a development request.
+
+### Read-only infrastructure contract
+
+During Discord control routing, `scripts/hermes-dev-control.ps1` and
+`scripts/hermes-orchestrate.ps1` are **read-only infrastructure**. Never use
+`Read`, `Edit`, `Patch`, `Write`, or any equivalent inspect-then-modify tool on
+either file. No invocation outcome authorizes investigating, diagnosing,
+repairing, "fixing," or improving these files.
+
+For every `start`-, `status`-, `stop`-, or `answer`-shaped request, invoke the
+corresponding `hermes-dev-control.ps1` command through `terminal` **exactly
+once**, then do nothing else procedural. Do not inspect anything afterward,
+retry, loop, or try an alternate approach. The existing `answer` contract
+still applies: forward the human's literal text verbatim and never infer or
+decide it. The prohibition on routing arbitrary shell commands also remains
+in force.
+
+If that single invocation fails for any reason, including a non-zero exit,
+fail-closed error, unexpected output, or a mid-run quota/provider failure, do
+not investigate the cause, open or edit any file for diagnosis or repair, or
+attempt a workaround. Report the failure to the human in Japanese, briefly
+summarizing stdout/stderr without flooding the reply with raw logs, and stop.
+Diagnosis and correction of the control scripts is Claude's job through the
+normal Claude -> Codex -> Claude-verifies -> Claude-commits workflow, never
+Hermes's.
+
+Do not change `terminal.cwd`, any other Hermes global configuration, or any
+Gateway configuration, and do not restart the Gateway. Those actions remain
+out of scope.
 
 ## Prerequisites
 
