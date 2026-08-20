@@ -32,7 +32,7 @@ function Launch-Orchestrator([string]$PromptOverride) {
         '-RepoDir', ('"' + $ResolvedRepoDir.Replace('"', '""') + '"'), '-MaxSessions', [string]$MaxSessions,
         '-SessionTimeoutSeconds', [string]$SessionTimeoutSeconds, '-Notify',
         '-NotifyTarget', ('"' + $NotifyTarget.Replace('"', '""') + '"'))
-    if ($null -ne $PromptOverride) {
+    if (-not [string]::IsNullOrEmpty($PromptOverride)) {
         $EncodedPrompt = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($PromptOverride))
         $Args += @('-PromptBase64', $EncodedPrompt)
     }
