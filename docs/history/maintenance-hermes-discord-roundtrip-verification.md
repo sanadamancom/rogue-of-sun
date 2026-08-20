@@ -96,3 +96,27 @@ Japanese human-facing language contractの最終統合後も
 `USER_DECISION_REQUIRED` → Discord通知 → `pending-decision.json` →
 `answer` → 新規session起動 → canonical documentationへの記録 → 通常
 workflow復帰、という往復を最後まで問題なく再現できたことのみを記録する。
+
+## 第四往復（Discord通知の構造化Markdown化後の再検証）
+
+commit `f001c59`（Discord human-facing通知を構造化Markdownとして整形）
+適用後、同一のsynthetic `USER_DECISION_REQUIRED`往復をもう一度実施した。
+今回の人間からのliteral回答は次の通り：
+
+> SYNTHETIC TEST ANSWER: choose A. This is purely a Markdown-formatting
+> round-trip verification response, not a real balance decision.
+
+この回答も上記3回の往復と同様、実在するgame-design/balance決定ではない。
+depth-40+ enemy affix poolのbonus合成方式（加算 vs 乗算）について「A（加算）
+を選ぶ」という体裁を取ってはいるが、depth-40+ enemy affix pool自体が本
+repositoryにまだ存在しないため、この回答を`docs/planning/`や`docs/specs/`
+の実際のbalance仕様へ反映することはしない。将来depth-40+ enemy affix pool
+を実際に設計する際は、このsynthetic testの結果ではなく、その時点の
+canonical design docとcurrent repository stateに基づいて改めて意思決定
+すること。
+
+本節はHermes/Discord control layerが、Discord human-facing通知の構造化
+Markdown化後も`USER_DECISION_REQUIRED` → Discord通知（構造化Markdown形式）
+→ `pending-decision.json` → `answer` → 新規session起動 → canonical
+documentationへの記録 → 通常workflow復帰、という往復を最後まで問題なく
+再現できたことのみを記録する。
