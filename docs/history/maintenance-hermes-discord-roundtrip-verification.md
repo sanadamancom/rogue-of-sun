@@ -120,3 +120,31 @@ Markdown化後も`USER_DECISION_REQUIRED` → Discord通知（構造化Markdown�
 → `pending-decision.json` → `answer` → 新規session起動 → canonical
 documentationへの記録 → 通常workflow復帰、という往復を最後まで問題なく
 再現できたことのみを記録する。
+
+## 第五往復（docs-onlyマーカー追記のsynthetic検証）
+
+branch `phase-24-6b2a2-availability-regression-coverage`上で、同一の
+synthetic `USER_DECISION_REQUIRED`往復をもう一度実施した。今回のsynthetic
+決定要求は、game-designのA/B選択ではなく「本file
+（`docs/history/maintenance-hermes-discord-roundtrip-verification.md`）へ
+docs-onlyのverification markerを1行追記し、そのfileのみをcommitする」という
+機構検証専用のtaskだった。人間からのliteral回答は次の通り：
+
+> SYNTHETIC TEST ANSWER: append and commit the requested docs-only
+> verification marker.
+
+この回答も上記4回の往復と同様、実在するgame-design/balance決定ではない。
+追記対象・commit対象を本fileのみに限定するという機構検証上の指示であり、
+`docs/planning/`や`docs/specs/`の実際のbalance仕様へ反映すべき内容は存在
+しない。
+
+本節はHermes/Discord control layerが、`USER_DECISION_REQUIRED` → Discord
+通知 → `pending-decision.json` → `answer` → 新規session起動 → canonical
+documentationへの記録（本file限定commit）→ 通常workflow復帰、という往復を
+最後まで問題なく再現できたことのみを記録する。
+
+- 2026-08-21 fifth round-trip verification: a Hermes-launched headless
+  Claude session appended this synthetic docs-only marker and committed
+  only this file, confirming the round trip still holds on the
+  `phase-24-6b2a2-availability-regression-coverage` branch with no
+  unrelated files touched.
