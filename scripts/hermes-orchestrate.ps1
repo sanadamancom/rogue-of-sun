@@ -5,15 +5,66 @@ param(
     [ValidateRange(1, [int]::MaxValue)]
     [int]$SessionTimeoutSeconds = 3600,
     [string]$Prompt,
-    [switch]$SmokeTest
+    [string]$PromptBase64,
+    [switch]$SmokeTest,
+    [switch]$Notify
 )
 
 $ErrorActionPreference = "Stop" # All process and protocol anomalies fail closed.
 
 function Stop-HermesWithError {
     param([string]$Message)
+    if ($script:ControlStatePath) {
+        Write-ControlState -Status "failed" -Reason $Message
+    }
+    Send-HermesNotification "ROGUE OF SOL orchestration failed: $Message"
     Write-Error "Hermes fail-closed: $Message"
     exit 1
+}
+
+function Write-JsonAtomic {
+    param([string]$Path, [object]$Value)
+    $TempPath = "$Path.tmp.$PID"
+    $Value | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $TempPath -Encoding UTF8
+    if (Test-Path -LiteralPath $Path) {
+        [IO.File]::Replace($TempPath, $Path, $null)
+    }
+    else {
+        Move-Item -LiteralPath $TempPath -Destination $Path
+    }
+}
+
+function Write-ControlState {
+    param(
+        [string]$Status,
+        [string]$Reason = $null,
+        [object]$SessionStatus = $null
+    )
+    if (-not $script:ControlStatePath) { return }
+    $State = [ordered]@{
+        status = $Status; reason = $Reason; phase = $null; task = $null
+        commit_sha = $null; updatedAt = [DateTimeOffset]::UtcNow.ToString('o')
+        sessionCount = $script:SessionCount; maxSessions = $MaxSessions; pid = $PID
+    }
+    if ($SessionStatus) {
+        $State.reason = [string]$SessionStatus.reason
+        $State.phase = $SessionStatus.phase
+        $State.task = $SessionStatus.task
+        $State.commit_sha = $SessionStatus.commit_sha
+    }
+    Write-JsonAtomic -Path $script:ControlStatePath -Value $State
+}
+
+function Send-HermesNotification {
+    param([string]$Message)
+    if (-not $Notify) { return }
+    try {
+        $HermesCommand = Get-Command hermes -ErrorAction SilentlyContinue
+        if (-not $HermesCommand) { Write-Warning "Hermes notification skipped: hermes executable not found"; return }
+        & $HermesCommand.Source send --to discord --quiet $Message
+        if ($LASTEXITCODE -ne 0) { Write-Warning "Hermes notification failed with exit code $LASTEXITCODE" }
+    }
+    catch { Write-Warning "Hermes notification failed: $($_.Exception.Message)" }
 }
 
 try {
@@ -22,6 +73,13 @@ try {
 catch {
     Stop-HermesWithError "repository directory does not exist: $RepoDir"
 }
+
+$ControlDir = Join-Path $ResolvedRepoDir ".ai\control"
+New-Item -ItemType Directory -Path $ControlDir -Force | Out-Null
+$script:ControlStatePath = Join-Path $ControlDir "state.json"
+$StopRequestPath = Join-Path $ControlDir "stop-request.json"
+$PendingDecisionPath = Join-Path $ControlDir "pending-decision.json"
+$script:SessionCount = 0
 
 $ExitContract = @"
 This is a Hermes non-interactive orchestration session, not an interactive or Desktop session.
@@ -58,6 +116,15 @@ As an example appropriate to this smoke test, write .ai/status.json with this pr
 Make no other repository changes, then exit.
 "@
 }
+elseif ($PSBoundParameters.ContainsKey('PromptBase64')) {
+    try { $DecodedPrompt = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($PromptBase64)) }
+    catch { Stop-HermesWithError "PromptBase64 is invalid: $($_.Exception.Message)" }
+    $EffectivePrompt = @"
+$ExitContract
+
+$DecodedPrompt
+"@
+}
 elseif ($PSBoundParameters.ContainsKey('Prompt')) {
     $EffectivePrompt = @"
 $ExitContract
@@ -91,9 +158,20 @@ catch {
 
 $StatusPath = Join-Path $ResolvedRepoDir ".ai\status.json"
 $SessionCount = 0
+$script:SessionCount = 0
 $KnownStatuses = @("CONTINUE", "SESSION_BOUNDARY", "USER_DECISION_REQUIRED", "BLOCKED")
+$PreviousCommitSha = $null
+try { $PreviousCommitSha = (& git -C $ResolvedRepoDir log -1 --format=%H 2>$null) } catch {}
+Write-ControlState -Status "running" -Reason "orchestration started"
+Send-HermesNotification "ROGUE OF SOL development started."
 
 while ($SessionCount -lt $MaxSessions) {
+    if (Test-Path -LiteralPath $StopRequestPath) {
+        Remove-Item -LiteralPath $StopRequestPath -Force
+        Write-ControlState -Status "stopped_by_request" -Reason "Cooperative stop request honored between sessions."
+        Send-HermesNotification "ROGUE OF SOL orchestration manually stopped."
+        exit 0
+    }
     $DisplaySession = $SessionCount + 1
     Write-Host "Hermes: checking repository state before session $DisplaySession of $MaxSessions."
     $WorkingTreeStatus = @(& git -C $ResolvedRepoDir status --porcelain)
@@ -169,7 +247,32 @@ while ($SessionCount -lt $MaxSessions) {
     }
 
     $SessionCount++
+    $script:SessionCount = $SessionCount
+    Write-ControlState -Status ([string]$SessionStatus.status) -SessionStatus $SessionStatus
     Write-Host "Hermes: status=$($SessionStatus.status); reason=$($SessionStatus.reason); phase=$($SessionStatus.phase); task=$($SessionStatus.task); commit_sha=$($SessionStatus.commit_sha)"
+
+    $CurrentCommitSha = [string]$SessionStatus.commit_sha
+    if ($CurrentCommitSha -and $CurrentCommitSha -ne $PreviousCommitSha) {
+        Send-HermesNotification "ROGUE OF SOL bounded task committed: $CurrentCommitSha"
+        $PreviousCommitSha = $CurrentCommitSha
+    }
+
+    if ($SessionStatus.status -eq 'USER_DECISION_REQUIRED') {
+        $DecisionSource = "$($SessionStatus.reason)|$($SessionStatus.phase)|$($SessionStatus.task)|$([DateTimeOffset]::UtcNow.ToString('o'))"
+        $Hasher = [System.Security.Cryptography.SHA256]::Create()
+        try { $DecisionId = ([BitConverter]::ToString($Hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($DecisionSource))).Replace('-', '').Substring(0, 12).ToLowerInvariant()) }
+        finally { $Hasher.Dispose() }
+        $Pending = [ordered]@{
+            decisionId = $DecisionId; status = 'USER_DECISION_REQUIRED'; reason = [string]$SessionStatus.reason
+            phase = $SessionStatus.phase; task = $SessionStatus.task; commit_sha = $SessionStatus.commit_sha
+            createdAt = [DateTimeOffset]::UtcNow.ToString('o')
+        }
+        Write-JsonAtomic -Path $PendingDecisionPath -Value $Pending
+        Send-HermesNotification "ROGUE OF SOL needs a human decision: $($SessionStatus.reason)"
+    }
+    elseif ($SessionStatus.status -eq 'BLOCKED') {
+        Send-HermesNotification "ROGUE OF SOL blocked: $($SessionStatus.reason)"
+    }
 
     if ($SessionStatus.status -in @('USER_DECISION_REQUIRED', 'BLOCKED')) {
         Write-Host "Hermes: controlled stop requested by status '$($SessionStatus.status)': $($SessionStatus.reason)"
@@ -181,5 +284,8 @@ while ($SessionCount -lt $MaxSessions) {
         exit 0
     }
 
+    if ($SessionStatus.status -eq 'SESSION_BOUNDARY') {
+        Send-HermesNotification "ROGUE OF SOL session turnover; continuing in a fresh session."
+    }
     Write-Host "Hermes: status permits autonomous continuation; starting a fresh session."
 }
