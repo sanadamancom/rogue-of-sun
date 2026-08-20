@@ -207,6 +207,14 @@ Start a fresh Claude Code Desktop session earlier if context becomes bloated or 
 
 Repository state must make session replacement safe.
 
+### Optional Hermes outer loop
+
+`scripts/hermes-orchestrate.ps1` optionally automates fresh, non-interactive Claude CLI continuation through the `.ai/status.json` protocol documented in `docs/ops/hermes-status-protocol.md`. Hermes only launches a fresh session, waits for it to exit, reads that status file, and continues on `CONTINUE` or `SESSION_BOUNDARY` when the next step is unambiguous. It stops on `USER_DECISION_REQUIRED`, `BLOCKED`, or any process/protocol anomaly.
+
+Hermes never chooses roadmap, task, product, design, or architecture decisions and never pushes. `scripts/start-next-claude.ps1` remains the unaffected manual, human-in-the-loop Desktop GUI handoff path.
+
+When running under Hermes, a Claude session that intends to signal autonomous continuation, a session boundary, or a stop condition should write `.ai/status.json` using the documented schema before exiting. This is additive to the existing verification and commit workflow; it does not replace it.
+
 ## Cost and quota policy
 
 Do not incur additional paid usage beyond the user's existing subscriptions.
