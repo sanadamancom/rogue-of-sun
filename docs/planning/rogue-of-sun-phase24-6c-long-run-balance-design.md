@@ -478,7 +478,7 @@ Phase 24.6c2では共通statsだけを実装し、通し測定後に必要な種
 | 24.6c0 | 本Version 4とdevelopment-plan Version 34の同期 | なし |
 | 24.6c1 | leg、depth、救出・帰還、EnemyLevel、EXP、資源、鍛冶telemetry | あり |
 | 24.6c2a | EnemyLevel型、個体保持、共通stats／EXP倍率 | あり |
-| 24.6c2b | 敵種別depth窓、level帯、種族weight、初期敵数 | あり |
+| 24.6c2b | 敵種別depth窓、level帯、種族weight、初期敵数曲線をcanonical dataとpure derivationとして実装（productionのspawn path接続はなし。決定はversion 4本文および24.6c2bのhistoryを参照） | なし（このPhaseではproduction未接続。26F run structure導入phaseで接続） |
 | 24.6c2c | floorVisitOrdinal、floorTurn、増援ordinal、通常増援、leg別RNG | あり |
 | 24.6c2d | 累積EXP table、偶数Lv能力ポイント | あり |
 | 24.6c3a | モンスターハウス、罠、日照のdepth／leg接続 | あり |
@@ -676,3 +676,7 @@ correctness違反、全policy timeout、policy間の期待順序逆転、特定�
 - 探索済みtileは現行GameState外にあるため、save payloadのview stateとして明示的に保存する。これを未探索へresetして再開させない。
 - telemetryは観測専用とし、event作成、JSON化、download有無によってRNGやGameStateを変更しない。
 - save serializerはGameState型の暗黙JSON化へ依存せず、schema version付きpayloadとvalidatorを専用moduleに置く。
+
+### 24.6c2bの production接続タイミング
+
+24.6c2bは§7（敵種別depth窓・level帯・種族weight）と§8（敵数・増援周期）をcanonical dataとpure derivation関数として実装し、対応するunit testsを追加するが、現行の3F sample production spawn path（`getEnemyPoolForFloor`／`buildEnemies`等）へはこのPhaseでは接続しない。既存3F cumulative 4/8/12 species scheduleとdeterminism/regression baselineは維持する。`totalFloors >= 26`のような暫定thresholdによるproduction分岐も追加しない — 新しいdepth-driven pathへのwiringは、26F run structureを導入する後続Phase（本節冒頭の`transitionFloor`状態機械を主入口とするPhase、想定24.6c3a以降）でまとめて行う。将来削除するためだけのdual-path threshold／feature flagは作らない。

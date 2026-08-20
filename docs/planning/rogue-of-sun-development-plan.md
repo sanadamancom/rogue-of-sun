@@ -729,7 +729,7 @@ Rが最上位ランク。近接武器はC～Aを通常取得、Sを太陽鍛冶�
 | 24.6c0 | **設計再同期完了**。26F下降＋25F帰還、26F内救出後の階段帰還、leg別seed、family-relative EnemyLevel、EXP、増援、item供給、太陽鍛冶、中断save境界を設計正本へ確定 |
 | 24.6c1 | telemetryへglobal turn、`leg`、depth、floor visit ordinal、floorTurn、救出・帰還・地上脱出、敵level、資源・鍛冶情報を追加する |
 | 24.6c2a | EnemyLevel型・個体保持・共通stats／EXP倍率を実装 |
-| 24.6c2b | 敵種別depth窓・level帯・種族weight・初期敵数曲線を実装 |
+| 24.6c2b | 敵種別depth窓・level帯・種族weight・初期敵数曲線をcanonical data／pure derivationとして実装（productionのspawn path接続なし。詳細はrogue-of-sun-phase24-6c-long-run-balance-design.md §19「24.6c2bのproduction接続タイミング」） |
 | 24.6c2c | floorVisitOrdinal、floorTurn、reinforcementOrdinal、leg別seedと決定的な通常増援を実装 |
 | 24.6c2d | プレイヤー累積EXP table・能力ポイント付与周期を実装 |
 | 24.6c3a | モンスターハウス、罠、日照、map環境をdepthとlegへ接続 |
