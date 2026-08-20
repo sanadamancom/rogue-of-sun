@@ -215,7 +215,7 @@ describe('Phase 13.2 ability point allocation foundation', () => {
 
     it('floor transition maintains the 4 abilities and unspent points', () => {
       const state = createInitialState(42);
-      applyExperienceGain(state, 7); // grants at least 1 ability point
+      applyExperienceGain(state, 10); // reaches Lv2 and grants 1 ability point
       allocateAbilityPoint(state, 'body');
       const pointsBefore = getUnspentAbilityPoints(state);
       const next = advanceToNextFloor(state);
@@ -225,7 +225,7 @@ describe('Phase 13.2 ability point allocation foundation', () => {
 
     it('floor transition does not emit ability_point_spent', () => {
       const state = createInitialState(42);
-      applyExperienceGain(state, 7);
+      applyExperienceGain(state, 10);
       allocateAbilityPoint(state, 'body');
       // advanceToNextFloor itself returns a fresh GameState with no
       // events array to inspect, but it must not call allocateAbilityPoint
@@ -237,10 +237,10 @@ describe('Phase 13.2 ability point allocation foundation', () => {
 
     it('leveling up after an allocation preserves the allocated value and only increases unspent points', () => {
       const state = createInitialState(42);
-      applyExperienceGain(state, 5); // Lv2, 1 ability point
+      applyExperienceGain(state, 10); // Lv2, 1 ability point
       allocateAbilityPoint(state, 'speed');
       expect(getUnspentAbilityPoints(state)).toBe(0);
-      applyExperienceGain(state, 10); // Lv3, another ability point
+      applyExperienceGain(state, 50); // crosses Lv3 and reaches Lv4, another ability point
       expect(getAbilityValue(state, 'speed')).toBe(1);
       expect(getUnspentAbilityPoints(state)).toBe(1);
     });

@@ -18,6 +18,24 @@ import { GameState } from './types';
 export const LEVEL_CAP = 99;
 export const ABILITY_POINTS_PER_LEVEL = 1;
 
+const CUMULATIVE_EXPERIENCE_THROUGH_LEVEL_50 = [
+  0,
+  0, 10, 30, 60, 100, 150, 230, 350, 500, 700,
+  950, 1_200, 1_500, 1_800, 2_300, 2_800, 3_500, 4_200, 5_000, 6_000,
+  7_000, 8_000, 10_000, 13_000, 16_000, 20_000, 25_000, 30_000, 36_000, 42_000,
+  48_000, 54_000, 60_000, 70_000, 80_000, 90_000, 100_000, 115_000, 130_000, 145_000,
+  160_000, 175_000, 200_000, 230_000, 260_000, 290_000, 320_000, 350_000, 380_000, 410_000,
+] as const;
+
+/** Canonical cumulative experience total for each level (array index = level). */
+export const CUMULATIVE_EXPERIENCE_BY_LEVEL: readonly number[] = (() => {
+  const cumulative: number[] = [...CUMULATIVE_EXPERIENCE_THROUGH_LEVEL_50];
+  for (let level = 51; level <= LEVEL_CAP; level += 1) {
+    cumulative[level] = cumulative[level - 1] + 30_000;
+  }
+  return cumulative;
+})();
+
 export const PROGRESSION_INITIAL_LEVEL = 1;
 export const PROGRESSION_INITIAL_EXPERIENCE = 0;
 export const PROGRESSION_INITIAL_UNSPENT_ABILITY_POINTS = 0;
@@ -38,13 +56,13 @@ export function getUnspentAbilityPoints(state: GameState): number {
 }
 
 /**
- * Experience required to go from `level` to `level + 1`: level * 5 (Lv1->
- * Lv2: 5, Lv2->Lv3: 10, Lv3->Lv4: 15, ...). The single source of this
+ * Experience required to go from `level` to `level + 1`, derived from the
+ * canonical cumulative experience table. The single source of this
  * calculation — HUD, level-up processing, and tests all reuse this
  * function rather than re-deriving/hardcoding the constant.
  */
 export function getExperienceRequirement(level: number): number {
-  return level * 5;
+  return CUMULATIVE_EXPERIENCE_BY_LEVEL[level + 1] - CUMULATIVE_EXPERIENCE_BY_LEVEL[level];
 }
 
 /** One level-up that occurred during a single applyExperienceGain call. */
@@ -86,8 +104,9 @@ export function applyExperienceGain(state: GameState, amount: number): Experienc
   while (level < LEVEL_CAP && experience >= getExperienceRequirement(level)) {
     experience -= getExperienceRequirement(level);
     level += 1;
-    unspentAbilityPoints += ABILITY_POINTS_PER_LEVEL;
-    levelUps.push({ level, abilityPointsGained: ABILITY_POINTS_PER_LEVEL, unspentAbilityPointsAfter: unspentAbilityPoints });
+    const abilityPointsGained = level % 2 === 0 ? ABILITY_POINTS_PER_LEVEL : 0;
+    unspentAbilityPoints += abilityPointsGained;
+    levelUps.push({ level, abilityPointsGained, unspentAbilityPointsAfter: unspentAbilityPoints });
   }
 
   if (level >= LEVEL_CAP) {
@@ -104,7 +123,7 @@ export function applyExperienceGain(state: GameState, amount: number): Experienc
     previousLevel,
     newLevel: level,
     remainingExperience: experience,
-    abilityPointsGained: levelUps.length * ABILITY_POINTS_PER_LEVEL,
+    abilityPointsGained: levelUps.reduce((total, levelUp) => total + levelUp.abilityPointsGained, 0),
     levelUps,
   };
 }

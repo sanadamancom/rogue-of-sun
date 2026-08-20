@@ -79,30 +79,33 @@ function killAdjacentEnemy(state: GameState): GameEvent[] {
 
 describe('Phase 13.1 experience/level/ability-point progression foundation', () => {
   describe('progression math (progression.ts)', () => {
-    it('requires 5 exp for Lv1, 10 for Lv2, 15 for Lv3', () => {
-      expect(getExperienceRequirement(1)).toBe(5);
-      expect(getExperienceRequirement(2)).toBe(10);
-      expect(getExperienceRequirement(3)).toBe(15);
+    it('derives level requirements from the canonical cumulative experience table', () => {
+      expect(getExperienceRequirement(1)).toBe(10);
+      expect(getExperienceRequirement(2)).toBe(20);
+      expect(getExperienceRequirement(3)).toBe(30);
+      expect(getExperienceRequirement(40)).toBe(15_000);
+      expect(getExperienceRequirement(50)).toBe(30_000);
+      expect(getExperienceRequirement(98)).toBe(30_000);
     });
 
     it('does not level up below the requirement', () => {
       const state = singleEnemyState('bok', 100);
-      const result = applyExperienceGain(state, 4);
+      const result = applyExperienceGain(state, 9);
       expect(result.newLevel).toBe(1);
       expect(state.level).toBe(1);
-      expect(state.experience).toBe(4);
+      expect(state.experience).toBe(9);
     });
 
     it('levels up exactly at the requirement, with experience reset to 0', () => {
       const state = singleEnemyState('bok', 100);
-      const result = applyExperienceGain(state, 5);
+      const result = applyExperienceGain(state, 10);
       expect(result.newLevel).toBe(2);
       expect(state.experience).toBe(0);
     });
 
     it('carries surplus experience into the next level', () => {
       const state = singleEnemyState('bok', 100);
-      applyExperienceGain(state, 4);
+      applyExperienceGain(state, 9);
       applyExperienceGain(state, 3);
       expect(state.level).toBe(2);
       expect(state.experience).toBe(2);
@@ -110,22 +113,24 @@ describe('Phase 13.1 experience/level/ability-point progression foundation', () 
 
     it('supports multiple level-ups from a single gain', () => {
       const state = singleEnemyState('bok', 100);
-      // Lv1->2 needs 5, Lv2->3 needs 10: 16 exp should reach Lv3 with 1 left over.
-      const result = applyExperienceGain(state, 16);
+      // Lv1->2 needs 10, Lv2->3 needs 20: 31 exp should reach Lv3 with 1 left over.
+      const result = applyExperienceGain(state, 31);
       expect(result.newLevel).toBe(3);
       expect(state.experience).toBe(1);
       expect(result.levelUps.map((l) => l.level)).toEqual([2, 3]);
     });
 
-    it('grants 1 ability point per level gained', () => {
+    it('grants ability points only on reaching even levels', () => {
       const state = singleEnemyState('bok', 100);
-      applyExperienceGain(state, 16); // reaches Lv3: two level-ups
+      const result = applyExperienceGain(state, 60); // reaches Lv4: three level-ups
+      expect(result.levelUps.map((levelUp) => levelUp.abilityPointsGained)).toEqual([1, 0, 1]);
+      expect(result.abilityPointsGained).toBe(2);
       expect(getUnspentAbilityPoints(state)).toBe(2);
     });
 
     it('never exceeds LEVEL_CAP (99)', () => {
       const state = singleEnemyState('bok', 100);
-      const result = applyExperienceGain(state, 1_000_000);
+      const result = applyExperienceGain(state, 2_000_000);
       expect(result.newLevel).toBe(LEVEL_CAP);
       expect(state.level).toBe(LEVEL_CAP);
       expect(state.experience).toBe(0);
@@ -182,7 +187,7 @@ describe('Phase 13.1 experience/level/ability-point progression foundation', () 
 
     it('pushes player_leveled_up only when a level threshold is crossed', () => {
       const state = singleEnemyState('bok', 1);
-      state.experience = 4; // 4 + 1 (bok's reward) = 5, exactly Lv1's requirement
+      state.experience = 9; // 9 + 1 (bok's reward) = 10, exactly Lv1's requirement
       const events = killAdjacentEnemy(state);
       const levelUps = events.filter((e) => e.type === 'player_leveled_up');
       expect(levelUps).toHaveLength(1);
@@ -206,7 +211,7 @@ describe('Phase 13.1 experience/level/ability-point progression foundation', () 
 
     it('floor transition maintains level/experience/ability points', () => {
       const state = createInitialState(42);
-      applyExperienceGain(state, 7); // Lv2, 2 exp, 1 ability point
+      applyExperienceGain(state, 12); // Lv2, 2 exp, 1 ability point
       const next = advanceToNextFloor(state);
       expect(getLevel(next)).toBe(2);
       expect(getExperience(next)).toBe(2);
@@ -222,7 +227,7 @@ describe('Phase 13.1 experience/level/ability-point progression foundation', () 
       const solBefore = state.solarEnergy;
       const attackBefore = state.player.attack;
       const defenseBefore = state.player.defense;
-      state.experience = 4;
+      state.experience = 9;
       killAdjacentEnemy(state); // triggers a level-up
       expect(state.player.hp).toBe(hpBefore);
       expect(state.player.maxHp).toBe(maxHpBefore);

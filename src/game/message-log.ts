@@ -432,7 +432,7 @@ export function formatEvent(event: GameEvent): string {
     case 'experience_gained':
       return `経験値を${event.amount}得た。`;
     case 'player_leveled_up':
-      return `レベルが${event.newLevel}に上がった。\n能力ポイントを1得た。`;
+      return `レベルが${event.newLevel}に上がった。${event.abilityPointsGained > 0 ? '\n能力ポイントを1得た。' : ''}`;
     case 'ability_point_spent':
       return `${event.abilityDisplayName}に1ポイント割り振った。`;
     case 'card_used': {
