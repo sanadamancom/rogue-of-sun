@@ -52,3 +52,21 @@ documentationへの記録→通常workflow復帰）は、`4591b8b`の2つの修�
 binaryに対して最後まで機能した。
 
 - headless commit verification: this line was appended and committed by a Hermes-launched non-interactive Claude session with no human present to approve tool calls, confirming the headless permission bypass lets a session complete its own accepted git commit.
+
+## 追加往復（Japanese-ized通知後の再検証）
+
+commit `4810c95`（headless承認bypassとDiscord通知のJapanese化）適用後、同一の
+synthetic `USER_DECISION_REQUIRED`往復をもう一度実施した。今回の人間からの
+literal回答は次の通り：
+
+> SYNTHETIC TEST ANSWER: no action needed, this is purely a
+> notification-pipeline verification response.
+
+この回答も上記「明示的な非決定事項」節と同様、実在するgame-design/balance
+決定ではない。「no action needed」という回答内容自体が、depth-40+ enemy
+affix poolのbonus合成方式についてA/Bいずれも選択しておらず、canonical
+planning docへ反映すべきbalance仕様は存在しない。本節はHermes/Discord
+control layerが、Japanese化された通知文言を経由しても
+`USER_DECISION_REQUIRED` → Discord通知 → `answer` → 新規session起動 →
+canonical documentationへの記録、という往復を最後まで問題なく再現できた
+ことのみを記録する。
