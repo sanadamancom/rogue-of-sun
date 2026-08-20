@@ -7,7 +7,8 @@ param(
     [string]$Prompt,
     [string]$PromptBase64,
     [switch]$SmokeTest,
-    [switch]$Notify
+    [switch]$Notify,
+    [string]$NotifyTarget = 'discord:#rogue-of-sun'
 )
 
 $ErrorActionPreference = "Stop" # All process and protocol anomalies fail closed.
@@ -26,12 +27,7 @@ function Write-JsonAtomic {
     param([string]$Path, [object]$Value)
     $TempPath = "$Path.tmp.$PID"
     $Value | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $TempPath -Encoding UTF8
-    if (Test-Path -LiteralPath $Path) {
-        [IO.File]::Replace($TempPath, $Path, $null)
-    }
-    else {
-        Move-Item -LiteralPath $TempPath -Destination $Path
-    }
+    Move-Item -LiteralPath $TempPath -Destination $Path -Force
 }
 
 function Write-ControlState {
@@ -61,7 +57,7 @@ function Send-HermesNotification {
     try {
         $HermesCommand = Get-Command hermes -ErrorAction SilentlyContinue
         if (-not $HermesCommand) { Write-Warning "Hermes notification skipped: hermes executable not found"; return }
-        & $HermesCommand.Source send --to discord --quiet $Message
+        & $HermesCommand.Source send --to $NotifyTarget --quiet $Message
         if ($LASTEXITCODE -ne 0) { Write-Warning "Hermes notification failed with exit code $LASTEXITCODE" }
     }
     catch { Write-Warning "Hermes notification failed: $($_.Exception.Message)" }

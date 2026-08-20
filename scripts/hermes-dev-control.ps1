@@ -8,7 +8,8 @@ param(
     [ValidateRange(1, [int]::MaxValue)] [int]$MaxSessions = 20,
     [ValidateRange(1, [int]::MaxValue)] [int]$SessionTimeoutSeconds = 3600,
     [switch]$Json,
-    [string]$Prompt
+    [string]$Prompt,
+    [string]$NotifyTarget = 'discord:#rogue-of-sun'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -29,7 +30,8 @@ function Launch-Orchestrator([string]$PromptOverride) {
     $Stderr = Join-Path $LogsDir "$Timestamp.stderr.log"
     $Args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $OrchestratorPath.Replace('"', '""') + '"'),
         '-RepoDir', ('"' + $ResolvedRepoDir.Replace('"', '""') + '"'), '-MaxSessions', [string]$MaxSessions,
-        '-SessionTimeoutSeconds', [string]$SessionTimeoutSeconds, '-Notify')
+        '-SessionTimeoutSeconds', [string]$SessionTimeoutSeconds, '-Notify',
+        '-NotifyTarget', ('"' + $NotifyTarget.Replace('"', '""') + '"'))
     if ($null -ne $PromptOverride) {
         $EncodedPrompt = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($PromptOverride))
         $Args += @('-PromptBase64', $EncodedPrompt)
