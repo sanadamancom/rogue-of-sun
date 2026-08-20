@@ -1,7 +1,7 @@
 ---
 name: rogue-of-sun-dev-control
-description: Routes Discord requests to bounded ROGUE OF SOL control.
-version: 0.1.0
+description: Checks, starts, stops and answers ROGUE OF SOL dev requests.
+version: 0.2.0
 metadata:
   hermes:
     tags: [rogue-of-sun, hermes-orchestration, discord]
@@ -15,6 +15,13 @@ development-control operations. Always answer the human in concise, natural
 Japanese; this skill grants no general shell-execution capability.
 
 ## When to Use
+
+**Hard rule:** For every ROGUE OF SOL development-control request shaped as
+start, status, stop, or an answer to a pending decision, use this skill's
+bounded interface. General git, terminal, and filesystem access does not
+override this rule. Do **not** independently run `git status`, `git log`,
+`ls`, `find`, inspect repository files, or otherwise investigate the
+repository to answer or act on such a request.
 
 - 「開発を開始して」「続きを進めて」など、開発開始の依頼は `start`。
 - 「状態を教えて」「今どうなってる？」など、進捗確認は `status`。
@@ -33,6 +40,11 @@ Japanese; this skill grants no general shell-execution capability.
   do not duplicate or broaden that contract.
 
 ## Procedure
+
+0. Unless this skill is genuinely irrelevant, route any repository-status or
+   development-control-shaped Discord message in this project context through
+   `scripts\hermes-dev-control.ps1` before using any other tool. Do not perform
+   preliminary repository investigation.
 
 1. For a start request, use `terminal` in `C:\dev\rogue-of-sun` to run
    `scripts\hermes-dev-control.ps1 -Command start`. It returns immediately;

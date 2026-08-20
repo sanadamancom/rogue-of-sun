@@ -30,6 +30,34 @@ hermes skills trust C:\dev\rogue-of-sun
 
 This manual trust step is required. Repository automation must not run it.
 
+### Gateway project-root configuration is also required
+
+Project-local skill discovery for messaging gateway sessions is gated by
+Hermes's `TERMINAL_CWD`, which is derived from `terminal.cwd`. When that setting
+is empty or points outside this repository, Hermes resolves a different
+project root and this skill never appears in the gateway session's skill
+index. In that state, no description or instruction inside the skill can
+route a Discord request because the model cannot see the skill. Description
+and instruction strength is therefore only a secondary, defense-in-depth
+measure after discovery works.
+
+In addition to the trust command above, a human **must** run the following
+command and then restart the Hermes Gateway before Discord routing can work:
+
+```powershell
+hermes config set terminal.cwd "C:\dev\rogue-of-sun"
+```
+
+Both repository trust and this Gateway project-root configuration are
+required. Repository automation must not change the Gateway configuration or
+restart it.
+
+Hermes has no formal per-skill mechanism for restricting the tools a model
+may use. Enforcement of "route through the control layer; do not
+self-investigate" is necessarily prose-only in the skill, backed by Hermes's
+mandatory-skill-loading system-prompt behavior once the skill is present in
+the session index.
+
 ## Human-facing language policy
 
 Discord-facing text is Japanese: fixed orchestrator notification labels,
