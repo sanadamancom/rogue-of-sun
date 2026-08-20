@@ -213,7 +213,7 @@ Repository state must make session replacement safe.
 
 Hermes never chooses roadmap, task, product, design, or architecture decisions and never pushes. `scripts/start-next-claude.ps1` remains the unaffected manual, human-in-the-loop Desktop GUI handoff path.
 
-When running under Hermes, a Claude session that intends to signal autonomous continuation, a session boundary, or a stop condition should write `.ai/status.json` using the documented schema before exiting. This is additive to the existing verification and commit workflow; it does not replace it.
+When running under Hermes, a Claude session must write `.ai/status.json` using the documented schema as its last action before exiting, regardless of outcome. This requirement applies specifically to Hermes orchestration sessions, not ordinary interactive/Desktop sessions. It is additive to the existing verification and commit workflow; it does not replace it.
 
 ## Cost and quota policy
 

@@ -23,16 +23,30 @@ catch {
     Stop-HermesWithError "repository directory does not exist: $RepoDir"
 }
 
+$ExitContract = @"
+This is a Hermes non-interactive orchestration session, not an interactive or Desktop session.
+
+Regardless of outcome--successful continuation, a finished bounded task, a decision needed from a human, or an unresolved blocker--you must write a valid .ai/status.json according to docs/ops/hermes-status-protocol.md as your last action before exiting. There is no exit path that skips this requirement.
+
+If a game-design, UX, balance, product, or architecture decision requires a human under CLAUDE.md, do not merely ask the question in prose and stop. Write status "USER_DECISION_REQUIRED". Its reason must be self-contained so an upstream notification surface such as Discord can forward it verbatim: state the decision needed, why it blocks progress, the concrete options being considered (for example, "A: ... / B: ..."), and all context the human needs to answer.
+
+For an unresolved blocker, write status "BLOCKED" and explain the blocker and why the normal bounded Codex-correction workflow could not resolve it. For "CONTINUE" or "SESSION_BOUNDARY", ensure reason, phase, task, and commit_sha accurately reflect what this session actually did.
+
+Hermes treats a missing or invalid .ai/status.json as a hard failure regardless of terminal output. A prose-only answer is never sufficient.
+"@
+
 if ($SmokeTest) {
     $MaxSessions = 1
     $EffectivePrompt = @"
+$ExitContract
+
 This is a read-only Hermes CLI handoff smoke test.
 
 Read CLAUDE.md and inspect the current repository state only as needed.
 Do not modify any repository file except .ai/status.json. Do not modify .ai/task.md.
 Do not invoke Codex, Gemini, or Antigravity. Do not commit, push, merge, rebase, or start development work.
 
-Before exiting, write .ai/status.json as valid JSON with exactly this protocol shape:
+As an example appropriate to this smoke test, write .ai/status.json with this protocol shape:
 {
   "protocol_version": 1,
   "status": "SESSION_BOUNDARY",
@@ -45,15 +59,21 @@ Make no other repository changes, then exit.
 "@
 }
 elseif ($PSBoundParameters.ContainsKey('Prompt')) {
-    $EffectivePrompt = $Prompt
+    $EffectivePrompt = @"
+$ExitContract
+
+$Prompt
+"@
 }
 else {
     $EffectivePrompt = @"
+$ExitContract
+
 Continue ROGUE OF SOL development in a fresh non-interactive Claude CLI session.
 
 Read CLAUDE.md, current git state, and canonical planning/spec/history documents. Recover the current development state from the repository and follow CLAUDE.md strictly. Do not rely on prior conversation history. Determine the current phase and next bounded task, then proceed according to project policy.
 
-Before exiting, write .ai/status.json according to docs/ops/hermes-status-protocol.md. Hermes uses only that file for its continuation decision. Do not push, merge, rebase, or rewrite history.
+Hermes uses only .ai/status.json for its continuation decision. Do not push, merge, rebase, or rewrite history.
 "@
 }
 
