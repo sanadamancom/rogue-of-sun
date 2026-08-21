@@ -1,14 +1,36 @@
 import { isWalkable } from './map';
-import { EnemyActor, GameState, Vec2, WebTile } from './types';
+import { EnemyActor, EnemyLevel, GameState, Vec2, WebTile } from './types';
 
 /** Web lifetime in world turns, counting the placement turn itself as turn 1 of the 6 (enemy-behavior-02 confirmed_design). */
 export const WEB_DURATION_WORLD_TURNS = 6;
 
-/** Web placement cooldown in units of the placing spider's own enemy turns. */
+/** Lv1 web placement cooldown in units of the placing spider's own enemy turns. */
 export const WEB_COOLDOWN_ENEMY_ACTIONS = 3;
 
-/** Max webs a single spider may have active at once; placing a 3rd evicts that spider's oldest first. */
+const WEB_COOLDOWN_ENEMY_ACTIONS_BY_LEVEL: Readonly<Record<EnemyLevel, number>> = {
+  1: WEB_COOLDOWN_ENEMY_ACTIONS,
+  2: 2,
+  3: 2,
+};
+
+/** Phase 24.6c3b2: per-instance enemy level scaling for spider web cooldown. */
+export function getSpiderWebCooldown(level: EnemyLevel): number {
+  return WEB_COOLDOWN_ENEMY_ACTIONS_BY_LEVEL[level];
+}
+
+/** Lv1 max active webs per spider; placing over the level-specific cap evicts the oldest first. */
 export const WEB_MAX_ACTIVE_PER_SPIDER = 2;
+
+const WEB_MAX_ACTIVE_PER_SPIDER_BY_LEVEL: Readonly<Record<EnemyLevel, number>> = {
+  1: WEB_MAX_ACTIVE_PER_SPIDER,
+  2: WEB_MAX_ACTIVE_PER_SPIDER,
+  3: 3,
+};
+
+/** Phase 24.6c3b2: per-instance enemy level scaling for spider-owned active webs. */
+export function getSpiderMaxActiveWebs(level: EnemyLevel): number {
+  return WEB_MAX_ACTIVE_PER_SPIDER_BY_LEVEL[level];
+}
 
 /** Max Chebyshev range (in tiles) at which a spider may target the player's tile for a new web. */
 export const WEB_MAX_RANGE = 4;
@@ -77,17 +99,17 @@ export function canPlaceWebNow(state: GameState, spider: EnemyActor): boolean {
 
 /**
  * Places a new web on the player's current tile, owned by `spider`. If this
- * spider already owns WEB_MAX_ACTIVE_PER_SPIDER webs, its single oldest
+ * spider already owns its level-specific maximum number of webs, its single oldest
  * (lowest id) owned web is removed first — deterministic regardless of
  * enemies array order, since id is assigned from the monotonically
  * increasing GameState.nextWebId counter at creation time. Sets the
- * spider's webCooldown to WEB_COOLDOWN_ENEMY_ACTIONS. Caller is responsible
+ * spider's webCooldown to its level-specific value. Caller is responsible
  * for having already confirmed canPlaceWebNow.
  */
 export function placeWeb(state: GameState, spider: EnemyActor): void {
   const ownerId = spider.id ?? 0;
   const owned = state.webs.filter((web) => web.ownerEnemyId === ownerId);
-  if (owned.length >= WEB_MAX_ACTIVE_PER_SPIDER) {
+  if (owned.length >= getSpiderMaxActiveWebs(spider.level)) {
     let oldest = owned[0];
     for (const web of owned) {
       if (web.id < oldest.id) oldest = web;
@@ -103,7 +125,7 @@ export function placeWeb(state: GameState, spider: EnemyActor): void {
   };
   state.nextWebId += 1;
   state.webs.push(web);
-  spider.webCooldown = WEB_COOLDOWN_ENEMY_ACTIONS;
+  spider.webCooldown = getSpiderWebCooldown(spider.level);
 }
 
 /**

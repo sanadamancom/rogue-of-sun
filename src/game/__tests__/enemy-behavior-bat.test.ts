@@ -46,12 +46,14 @@ function batState(
     batId?: number;
     extraEnemies?: EnemyActor[];
     map?: GameMap;
+    level?: 1 | 2 | 3;
   },
 ): GameState {
   const playerPos = options?.playerPos ?? { x: 10, y: 5 };
   const attack = options?.attack ?? 1;
   const turn = options?.turn ?? 0;
   const bat = createInitialEnemy('bat', batPos, 10, attack, turn, options?.batId ?? 0);
+  bat.level = options?.level ?? 1;
   bat.retreating = options?.retreating ?? false;
   return {
     map: options?.map ?? testMap(),
@@ -136,6 +138,38 @@ describe('bat retreat trigger', () => {
 });
 
 describe('bat successful retreat', () => {
+  it('moves two steps but emits one event for a level 3 retreat action', () => {
+    const state = batState(
+      { x: 9, y: 5 },
+      { playerPos: { x: 10, y: 5 }, retreating: true, level: 3 },
+    );
+    const result = processTurn(state, { type: 'wait' });
+    expect(state.enemies[0].pos).toEqual({ x: 7, y: 5 });
+    expect(result.events.filter((event) => event.type === 'bat_retreat')).toHaveLength(1);
+  });
+
+  it.each([1, 2] as const)('keeps level %i retreats at one step', (level) => {
+    const state = batState(
+      { x: 9, y: 5 },
+      { playerPos: { x: 10, y: 5 }, retreating: true, level },
+    );
+    processTurn(state, { type: 'wait' });
+    expect(state.enemies[0].pos).toEqual({ x: 8, y: 5 });
+  });
+
+  it('keeps a level 3 first step successful when no second step is legal', () => {
+    const map = testMap();
+    for (let y = 1; y < map.height - 1; y += 1) map.terrain[y][1] = 'wall';
+    map.terrain[5][1] = 'floor';
+    const state = batState(
+      { x: 2, y: 5 },
+      { playerPos: { x: 4, y: 5 }, retreating: true, level: 3, map },
+    );
+    const result = processTurn(state, { type: 'wait' });
+    expect(state.enemies[0].pos).toEqual({ x: 1, y: 5 });
+    expect(result.events.filter((event) => event.type === 'bat_retreat')).toHaveLength(1);
+  });
+
   it('moves to the adjacent tile that strictly maximizes distance to the player and clears retreating', () => {
     // Bat directly west of the player; the tile directly further west (8,5)
     // maximizes Chebyshev distance among the 8 candidates.

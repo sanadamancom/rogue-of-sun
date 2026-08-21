@@ -4173,6 +4173,7 @@ function resolveBatEnemy(
   if (enemy.retreating) {
     enemy.retreating = false;
     if (tryBatRetreatStep(state, enemy)) {
+      if (enemy.level === 3) tryBatRetreatStep(state, enemy);
       events.push({ type: 'bat_retreat', actorId: enemy.id ?? 0, enemyType: enemy.type });
       return { acted: true, attacked: false };
     }

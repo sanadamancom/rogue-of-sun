@@ -212,7 +212,10 @@ export function applyEnemyLevelMultiplier(def: EnemyDefinition, level: EnemyLeve
     attack: Math.round(def.attack * attackMultiplier),
     defense: def.defense + flatIndex,
     accuracy: Math.min(95, def.accuracy + flatIndex * 2),
-    evasion: def.evasion + (level === 1 ? 0 : level === 2 ? 3 : 5),
+    evasion:
+      def.evasion
+      + (level === 1 ? 0 : level === 2 ? 3 : 5)
+      + (def.id === 'bat' ? (level === 1 ? 0 : level === 2 ? 2 : 5) : 0),
     experienceReward: def.experienceReward * experienceMultiplier,
   };
 }

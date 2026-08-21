@@ -36,6 +36,14 @@ describe('Phase 24.6c2a EnemyLevel multipliers', () => {
       experienceReward: 24,
     });
   });
+
+  it.each([
+    [1, 10],
+    [2, 15],
+    [3, 20],
+  ] as const)('applies bat-specific evasion at level %i', (level, evasion) => {
+    expect(applyEnemyLevelMultiplier(ENEMY_DEFINITIONS.bat, level).evasion).toBe(evasion);
+  });
 });
 
 describe('Phase 24.6c2a production spawning', () => {

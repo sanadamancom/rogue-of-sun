@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { EnemyActor, GameMap, GameState, Tile, Vec2, WebTile } from '../types';
-import { WEB_DURATION_WORLD_TURNS } from '../web';
+import {
+  getSpiderMaxActiveWebs,
+  getSpiderWebCooldown,
+  placeWeb,
+  WEB_DURATION_WORLD_TURNS,
+} from '../web';
 import { createEmptyInventory } from '../item-def';
 import { DEFAULT_RUN_CONFIG } from '../floor';
 
@@ -226,6 +231,18 @@ describe('spider web targeting (range and line of sight)', () => {
 });
 
 describe('spider web cooldown', () => {
+  it.each([
+    [1, 3],
+    [2, 2],
+    [3, 2],
+  ] as const)('uses the level %i cooldown of %i enemy actions', (level, cooldown) => {
+    expect(getSpiderWebCooldown(level)).toBe(cooldown);
+    const state = spiderState({ x: 6, y: 5 });
+    state.enemies[0].level = level;
+    placeWeb(state, state.enemies[0]);
+    expect(state.enemies[0].webCooldown).toBe(cooldown);
+  });
+
   it('can place on its very first action', () => {
     const state = spiderState({ x: 6, y: 5 }, { playerPos: { x: 10, y: 5 } });
     processTurn(state, { type: 'wait' });
@@ -280,6 +297,29 @@ describe('spider web cooldown', () => {
 });
 
 describe('spider web lifetime and per-spider active limit', () => {
+  it.each([
+    [1, 2],
+    [2, 2],
+    [3, 3],
+  ] as const)('allows level %i to own %i active webs', (level, cap) => {
+    expect(getSpiderMaxActiveWebs(level)).toBe(cap);
+    const webs = Array.from({ length: cap }, (_, id): WebTile => ({
+      id,
+      pos: { x: id + 1, y: 1 },
+      ownerEnemyId: 0,
+      placedTurn: id,
+    }));
+    const state = spiderState(
+      { x: 6, y: 5 },
+      { playerPos: { x: 10, y: 5 }, webs, nextWebId: cap, turn: cap },
+    );
+    state.enemies[0].level = level;
+    placeWeb(state, state.enemies[0]);
+    expect(state.webs).toHaveLength(cap);
+    expect(state.webs.some((web) => web.id === 0)).toBe(false);
+    expect(state.webs.some((web) => web.id === cap)).toBe(true);
+  });
+
   it('persists for exactly 6 world turns including the placement turn, then is removed', () => {
     const state = spiderState({ x: 6, y: 5 }, { playerPos: { x: 10, y: 5 } });
     processTurn(state, { type: 'wait' }); // placed at turn 0; turn becomes 1 after this call
