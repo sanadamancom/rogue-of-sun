@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { createEmptyInventory } from '../item-def';
-import { generateSunlightLayer, isSunlitAt } from '../sunlight';
+import {
+  generateSunlightLayer,
+  isSunlitAt,
+  selectSunlightCategory,
+  sunlightCategoryForFloorSeed,
+  sunlightWeightsForDepth,
+  SunlightCategory,
+} from '../sunlight';
+import { createRng } from '../mapgen';
 import { advanceToNextFloor, createInitialState } from '../state';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { GameMap, GameState, Tile } from '../types';
@@ -62,101 +70,63 @@ function freshState(overrides?: Partial<GameState>): GameState {
 }
 
 describe('sunlight layer generation (Phase 09.3)', () => {
-  it("floor 1's start position is sunlit", () => {
-    const state = createInitialState(101);
-    expect(isSunlitAt(state.sunlight, state.player.pos)).toBe(true);
-  });
+  function seedForCategory(depth: number, category: SunlightCategory): number {
+    for (let seed = 0; seed < 10_000; seed++) {
+      if (sunlightCategoryForFloorSeed(depth, seed) === category) return seed;
+    }
+    throw new Error(`No seed found for ${category}`);
+  }
 
-  it('floor 1 has a majority of reachable floor tiles sunlit', () => {
-    const state = createInitialState(101);
+  function sunlitRatio(map: GameMap, sunlight: boolean[][]): number {
     let sunlit = 0;
     let total = 0;
-    for (let y = 0; y < state.map.height; y++) {
-      for (let x = 0; x < state.map.width; x++) {
-        if (state.map.terrain[y][x] !== 'floor') continue;
+    for (let y = 0; y < map.height; y++) {
+      for (let x = 0; x < map.width; x++) {
+        if (map.terrain[y][x] !== 'floor') continue;
         total += 1;
-        if (isSunlitAt(state.sunlight, { x, y })) sunlit += 1;
+        if (isSunlitAt(sunlight, { x, y })) sunlit += 1;
       }
     }
-    expect(sunlit / total).toBeGreaterThan(0.5);
+    return sunlit / total;
+  }
+
+  it('the light category keeps the start sunlit, a majority lit, and some shadow', () => {
+    const map = openMap();
+    const start = { x: 10, y: 10 };
+    const sunlight = generateSunlightLayer(map, 1, seedForCategory(1, 'light'), start);
+    const ratio = sunlitRatio(map, sunlight);
+    expect(isSunlitAt(sunlight, start)).toBe(true);
+    expect(ratio).toBeGreaterThan(0.5);
+    expect(ratio).toBeLessThan(1);
   });
 
-  it('floor 1 also has some shadow present', () => {
-    const state = createInitialState(101);
-    let shadow = 0;
-    for (let y = 0; y < state.map.height; y++) {
-      for (let x = 0; x < state.map.width; x++) {
-        if (state.map.terrain[y][x] !== 'floor') continue;
-        if (!isSunlitAt(state.sunlight, { x, y })) shadow += 1;
-      }
-    }
-    expect(shadow).toBeGreaterThan(0);
+  it('the mixed category has at least 1 reachable sunlit floor tile', () => {
+    const map = openMap();
+    const start = { x: 10, y: 10 };
+    const sunlight = generateSunlightLayer(map, 1, seedForCategory(1, 'mixed'), start);
+    expect(isSunlitAt(sunlight, start)).toBe(true);
   });
 
-  it('floor 2 has at least 1 sunlit tile', () => {
-    let state = createInitialState(202);
-    state.enemies.forEach((e) => (e.alive = false));
-    state.player.pos = { ...state.exit };
-    state = advanceToNextFloor(state);
-    let sunlit = 0;
-    for (let y = 0; y < state.map.height; y++) {
-      for (let x = 0; x < state.map.width; x++) {
-        if (isSunlitAt(state.sunlight, { x, y })) sunlit += 1;
-      }
-    }
-    expect(sunlit).toBeGreaterThan(0);
-  });
-
-  it("floor 2's sunlit area is reachable from the start position", () => {
-    let state = createInitialState(202);
-    state.enemies.forEach((e) => (e.alive = false));
-    state.player.pos = { ...state.exit };
-    state = advanceToNextFloor(state);
+  it("the mixed category's sunlit area is reachable from the start position", () => {
+    const map = openMap();
+    const sunlight = generateSunlightLayer(map, 1, seedForCategory(1, 'mixed'), { x: 10, y: 10 });
     // Reachability proxy: every sunlit tile must be a floor tile (never a
     // wall/out-of-bounds tile), and mapgen's own connectivity guarantee
     // (verified elsewhere) means every floor tile on this map is reachable.
-    for (let y = 0; y < state.map.height; y++) {
-      for (let x = 0; x < state.map.width; x++) {
-        if (isSunlitAt(state.sunlight, { x, y })) {
-          expect(state.map.terrain[y][x]).toBe('floor');
+    for (let y = 0; y < map.height; y++) {
+      for (let x = 0; x < map.width; x++) {
+        if (isSunlitAt(sunlight, { x, y })) {
+          expect(map.terrain[y][x]).toBe('floor');
         }
       }
     }
   });
 
-  it('floor 3 has at least 1 sunlit tile', () => {
-    let state = createInitialState(303);
-    for (let i = 0; i < 2; i++) {
-      state.enemies.forEach((e) => (e.alive = false));
-      state.player.pos = { ...state.exit };
-      state = advanceToNextFloor(state);
-    }
-    let sunlit = 0;
-    for (let y = 0; y < state.map.height; y++) {
-      for (let x = 0; x < state.map.width; x++) {
-        if (isSunlitAt(state.sunlight, { x, y })) sunlit += 1;
-      }
-    }
-    expect(sunlit).toBeGreaterThan(0);
-  });
-
-  it('floor 3 has mostly shadow (sunlit is a minority)', () => {
-    let state = createInitialState(303);
-    for (let i = 0; i < 2; i++) {
-      state.enemies.forEach((e) => (e.alive = false));
-      state.player.pos = { ...state.exit };
-      state = advanceToNextFloor(state);
-    }
-    let sunlit = 0;
-    let total = 0;
-    for (let y = 0; y < state.map.height; y++) {
-      for (let x = 0; x < state.map.width; x++) {
-        if (state.map.terrain[y][x] !== 'floor') continue;
-        total += 1;
-        if (isSunlitAt(state.sunlight, { x, y })) sunlit += 1;
-      }
-    }
-    expect(sunlit / total).toBeLessThan(0.5);
+  it('the dark category has at least 1 sunlit tile and mostly shadow', () => {
+    const map = openMap();
+    const sunlight = generateSunlightLayer(map, 1, seedForCategory(1, 'dark'), { x: 10, y: 10 });
+    expect(sunlitRatio(map, sunlight)).toBeGreaterThan(0);
+    expect(sunlitRatio(map, sunlight)).toBeLessThan(0.5);
   });
 
   it('never marks a wall tile as sunlit, for any of the 3 floors', () => {
@@ -214,6 +184,38 @@ describe('sunlight layer generation (Phase 09.3)', () => {
   });
 });
 
+describe('sunlight depth-band category selection (Phase 24.6c3a3)', () => {
+  it.each([
+    [1, { light: 60, mixed: 30, dark: 10 }],
+    [6, { light: 60, mixed: 30, dark: 10 }],
+    [7, { light: 45, mixed: 35, dark: 20 }],
+    [13, { light: 45, mixed: 35, dark: 20 }],
+    [14, { light: 30, mixed: 40, dark: 30 }],
+    [19, { light: 30, mixed: 40, dark: 30 }],
+    [20, { light: 20, mixed: 35, dark: 45 }],
+    [26, { light: 20, mixed: 35, dark: 45 }],
+  ])('uses the canonical weights at depth %i', (depth, expected) => {
+    expect(sunlightWeightsForDepth(depth)).toEqual(expected);
+  });
+
+  it('clamps depths outside 1-26 to the nearest band', () => {
+    expect(sunlightWeightsForDepth(-100)).toEqual({ light: 60, mixed: 30, dark: 10 });
+    expect(sunlightWeightsForDepth(100)).toEqual({ light: 20, mixed: 35, dark: 45 });
+  });
+
+  it('draws in fixed light, mixed, dark order at cumulative boundaries', () => {
+    expect(selectSunlightCategory(1, () => 0)).toBe('light');
+    expect(selectSunlightCategory(1, () => 0.599)).toBe('light');
+    expect(selectSunlightCategory(1, () => 0.6)).toBe('mixed');
+    expect(selectSunlightCategory(1, () => 0.899)).toBe('mixed');
+    expect(selectSunlightCategory(1, () => 0.9)).toBe('dark');
+  });
+
+  it('selects deterministically for a given floorSeed and depth', () => {
+    expect(sunlightCategoryForFloorSeed(14, 24603)).toBe(sunlightCategoryForFloorSeed(14, 24603));
+  });
+});
+
 describe('sunlight determinism vs existing generation (Phase 09.3)', () => {
   it('does not change terrain, rooms, start, enemies, exit, or ground items across repeated generation', () => {
     const a = createInitialState(9090);
@@ -226,6 +228,27 @@ describe('sunlight determinism vs existing generation (Phase 09.3)', () => {
     );
     expect(a.exit).toEqual(b.exit);
     expect(a.groundItems).toEqual(b.groundItems);
+  });
+
+  it('changing the category roll does not consume or mutate another RNG stream', () => {
+    const map = openMap();
+    const before = JSON.stringify(map);
+    const otherRng = createRng(987654321);
+    const expectedOtherRng = createRng(987654321);
+    const first = otherRng();
+
+    const lightSeed = Array.from({ length: 10_000 }, (_, seed) => seed).find(
+      (seed) => sunlightCategoryForFloorSeed(1, seed) === 'light',
+    )!;
+    const darkSeed = Array.from({ length: 10_000 }, (_, seed) => seed).find(
+      (seed) => sunlightCategoryForFloorSeed(1, seed) === 'dark',
+    )!;
+    generateSunlightLayer(map, 1, lightSeed, { x: 10, y: 10 });
+    generateSunlightLayer(map, 1, darkSeed, { x: 10, y: 10 });
+
+    expect(first).toBe(expectedOtherRng());
+    expect(otherRng()).toBe(expectedOtherRng());
+    expect(JSON.stringify(map)).toBe(before);
   });
 
   it('sunlight never affects canMove-based blocking (movement into a wall still fails identically)', () => {

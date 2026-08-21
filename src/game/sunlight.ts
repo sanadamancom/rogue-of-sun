@@ -11,6 +11,45 @@ import { GameMap, Room, Vec2 } from './types';
  */
 const SUNLIGHT_XOR = 0x7c3a91e6;
 
+export type SunlightCategory = 'light' | 'mixed' | 'dark';
+
+export interface SunlightCategoryWeights {
+  light: number;
+  mixed: number;
+  dark: number;
+}
+
+const SUNLIGHT_DEPTH_BANDS: ReadonlyArray<{
+  minDepth: number;
+  maxDepth: number;
+  weights: SunlightCategoryWeights;
+}> = [
+  { minDepth: 1, maxDepth: 6, weights: { light: 60, mixed: 30, dark: 10 } },
+  { minDepth: 7, maxDepth: 13, weights: { light: 45, mixed: 35, dark: 20 } },
+  { minDepth: 14, maxDepth: 19, weights: { light: 30, mixed: 40, dark: 30 } },
+  { minDepth: 20, maxDepth: 26, weights: { light: 20, mixed: 35, dark: 45 } },
+];
+
+/** Returns the depth-only sunlight weights, clamped to the nearest defined band. */
+export function sunlightWeightsForDepth(depth: number): SunlightCategoryWeights {
+  const clampedDepth = Math.max(1, Math.min(26, depth));
+  return SUNLIGHT_DEPTH_BANDS.find((band) => clampedDepth >= band.minDepth && clampedDepth <= band.maxDepth)!.weights;
+}
+
+/** Selects a sunlight category in the fixed light -> mixed -> dark order. */
+export function selectSunlightCategory(depth: number, rng: () => number): SunlightCategory {
+  const weights = sunlightWeightsForDepth(depth);
+  const roll = rng() * 100;
+  if (roll < weights.light) return 'light';
+  if (roll < weights.light + weights.mixed) return 'mixed';
+  return 'dark';
+}
+
+/** Returns the category selected by the first draw of a floor's sunlight stream. */
+export function sunlightCategoryForFloorSeed(depth: number, floorSeed: number): SunlightCategory {
+  return selectSunlightCategory(depth, createRng(floorSeed ^ SUNLIGHT_XOR));
+}
+
 /** Provisional fraction of floor 1's reachable floor kept in shadow (Phase 09.3; not finally tuned). */
 const FLOOR1_SHADOW_FRACTION = 0.15;
 
@@ -202,10 +241,8 @@ function generateFloor3(map: GameMap, start: Vec2, rng: () => number): boolean[]
  */
 export function generateSunlightLayer(map: GameMap, floor: number, floorSeed: number, start: Vec2): boolean[][] {
   const rng = createRng(floorSeed ^ SUNLIGHT_XOR);
-  if (floor === 1) return generateFloor1(map, start, rng);
-  if (floor === 2) return generateFloor2(map, start, rng);
-  if (floor === 3) return generateFloor3(map, start, rng);
-  // Any floor beyond the current 3 (none exist yet) defaults to floor 3's
-  // mostly-shadow treatment rather than leaving the layer undefined.
+  const category = selectSunlightCategory(floor, rng);
+  if (category === 'light') return generateFloor1(map, start, rng);
+  if (category === 'mixed') return generateFloor2(map, start, rng);
   return generateFloor3(map, start, rng);
 }
