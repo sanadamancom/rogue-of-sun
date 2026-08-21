@@ -703,6 +703,14 @@ export interface GameState {
    */
   poisonTickProgress?: number;
   /**
+   * Phase 24.6c4a food-shortage correction (long-run balance design §12):
+   * consecutive descent floors whose finalized ground-item generation did
+   * not contain chocolate. Persists across floor transitions, holds during
+   * ascent, and defaults to 0 when absent. No schemaVersion bump: this is an
+   * additive optional field for legacy states.
+   */
+  foodDroughtFloors?: number;
+  /**
    * Phase 11.3 hunger: whether the "hunger reached 20 or below" warning
    * has already been shown for the current low-hunger dip (cleared once
    * hunger rises back above 20, so a later dip warns again). Optional,

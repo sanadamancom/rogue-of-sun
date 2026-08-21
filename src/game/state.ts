@@ -85,6 +85,8 @@ interface CarryOverStats {
   starvationProgress: number;
   /** Phase 15.2 recovery/satiety/status rebalance: carried across floor transitions like hungerDecreaseProgress/starvationProgress — see types.ts's GameState.poisonTickProgress doc comment. */
   poisonTickProgress: number;
+  /** Phase 24.6c4a food-shortage correction counter; see types.ts's GameState.foodDroughtFloors doc comment. */
+  foodDroughtFloors: number;
   hungerLowWarned: boolean;
   hungerZeroWarned: boolean;
   activeEffects: ActiveEffect[];
@@ -213,6 +215,7 @@ function buildFloorState(
   forcedSpecies?: EnemyType[],
 ): GameState {
   const leg: GameState['leg'] = 'descent';
+  const incomingFoodDroughtFloors = carry?.foodDroughtFloors ?? 0;
   const floorSeed = deriveFloorSeed(runSeed, floor);
   const result = generateMap(floorSeed);
   if (!result.ok || !result.map) {
@@ -511,6 +514,21 @@ function buildFloorState(
   const floorEquipmentInstances: EquipmentInstance[] = carry ? carry.equipmentInstances.map((i) => ({ ...i })) : [];
   let nextFloorEquipmentInstanceId = carry ? carry.nextEquipmentInstanceId : 0;
   const groundItems: GroundItem[] = [];
+  // Phase 24.6c4a food-shortage correction (long-run balance design §12):
+  // reserve the guaranteed chocolate's cell before normal placement. Its
+  // dedicated stream is created/consumed only when the guarantee fires, so
+  // every pre-existing item/equipment/card/accessory stream remains exactly
+  // unchanged in both consumption count and order.
+  if (leg === 'descent' && incomingFoodDroughtFloors >= 3) {
+    const foodGuaranteePlacementRng = createRng(floorSeed ^ 0x8f31c2a6);
+    const pos = chooseGroundItemPosition(
+      map,
+      placement.start,
+      [placement.start, placement.exit, ...placement.enemies, ...traps.map((t) => t.pos)],
+      foodGuaranteePlacementRng,
+    );
+    groundItems.push({ id: groundItems.length, itemId: 'chocolate', pos });
+  }
   for (const itemId of selectedItemIds) {
     const exclusions = [
       placement.start,
@@ -710,6 +728,13 @@ function buildFloorState(
     leg,
     floorVisitOrdinal,
     reinforcementOrdinal: 0,
+    // Phase 24.6c4a: only descent generation changes the drought counter;
+    // ascent floors hold the incoming value. The finalized groundItems array
+    // is inspected, so normal selection, floor-1 substitution, or the
+    // dedicated guarantee can reset it independently of later pickup.
+    foodDroughtFloors: leg === 'descent'
+      ? (groundItems.some((item) => item.itemId === 'chocolate') ? 0 : incomingFoodDroughtFloors + 1)
+      : incomingFoodDroughtFloors,
     totalFloors: runConfig.totalFloors,
     runDepthTier: runConfig.runDepthTier,
     exit: placement.exit,
@@ -916,6 +941,7 @@ export function advanceToNextFloor(state: GameState, events?: GameEvent[]): Game
     hungerDecreaseProgress: state.hungerDecreaseProgress ?? 0,
     starvationProgress: state.starvationProgress ?? 0,
     poisonTickProgress: state.poisonTickProgress ?? 0,
+    foodDroughtFloors: state.foodDroughtFloors ?? 0,
     hungerLowWarned: state.hungerLowWarned ?? false,
     hungerZeroWarned: state.hungerZeroWarned ?? false,
     activeEffects: state.activeEffects ?? [],
