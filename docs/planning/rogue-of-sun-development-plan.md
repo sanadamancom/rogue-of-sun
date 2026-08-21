@@ -736,8 +736,8 @@ Rが最上位ランク。近接武器はC～Aを通常取得、Sを太陽鍛冶�
 | 24.6c3b | 実測上必要な敵だけLv2／Lv3固有能力を追加（`24.6c3b1`：スケルトン・マミー完了、`24.6c3b2`：コウモリ・スパイダー完了。残り7種はhuman decision（design doc §9参照）によりmeasurement-gatedとし`24.6c4`以降へ送る）（完了） |
 | 24.6c4a | 独立RNGによる食料不足補正（3floor連続枯渇後のチョコレート保証）（完了） |
 | 24.6c4b | item availabilityを`minimumDepth`／任意`maximumDepth`／leg契約へ移行（design doc §19「24.6c4のスコープ決定」参照）（完了） |
-| 24.6c4c | 下降限定の通常床loot（leg分岐によるpure／bounded実装。次のbounded task） |
-| 24.6c4d | S防具3種（`light_garb`／`dark_garb`／`spike_mail`）の下降19～26F深層loot route |
+| 24.6c4c | 下降限定の通常床loot（leg分岐によるpure／bounded実装）（完了） |
+| 24.6c4d | S防具3種（`light_garb`／`dark_garb`／`spike_mail`）の下降19～26F深層loot route（次のbounded task） |
 | 24.6c4e | 26F production run structureのpre-simulation統合（`transitionFloor`本接続、depth 1～26、descent／ascent、24.6c2b敵depth／level／count tableのproduction spawn接続。save／UI／HUDは含まない。human decision, 2026-08-21により`24.6c4`と`24.6c5`の間に新設） |
 | 24.6c5 | 26F下降＋25F帰還で生成・戦闘・供給を再測定し、定数を調整（`24.6c4e`完了後の実production run structureに対して実施） |
 | 24.7 | 下降19～25Fの黒の鎧専用封印部屋、番人、撃破時の確定報酬 |
@@ -928,8 +928,8 @@ Phase 23～27完了時。
 8. Phase 24.6c3bで実測上必要な敵だけLv2／Lv3固有能力を追加する
 9. Phase 24.6c4aで通常item RNGへ干渉しない食料不足補正を実装する（完了）
 10. Phase 24.6c4bでitem availabilityを`minimumDepth`／任意`maximumDepth`／leg契約へ移行する（完了）
-11. Phase 24.6c4cで下降限定の通常床lootを実装する（次のbounded task）
-12. Phase 24.6c4dでS防具（`light_garb`／`dark_garb`／`spike_mail`）の深層通常loot routeを実装する
+11. Phase 24.6c4cで下降限定の通常床lootを実装する（完了）
+12. Phase 24.6c4dでS防具（`light_garb`／`dark_garb`／`spike_mail`）の深層通常loot routeを実装する（次のbounded task）
 13. Phase 24.6c4eで`transitionFloor`本接続・depth 1～26・descent／ascent・24.6c2b敵spawn tableのproduction wiringなど、26F production run structureのpre-simulation統合を行う
 14. Phase 24.6c5で26F下降＋25F帰還を再測定し、撃破手数、被弾許容量、EXP、能力rank、回復・食料・SOL、turn数、取得・破棄量、鍛冶到達率を比較する
 15. Phase 24.7で下降19～25Fへ黒の鎧専用封印部屋と番人を接続する
