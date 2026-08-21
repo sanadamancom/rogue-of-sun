@@ -1,7 +1,7 @@
 import { createRng } from './mapgen';
 import { getHeldEquipmentInstances, isWeaponOrArmorId } from './equipment-instance';
 import { NORMAL_RANKS } from './equipment-loot';
-import { ArmorId, EquipmentInstance, GameState, TrapType, WeaponId } from './types';
+import { ArmorId, EnemyLevel, EquipmentInstance, GameState, TrapType, WeaponId } from './types';
 
 /**
  * Phase 24.4e1 能動的な呪い付与経路: shared eligibility/RNG plumbing for
@@ -91,6 +91,17 @@ function sortByInstanceId(instances: readonly EquipmentInstance[]): EquipmentIns
  * Phase 24.6/27's job, per this module's own history doc.
  */
 export const MUMMY_CURSE_CHANCE_PROVISIONAL = 0.1;
+
+const MUMMY_CURSE_CHANCE_BY_LEVEL: Readonly<Record<EnemyLevel, number>> = {
+  1: MUMMY_CURSE_CHANCE_PROVISIONAL,
+  2: 0.15,
+  3: 0.2,
+};
+
+/** Phase 24.6c3b1: per-instance enemy level scaling for mummy's on-hit curse. */
+export function getMummyCurseChance(level: EnemyLevel): number {
+  return MUMMY_CURSE_CHANCE_BY_LEVEL[level];
+}
 
 /**
  * Phase 24.4e1 curse_trap's type-selection weights (out of 100), applied

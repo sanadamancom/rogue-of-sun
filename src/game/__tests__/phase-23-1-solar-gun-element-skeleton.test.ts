@@ -6,11 +6,12 @@ import {
   ELEMENT_ENCHANTMENT_SOL_COST,
   getSolarGunEffectiveElement,
   getSolarGunEnchantmentCandidates,
+  getSkeletonHeadReviveTurns,
   processTurn,
 } from '../turn';
 import { ENEMY_DEFINITIONS } from '../enemy-def';
 import { ELEMENTAL_AFFINITY_BONUS_DAMAGE } from '../combat';
-import { EnemyActor, EnemyType, GameMap, GameState, Tile } from '../types';
+import { EnemyActor, EnemyLevel, EnemyType, GameMap, GameState, Tile } from '../types';
 import { DEFAULT_RUN_CONFIG } from '../floor';
 
 // Open room, no interior walls — matches the existing solar-gun test
@@ -71,9 +72,9 @@ function faceEast(state: GameState): void {
   processTurn(state, { type: 'face', direction: 'E' });
 }
 
-function skeletonAt(x: number, y: number, hp = 6): EnemyActor {
+function skeletonAt(x: number, y: number, hp = 6, level: EnemyLevel = 1): EnemyActor {
   const def = ENEMY_DEFINITIONS.skeleton;
-  return createInitialEnemy('skeleton' as EnemyType, { x, y }, hp, def.attack, 0, 0, def.defense, def.accuracy, def.evasion);
+  return createInitialEnemy('skeleton' as EnemyType, { x, y }, hp, def.attack, 0, 0, def.defense, def.accuracy, def.evasion, level);
 }
 
 describe('Phase 23.1: solar gun element lens', () => {
@@ -384,6 +385,25 @@ describe('Phase 23.1: skeleton body/head/revival state machine', () => {
     expect(skeleton.hp).toBe(skeleton.maxHp);
     expect(skeleton.skeletonReviveAtTurn).toBeUndefined();
     expect(result.events.some((e) => e.type === 'skeleton_revived')).toBe(true);
+  });
+
+  it.each([
+    { level: 2 as const, delay: 6 },
+    { level: 3 as const, delay: 4 },
+  ])('a level $level skeleton revives exactly $delay turns after headifying', ({ level, delay }) => {
+    const state = freshState({ enemies: [skeletonAt(3, 2, 1, level)] });
+    faceEast(state);
+    processTurn(state, { type: 'action' });
+    const skeleton = state.enemies[0];
+    const headifiedAtTurn = skeleton.skeletonReviveAtTurn! - getSkeletonHeadReviveTurns(level);
+    expect(skeleton.skeletonForm).toBe('head');
+    expect(skeleton.skeletonReviveAtTurn).toBe(headifiedAtTurn + delay);
+
+    while (state.turn < skeleton.skeletonReviveAtTurn! - 1) processTurn(state, { type: 'wait' });
+    expect(skeleton.skeletonForm).toBe('head');
+    processTurn(state, { type: 'wait' });
+    expect(state.turn).toBe(headifiedAtTurn + delay);
+    expect(skeleton.skeletonForm).toBe('body');
   });
 
   it('revival is delayed while the skeleton\'s own tile is occupied by the player, and happens once it is vacated', () => {

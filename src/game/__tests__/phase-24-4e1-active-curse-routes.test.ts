@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createInitialActor, createInitialEnemy, processTurn } from '../turn';
 import { normalizeEquipmentInstances, getHeldEquipmentInstances, isEquippedWeaponCurseLocked } from '../equipment-instance';
-import { getActiveCurseEligibleInstances, selectTrapType, TRAP_TYPE_WEIGHTS } from '../curse-active';
+import { getActiveCurseEligibleInstances, getMummyCurseChance, selectTrapType, TRAP_TYPE_WEIGHTS } from '../curse-active';
 import { createEmptyInventory } from '../item-def';
 import { GameMap, GameState, Tile, TrapTile, Vec2 } from '../types';
 import { formatEvent } from '../message-log';
@@ -111,6 +111,12 @@ const CRS_HIT = 0;
 const CRS_MISS = 4;
 
 describe('Phase 24.4e1: mummy on-hit curse', () => {
+  it('scales the on-hit curse threshold with the mummy instance level', () => {
+    expect(getMummyCurseChance(1)).toBe(0.1);
+    expect(getMummyCurseChance(2)).toBe(0.15);
+    expect(getMummyCurseChance(3)).toBe(0.2);
+  });
+
   it('curses the equipped weapon on a confirmed hit with a successful chance roll', () => {
     const state = mummyState({ turn: TURN_CHANCE_SUCCEEDS, combatRngState: CRS_HIT });
     const result = processTurn(state, { type: 'wait' });

@@ -72,7 +72,7 @@ import {
   createMummyCurseTargetRng,
   createCurseTrapTargetRng,
   getActiveCurseEligibleInstances,
-  MUMMY_CURSE_CHANCE_PROVISIONAL,
+  getMummyCurseChance,
   selectActiveCurseTarget,
 } from './curse-active';
 import { validateForgeMaterialsWithLineage } from './solar-forge';
@@ -114,6 +114,7 @@ import {
   ElementId,
   EnchantmentId,
   EnemyActor,
+  EnemyLevel,
   EnemyType,
   GameMap,
   GameState,
@@ -483,6 +484,17 @@ export function getIncomingDamage(state: GameState, attackPower: number, enemyTy
  */
 const SKELETON_HEAD_REVIVE_TURNS = 8;
 
+const SKELETON_HEAD_REVIVE_TURNS_BY_LEVEL: Readonly<Record<EnemyLevel, number>> = {
+  1: SKELETON_HEAD_REVIVE_TURNS,
+  2: 6,
+  3: 4,
+};
+
+/** Phase 24.6c3b1: per-instance enemy level scaling for skeleton revival. */
+export function getSkeletonHeadReviveTurns(level: EnemyLevel): number {
+  return SKELETON_HEAD_REVIVE_TURNS_BY_LEVEL[level];
+}
+
 /**
  * Phase 24.4b enemy drops: the single call site (defeatEnemyIfNeeded,
  * immediately below) for the entire drop pipeline — occurrence roll,
@@ -645,7 +657,7 @@ function defeatEnemyIfNeeded(
       // RNG consumed.
       target.alive = true;
       target.skeletonForm = 'head';
-      target.skeletonReviveAtTurn = state.turn + SKELETON_HEAD_REVIVE_TURNS;
+      target.skeletonReviveAtTurn = state.turn + getSkeletonHeadReviveTurns(target.level);
       events.push({ type: 'skeleton_headified', targetId });
       return false;
     }
@@ -3544,7 +3556,7 @@ function tryApplyMummyCurseOnHit(state: GameState, enemy: EnemyActor, events: Ga
 
   const enemyId = enemy.id ?? 0;
   const chanceRng = createMummyCurseChanceRng(state, enemyId);
-  if (!(chanceRng() < MUMMY_CURSE_CHANCE_PROVISIONAL)) return;
+  if (!(chanceRng() < getMummyCurseChance(enemy.level))) return;
 
   const target =
     eligible.length === 1 ? eligible[0] : selectActiveCurseTarget(eligible, createMummyCurseTargetRng(state, enemyId));
