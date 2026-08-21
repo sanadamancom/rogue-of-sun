@@ -157,6 +157,10 @@ This is a Hermes non-interactive orchestration session, not an interactive or De
 
 Regardless of outcome--successful continuation, a finished bounded task, a decision needed from a human, or an unresolved blocker--you must write a valid .ai/status.json according to docs/ops/hermes-status-protocol.md as your last action before exiting. There is no exit path that skips this requirement.
 
+Do not hand-write .ai/status.json JSON yourself (via the Write or Edit tool). Use the deterministic helper script instead, invoked via the Bash tool:
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/hermes-write-status.ps1 -Status <CONTINUE|SESSION_BOUNDARY|USER_DECISION_REQUIRED|BLOCKED> -Reason "<reason text>" -Phase "<phase or omit>" -Task "<task or omit>" -CommitSha "<sha or omit>"
+This script mechanically sets protocol_version to 1 and validates Status/Reason so the field can never be silently omitted. It fails with a non-zero exit code on an invalid status or missing reason; if it fails, fix the arguments and retry before exiting. Never construct the JSON by hand as a fallback, even if the script is unavailable--if the script cannot run, treat that as BLOCKED and report it via a subsequent successful call to the script once fixed.
+
 Never delegate to Codex, Gemini, Antigravity, or any other worker as a background, asynchronous, or detached task and then exit while it is still running. This Hermes non-interactive orchestration session has no later turn to resume on: once this process exits, nothing continues it, and no "I'll wait for the completion notification" promise can ever be honored, because there is no later turn in which that notification could arrive. This is not hypothetical: a prior Hermes session ran Codex through a subagent/Agent-style tool that defaulted to running in the background, stated it would wait for the notification, and then its --print turn ended with Codex still running and no .ai/status.json ever written (the orphaned commit 75edcae incident). The Agent tool and the Task tool are both disallowed for this reason; do not attempt to route around that restriction through any other subagent, plugin agent (including any codex-rescue-style agent), MCP tool, or mechanism that returns before the worker has actually finished. The only acceptable way to run Codex is a direct, blocking Bash call such as `codex exec --dangerously-bypass-approvals-and-sandbox "..."` invoked via the Bash tool, which does not return until Codex exits. Every worker delegation must be synchronous: invoke it in the foreground, wait for it to actually finish before doing anything else procedural, then independently verify its result according to the normal CLAUDE.md Codex workflow by inspecting the diff, running the required checks, and confirming scope. If the result is accepted, stage and commit it yourself exactly as in any other Claude session. Only after the full delegate synchronously -> wait -> verify -> commit-if-accepted cycle is complete may you write the final .ai/status.json and exit. An unfinished, still-running worker is never a valid reason to write SESSION_BOUNDARY or any other status and exit at a natural bounded-task boundary. If a worker genuinely cannot finish within this session, including because it would exceed the session timeout, report that honestly as BLOCKED with the human-facing Japanese reason required below; never paper it over by claiming you will finish it next time.
 
 If a game-design, UX, balance, product, or architecture decision requires a human under CLAUDE.md, do not merely ask the question in prose and stop. Write status "USER_DECISION_REQUIRED". The reason remains one JSON string, but you must author that string itself as natural, self-contained Japanese Discord Markdown in exactly this section shape (with real newlines encoded correctly by JSON):
@@ -213,15 +217,8 @@ Read CLAUDE.md and inspect the current repository state only as needed.
 Do not modify any repository file except .ai/status.json. Do not modify .ai/task.md.
 Do not invoke Codex, Gemini, or Antigravity. Do not commit, push, merge, rebase, or start development work.
 
-As an example appropriate to this smoke test, write .ai/status.json with this protocol shape:
-{
-  "protocol_version": 1,
-  "status": "SESSION_BOUNDARY",
-  "reason": "Hermes read-only smoke test completed",
-  "phase": null,
-  "task": "Hermes smoke test",
-  "commit_sha": null
-}
+As an example appropriate to this smoke test, write .ai/status.json using the deterministic helper script:
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/hermes-write-status.ps1 -Status SESSION_BOUNDARY -Reason "Hermes read-only smoke test completed" -Task "Hermes smoke test"
 Make no other repository changes, then exit.
 "@
 }

@@ -2,6 +2,20 @@
 
 A Claude session launched by Hermes must write `.ai/status.json` as its last action before exiting, unconditionally. This includes a session whose only outcome is "I need to ask a human something." A prose question without a status file is a protocol violation, and Hermes fails closed.
 
+## Writing the status file
+
+Claude must write `.ai/status.json` with `scripts/hermes-write-status.ps1`, not by hand-constructing the JSON with the Write or Edit tool:
+
+```
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/hermes-write-status.ps1 -Status CONTINUE -Reason "..." -Phase "24.6c4d" -Task "..." -CommitSha "..."
+```
+
+The script mechanically sets `protocol_version` to `1` and requires `-Status` (from the fixed enum) and a non-empty `-Reason`; `-Phase`, `-Task`, and `-CommitSha` are optional and become JSON `null` when omitted. It exits non-zero on an invalid status or missing reason, so Claude never has to reconstruct the schema from prose, and a session can never silently omit `protocol_version` the way a hand-written file can. If the script itself cannot run for some reason, that is a `BLOCKED` condition, not a license to hand-write the file as a fallback.
+
+Hermes independently re-validates whatever ends up on disk after the session exits (protocol_version, known status values, valid JSON) regardless of how it was produced, so the helper is a reliability aid for Claude, not a trust boundary for Hermes.
+
+## Schema
+
 The file uses this schema:
 
 ```json
