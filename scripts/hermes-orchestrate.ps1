@@ -12,6 +12,7 @@
 )
 
 $ErrorActionPreference = "Stop" # All process and protocol anomalies fail closed.
+. (Join-Path $PSScriptRoot 'hermes-message-fragments.ps1')
 
 function Stop-HermesWithError {
     param([string]$Message)
@@ -61,8 +62,14 @@ function Send-HermesNotification {
             if ($HermesCommand) { $HermesPath = $HermesCommand.Source }
         }
         if (-not $HermesPath) { Write-Warning "Hermes notification skipped: hermes executable not found"; return }
-        & $HermesPath send --to $NotifyTarget --quiet $Message
-        if ($LASTEXITCODE -ne 0) { Write-Warning "Hermes notification failed with exit code $LASTEXITCODE" }
+        $Messages = if ($Message.Length -gt 1900) {
+            @(Split-HermesMessage -Message $Message -MaxLength 1900 -MarkerFormat '[{0}/{1}]')
+        }
+        else { @($Message) }
+        foreach ($OutgoingMessage in $Messages) {
+            & $HermesPath send --to $NotifyTarget --quiet $OutgoingMessage
+            if ($LASTEXITCODE -ne 0) { Write-Warning "Hermes notification failed with exit code $LASTEXITCODE" }
+        }
     }
     catch { Write-Warning "Hermes notification failed: $($_.Exception.Message)" }
 }
@@ -436,6 +443,10 @@ while ($SessionCount -lt $MaxSessions) {
             Write-JsonAtomic -Path $PendingDecisionPath -Value $Pending
             $PublishHeader = "## ⚠️ Decision Base Published`n`n**Repository:** ``$($PublishResult.repositorySlug)```n**Branch:** ``$($PublishResult.decisionBranch)```n**Decision Base Commit:** ``$($PublishResult.commitSha)```n**Working Tree:** ``clean```n`n"
             Send-HermesNotification ($PublishHeader + [string]$SessionStatus.reason)
+            $PacketScriptPath = Join-Path $PSScriptRoot 'hermes-build-decision-packet.ps1'
+            $PacketFragments = @(& $PacketScriptPath -RepoDir $ResolvedRepoDir -DecisionId $DecisionId -Chunks)
+            if ($LASTEXITCODE -ne 0) { Stop-HermesWithError 'verified Decision Packet generation failed' }
+            foreach ($PacketFragment in $PacketFragments) { Send-HermesNotification ([string]$PacketFragment) }
         }
         else {
             $FailureText = (($PublishOutput | ForEach-Object { [string]$_ }) -join "`n").Trim()
