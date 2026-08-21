@@ -521,8 +521,12 @@ Phase 24.6c2では共通statsだけを実装し、通し測定後に必要な種
 | 24.6c2d | 累積EXP table、偶数Lv能力ポイント | あり |
 | 24.6c3a | モンスターハウス、罠、日照のdepth／leg接続 | あり |
 | 24.6c3b | 必要な敵だけLv2／Lv3固有能力を追加（`24.6c3b1`：スケルトン・マミー完了。`24.6c3b2`：コウモリ・スパイダー。残り7種は§9のhuman decisionによりmeasurement-gated、`24.6c4`以降へ） | あり |
-| 24.6c4 | availability移行、下降限定床loot、独立RNGによる食料補正、S防具 | あり |
-| 24.6c5 | 26F下降＋25F帰還simulationと定数調整 | 原則定数のみ |
+| 24.6c4a | 独立RNGによる食料不足補正（3floor連続枯渇後のチョコレート保証）（完了） | あり |
+| 24.6c4b | item availabilityを`minimumDepth`／任意`maximumDepth`／leg契約へ移行（§19「24.6c4のスコープ決定」参照） | あり |
+| 24.6c4c | 下降限定の通常床loot（floor生成APIをleg分岐、ascentは通常loot・モンスターハウスなしのpure/bounded実装） | あり |
+| 24.6c4d | S防具3種（`light_garb`／`dark_garb`／`spike_mail`）の下降19～26F深層loot route | あり |
+| 24.6c4e | 26F production run structureのpre-simulation統合（`transitionFloor`本接続、depth 1～26、descent／ascent、24.6c2b敵depth／level／count tableのproduction spawn接続、51 floor visit経路。save／UI／HUDは含まない。§19「24.6c4のスコープ決定」参照） | あり |
+| 24.6c5 | 26F下降＋25F帰還simulationと定数調整（`24.6c4e`完了後の実production run structureに対して実施） | 原則定数のみ |
 | 24.7 | 黒の鎧専用封印部屋と番人 | あり |
 | 24.8 | 26F目標配置・救出、階段状態機械、帰還、1F脱出、同行描画、中断save、統合試験 | あり |
 
@@ -718,3 +722,24 @@ correctness違反、全policy timeout、policy間の期待順序逆転、特定�
 ### 24.6c2bの production接続タイミング
 
 24.6c2bは§7（敵種別depth窓・level帯・種族weight）と§8（敵数・増援周期）をcanonical dataとpure derivation関数として実装し、対応するunit testsを追加するが、現行の3F sample production spawn path（`getEnemyPoolForFloor`／`buildEnemies`等）へはこのPhaseでは接続しない。既存3F cumulative 4/8/12 species scheduleとdeterminism/regression baselineは維持する。`totalFloors >= 26`のような暫定thresholdによるproduction分岐も追加しない — 新しいdepth-driven pathへのwiringは、26F run structureを導入する後続Phase（本節冒頭の`transitionFloor`状態機械を主入口とするPhase、想定24.6c3a以降）でまとめて行う。将来削除するためだけのdual-path threshold／feature flagは作らない。
+
+### 24.6c4のスコープ決定（human decision, 2026-08-21）
+
+`24.6c4a`（食料不足補正）完了後、残る`24.6c4`作業（availability移行、下降限定床loot、S防具深層loot）と本節冒頭の`transitionFloor`／26F production run wiringとの関係についてuserへ判断を仰いだ結果、以下が確定した。
+
+1. **`24.6c4`は26F production run wiringを含まない。** `transitionFloor`状態機械の本接続、depth 1～26のproduction spawn path接続、descent／ascentのproduction run構造化は、これまでのDecision Baseブランチ（`phase-24-6c4a-food-drought-guarantee`）と同様、既存3F run（`DEFAULT_RUN_CONFIG.totalFloors = 3`、常にdescent leg、EnemyLevel常に1、`advanceToNextFloor`による単純な`floor + 1`）の上でbounded／pureな実装として進める。ascent production pathへの分岐は、24.6c4の各taskでは追加しない。
+2. **`24.6c4`は次の4つのbounded taskへ分割する。**
+   - `24.6c4a`：独立RNGによる食料不足補正（完了）。
+   - `24.6c4b`：item availabilityを`minimumRunDepth`＋`unlockProgress`から`minimumDepth`／任意`maximumDepth`／leg契約（§10参照）へ移行するmetadata model／eligibility filteringの実装。3F regression baselineとの互換はadapterで維持し、`totalFloors >= 26`のようなfeature flagは追加しない。
+   - `24.6c4c`：floor生成APIをleg分岐させ、descent限定の通常床loot／ascentは通常loot・モンスターハウス・enemy／drop／trap／日照生成なしとするpure／bounded実装。production wiringはこれまでの`24.6c4a`と同じく既存3F run（常にdescent leg）の範囲内で行う。
+   - `24.6c4d`：S防具3種（`light_garb`／`dark_garb`／`spike_mail`。armor-def.tsで既存定義済み）を下降19～26Fの通常armor候補へ接続するloot route実装。weightはprovisional constantとし、`24.6c5`で最終化する。
+3. **`24.6c5`直前に新task`24.6c4e`を追加する。** `24.6c4b`～`24.6c4d`完了後、`24.6c5`のsimulationがproductionと同じgame logicをimportして使う（§18.2）契約を満たすため、`24.6c4e`で26F production run structureのpre-simulation統合を行う。範囲は以下に限定し、save／UI／HUD／同行描画は含めない（それらは`24.8`）。
+   - `transitionFloor`（またはそれに相当する単一関数）をproduction runの主入口として本接続する。
+   - depth 1～26、descent／ascentの状態遷移をproductionで有効化する。
+   - `24.6c2b`が定義した敵種別depth窓・level帯・種族weight・初期敵数曲線をproduction spawn path（`getEnemyPoolForFloor`／`buildEnemies`等）へ接続する。
+   - 26F救出→同floor階段帰還→ascent legの状態機械、1Fからの地上脱出を有効化する。
+   - 51 floor visit（下降26＋帰還25）の経路が`24.6c5`のsimulation契約（§18）どおりに動作することを確認する。
+4. **`24.6c5`の定義自体は変更しない。** `24.6c5`は引き続き26F下降＋25F帰還のsimulationと定数調整であり、`24.6c4e`が接続したproduction run structureに対して実施する。§16の実装順テーブルはこの分割を反映する。
+5. **`24.8`のスコープは変更しない。** 26Fのおてんこさま配置・接触救出の詳細UI、同行描画、1slot one-shot中断save、browser統合、実プレイbalance監査は引き続き`24.8`が担う。
+6. **S防具・R防具・`mail_of_dark`のitem設計自体に変更はない。** `light_garb`／`dark_garb`／`spike_mail`は既存の`armor-def.ts`で定義済みのcanonical S防具3種であり、`24.6c4d`はこの3種を19～26Fの通常loot routeへ接続するのみで、新規itemの追加や既存stats・effectIdの変更は行わない。`black_armor`はR rank、下降19～25Fの封印部屋event限定のまま`24.7`で接続する（§13参照）。`mail_of_dark`の暗い部屋+2効果検証（§13、line 431相当）は`24.6c4`内のmeasurement-gated項目のまま残り、`24.6c4b`のblockerにはしない。
+7. **次のbounded taskは`24.6c4b`とする。**
