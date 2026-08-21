@@ -276,6 +276,36 @@ Phase 24.6c2では共通statsだけを実装し、通し測定後に必要な種
 - 残る7種（コカトリス、ソード、ゴースト、ゴーレム、アックス、クラーケン、ステップス）の固有能力実装は`24.6c3b`内で一括着手せず、measurement-gatedとする。本表の候補設計自体は変更せず維持するが、実装着手は`24.6c4`以降の実測（production spawnへのEnemyLevel割り当て接続後の実プレイ・simulation計測）でどの種に実際に必要性があるか確認してから、必要な種だけ後続taskとして着手する。
 - `24.6c3b`は`24.6c3b2`完了をもってこのroadmap segment内の作業を一旦区切り、次は`24.6c4`（availability移行、下降限定床loot、食料補正、S防具）へ進む。残り7種のLv2／Lv3実装は、`24.6c4`以降のどこかのタイミングで測定結果に応じて個別taskとして再開する（`24.6c5`の再測定前後を含め、フェーズ番号は実測結果を見て後決めとする）。
 
+### 24.6c3b2の具体的パラメータ決定（human decision, 2026-08-21）
+
+`24.6c3b2`（コウモリ・スパイダーのLv2／Lv3固有能力）実装前に、回避上昇幅・後退強化の形・巣cooldown・同時存在web数について案A（小幅強化）と案B（大幅強化）を提示した結果、両案を混ぜたハイブリッド案（案C）が確定した。
+
+1. **コウモリのevasion**
+   - 合計値をLv1=10／Lv2=15／Lv3=20とする（案Aと同じ数値、案Bの15→20／30は不採用）。
+   - 内訳は、既存の共通EnemyLevel補正（`applyEnemyLevelMultiplier`のLv2 +3／Lv3 +5）に加えて、コウモリ種だけの追加ボーナスLv1 +0／Lv2 +2／Lv3 +5を加算する形で実現する（種base 10 + 共通 + コウモリ追加 = Lv2: 10+3+2=15、Lv3: 10+5+5=20）。
+   - このLv別数値・内訳の配分は`24.6c5`以降の再測定結果次第で見直す余地を残す。
+
+2. **コウモリの後退・再接近強化**
+   - Lv1／Lv2は既存どおり、1回のretreat actionにつき1step。
+   - **Lv3だけ、1回のretreat action内で連続2stepの後退を行う。**
+   - 各stepは既存の単一step選択ロジック（8方向候補のうち、現在位置よりChebyshev距離が厳密に大きくなる中で最大距離を選ぶ、タイはALL_DIRECTIONS順）をそのまま2回連続で適用する。2step目もplayer位置に対して再評価する。
+   - 2step目の有効な移動先が無ければ、1stepのみで打ち切る（1step目も無ければ、既存どおり同ターン内で通常行動にfallbackする）。
+   - 2step実行時も含め、retreatは常に1 enemy actionとして消費する（bat_retreat eventは1回のみ発火、行動経済は変更しない）。
+   - retreatの発動条件（直前ターンの攻撃成功で`retreating`をsetする既存の状態機械）や優先順位など、他のAI構造は変更しない。
+   - 案Bで提案されていた「retreat距離を2倍にする」等のより大きな変更は不採用とし、action economyを変えない範囲でのみ後退を強化する。
+
+3. **スパイダーのweb cooldown（`WEB_COOLDOWN_ENEMY_ACTIONS`）**
+   - Lv1=3／Lv2=2／Lv3=2 enemy actionsとする（案Aと同じ、案Bが提案したLv3=1への追加短縮は不採用）。
+
+4. **スパイダーの同時存在可能web数（`WEB_MAX_ACTIVE_PER_SPIDER`）**
+   - 1 spiderのownerあたりLv1=2／Lv2=2／Lv3=3とする（案Aと同じ、案Bが提案したLv3=4は不採用）。
+
+5. **実装方針**
+   - `24.6c3b2`ではコウモリ・スパイダーのみ実装し、残り7種には触れない。
+   - production spawnは引き続きEnemyLevelを常に1で割り当てるため（`buildEnemies`／`state.ts`）、本パラメータは現時点のproduction挙動としては観測されない（no-op）。Lv1の数値・挙動はすべて変更しない。
+   - 上記1〜4の数値を本ファイル§9の候補表に対するcanonical valueとして扱う。他の10種のLv別能力設計自体（§9表）は変更しない。
+   - コウモリのevasion内訳／retreat step数、スパイダーのcooldown／同時存在web数は、いずれも`24.6c5`以降の再測定を経て個別に見直す余地を残す。
+
 ---
 
 ## 10. item availabilityと供給
