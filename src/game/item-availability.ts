@@ -135,12 +135,10 @@ export const ITEM_AVAILABILITY: Readonly<Record<ItemId, ItemAvailability>> = {
   skull_suit: { minimumDepth: 1, economyClass: 'power' },
   poison_guard: { minimumDepth: 1, economyClass: 'power' },
   ninja_suit: { minimumDepth: 1, economyClass: 'power' },
-  // light_garb/dark_garb/spike_mail/black_armor: no production route reaches
-  // these today (24.6b0 audit's NEEDS_DESIGN_DECISION) — metadata only,
-  // per this Phase's explicit "route不存在のS/R armorもmetadataだけ保持
-  // し、新routeを作らない" instruction. minimumRunDepth:'short' here is
-  // inert (there is no route to gate) and is not a claim these are
-  // reachable.
+  // light_garb/dark_garb/spike_mail: Phase 24.6c4d connects these to the
+  // normal armor loot route in equipment-loot.ts, gated to the eligibility
+  // window below. black_armor still has no production route; its event route
+  // remains deferred to Phase 24.7, so its metadata is still inert today.
   light_garb: { minimumDepth: 19, maximumDepth: 26, leg: 'descent', economyClass: 'power' },
   dark_garb: { minimumDepth: 19, maximumDepth: 26, leg: 'descent', economyClass: 'power' },
   spike_mail: { minimumDepth: 19, maximumDepth: 26, leg: 'descent', economyClass: 'power' },

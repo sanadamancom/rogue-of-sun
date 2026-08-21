@@ -2,7 +2,7 @@
  * Phase 24.4a: connects Phase 24.3's full equipment catalog to normal
  * floor generation and monsterHouse rewards. Covers floor_progress's
  * pure ratio function, the flattened weighted candidate contract
- * (rank eligibility, monotonic B/A weight, black_armor/S/R exclusion),
+ * (rank eligibility, monotonic B/A weight, R exclusion and bounded S armor),
  * equipment-instance identity end to end, monsterHouse reward
  * integration, and determinism/snapshot equivalence across
  * TOTAL_FLOORS 3/10/100.
@@ -74,7 +74,7 @@ describe('getNormalEquipmentCandidates: rank eligibility and exclusion', () => {
   const SLOTS = ['sword', 'spear', 'hammer', 'armor', 'solar_gun'] as const;
   const RATIOS = [0, 0.3, 0.7, 1];
 
-  it('every returned rank is C/B/A only, at every ratio, for every slot', () => {
+  it('every returned rank is C/B/A, except the 3 canonical S armors in their eligibility window', () => {
     for (const slot of SLOTS) {
       for (const ratio of RATIOS) {
         const candidates = getNormalEquipmentCandidates(slot, ratio, { depth: 26, leg: 'descent' });
@@ -83,7 +83,11 @@ describe('getNormalEquipmentCandidates: rank eligibility and exclusion', () => {
           const rank = isWeapon
             ? WEAPON_DEFINITIONS[c.definitionId as WeaponId].rank
             : ARMOR_DEFINITIONS[c.definitionId as ArmorId].rank;
-          expect(['C', 'B', 'A']).toContain(rank);
+          if (slot === 'armor' && rank === 'S') {
+            expect(['light_garb', 'dark_garb', 'spike_mail']).toContain(c.definitionId);
+          } else {
+            expect(['C', 'B', 'A']).toContain(rank);
+          }
         }
       }
     }
@@ -96,14 +100,17 @@ describe('getNormalEquipmentCandidates: rank eligibility and exclusion', () => {
     }
   });
 
-  it('no S or R rank definitionId ever appears in any slot candidates', () => {
+  it('no R rank or non-canonical S-rank definitionId appears in any slot candidates', () => {
     for (const slot of SLOTS) {
       for (const ratio of RATIOS) {
         const ids = getNormalEquipmentCandidates(slot, ratio, { depth: 26, leg: 'descent' }).map((c) => c.definitionId);
         for (const id of ids) {
           const isWeapon = (WEAPON_IDS_IN_ORDER as readonly string[]).includes(id);
           const rank = isWeapon ? WEAPON_DEFINITIONS[id as WeaponId].rank : ARMOR_DEFINITIONS[id as ArmorId].rank;
-          expect(rank).not.toBe('S');
+          if (rank === 'S') {
+            expect(slot).toBe('armor');
+            expect(['light_garb', 'dark_garb', 'spike_mail']).toContain(id);
+          }
           expect(rank).not.toBe('R');
         }
       }
@@ -132,13 +139,13 @@ describe('getNormalEquipmentCandidates: rank eligibility and exclusion', () => {
     }
   });
 
-  it('armor slot returns every non-black_armor C/B/A armor species (2 + 5 + 4 = 11)', () => {
+  it('armor slot returns all 11 C/B/A species and the 3 eligible S species', () => {
     const ids = getNormalEquipmentCandidates('armor', 0.5, { depth: 26, leg: 'descent' }).map((c) => c.definitionId);
     const expected = ARMOR_IDS_IN_ORDER.filter(
-      (id) => id !== 'black_armor' && ['C', 'B', 'A'].includes(ARMOR_DEFINITIONS[id].rank),
+      (id) => id !== 'black_armor' && ['C', 'B', 'A', 'S'].includes(ARMOR_DEFINITIONS[id].rank),
     );
     expect(new Set(ids)).toEqual(new Set(expected));
-    expect(ids.length).toBe(11);
+    expect(ids.length).toBe(14);
   });
 
   it('solar_gun slot always returns exactly [solar_gun]', () => {
@@ -341,7 +348,7 @@ describe('determinism across TOTAL_FLOORS 3/10/100', () => {
     }
   });
 
-  it('representative seeds x multiple simulated depths never produce an illegal definition (black_armor/S/R)', () => {
+  it('representative seeds x multiple simulated depths never produce black_armor, R, or a non-canonical S definition', () => {
     for (const seed of [1, 42, 999]) {
       for (const totalFloors of [3, 10, 100]) {
         for (const floor of [1, Math.ceil(totalFloors * 0.7), totalFloors]) {
@@ -353,7 +360,10 @@ describe('determinism across TOTAL_FLOORS 3/10/100', () => {
             const rank = isWeapon
               ? WEAPON_DEFINITIONS[picked as WeaponId].rank
               : ARMOR_DEFINITIONS[picked as ArmorId]?.rank;
-            expect(rank).not.toBe('S');
+            if (rank === 'S') {
+              expect(slot).toBe('armor');
+              expect(['light_garb', 'dark_garb', 'spike_mail']).toContain(picked);
+            }
             expect(rank).not.toBe('R');
           }
         }

@@ -46,18 +46,20 @@ export function floorProgressRatio(floor: number, totalFloors: number): number {
  * equipment supply (producer_decisions' "浅い階層でも通常装備供給が消失
  * しない"); B and A both strictly increase with ratio so their combined
  * share is monotonic non-decreasing with depth ("階層が深くなるほど
- * B/A装備の選択確率が単調非減少になること"). These 3 rows are the only
- * numbers Phase 24.6 is expected to retune — nothing else in this module
- * should need to change alongside a rebalance.
+ * B/A装備の選択確率が単調非減少になること"). S is a flat provisional
+ * constant for the Phase 24.6c4d deep-armor route. These 4 rows are the
+ * only numbers Phase 24.6 is expected to retune — nothing else in this
+ * module should need to change alongside a rebalance.
  */
-export const RANK_WEIGHT_PROVISIONAL: Readonly<Record<'C' | 'B' | 'A', { base: number; slope: number }>> = {
+export const RANK_WEIGHT_PROVISIONAL: Readonly<Record<'C' | 'B' | 'A' | 'S', { base: number; slope: number }>> = {
   C: { base: 5, slope: 0 },
   B: { base: 2, slope: 3 },
   A: { base: 1, slope: 4 },
+  S: { base: 1, slope: 0 },
 };
 
 /** `RANK_WEIGHT_PROVISIONAL[rank].base + slope * ratio`, clamped to a minimum of 0 (defensive only — every provisional base/slope above is non-negative). */
-function rankWeight(rank: 'C' | 'B' | 'A', ratio: number): number {
+function rankWeight(rank: 'C' | 'B' | 'A' | 'S', ratio: number): number {
   const { base, slope } = RANK_WEIGHT_PROVISIONAL[rank];
   return Math.max(0, base + slope * ratio);
 }
@@ -91,16 +93,16 @@ function weightedWeaponCandidates(family: WeaponFamily, ratio: number, context: 
 }
 
 /**
- * Every armor species whose rank is C/B/A (never S/R), whose id is not
+ * Every armor species whose rank is C/B/A or S (never R), whose id is not
  * 'black_armor' (the sole always-on exclusion guard for black_armor's
  * absence from normal/reward generation, producer_decisions' rank_supply),
  * AND eligible under `context` — same pre-selection filtering as
- * weightedWeaponCandidates above (a no-op today; every armor species is
- * short/0).
+ * weightedWeaponCandidates above. The three S-rank armor species are
+ * therefore present only in their depth 19-26 descent eligibility window.
  */
 function weightedArmorCandidates(ratio: number, context: ItemAvailabilityContext): WeightedCandidate<ArmorId>[] {
   const bySpecies = ARMOR_IDS_IN_ORDER.map((id) => ARMOR_DEFINITIONS[id]).filter(
-    (def) => def.id !== 'black_armor' && (NORMAL_RANKS as readonly string[]).includes(def.rank) && isItemEligibleInContext(def.id, context),
+    (def) => def.id !== 'black_armor' && ((NORMAL_RANKS as readonly string[]).includes(def.rank) || def.rank === 'S') && isItemEligibleInContext(def.id, context),
   );
   return flattenByRank(bySpecies, ratio);
 }
@@ -113,7 +115,7 @@ function flattenByRank<T extends { id: string; rank: EquipmentRank }>(
   for (const def of species) countByRank.set(def.rank, (countByRank.get(def.rank) ?? 0) + 1);
   return species.map((def) => {
     const totalForRank = countByRank.get(def.rank) ?? 1;
-    const weight = rankWeight(def.rank as 'C' | 'B' | 'A', ratio) / totalForRank;
+    const weight = rankWeight(def.rank as 'C' | 'B' | 'A' | 'S', ratio) / totalForRank;
     return { definitionId: def.id, weight };
   });
 }
