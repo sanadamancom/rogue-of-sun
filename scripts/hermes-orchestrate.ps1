@@ -157,7 +157,7 @@ This is a Hermes non-interactive orchestration session, not an interactive or De
 
 Regardless of outcome--successful continuation, a finished bounded task, a decision needed from a human, or an unresolved blocker--you must write a valid .ai/status.json according to docs/ops/hermes-status-protocol.md as your last action before exiting. There is no exit path that skips this requirement.
 
-Never delegate to Codex, Gemini, Antigravity, or any other worker as a background, asynchronous, or detached task and then exit while it is still running. This Hermes non-interactive orchestration session has no later turn to resume on: once this process exits, nothing continues it. Every worker delegation must be synchronous: invoke it in the foreground (for example, with a blocking codex exec call), wait for it to actually finish before doing anything else procedural, then independently verify its result according to the normal CLAUDE.md Codex workflow by inspecting the diff, running the required checks, and confirming scope. If the result is accepted, stage and commit it yourself exactly as in any other Claude session. Only after the full delegate synchronously -> wait -> verify -> commit-if-accepted cycle is complete may you write the final .ai/status.json and exit. An unfinished, still-running worker is never a valid reason to write SESSION_BOUNDARY or any other status and exit at a natural bounded-task boundary. If a worker genuinely cannot finish within this session, including because it would exceed the session timeout, report that honestly as BLOCKED with the human-facing Japanese reason required below; never paper it over by claiming you will finish it next time.
+Never delegate to Codex, Gemini, Antigravity, or any other worker as a background, asynchronous, or detached task and then exit while it is still running. This Hermes non-interactive orchestration session has no later turn to resume on: once this process exits, nothing continues it, and no "I'll wait for the completion notification" promise can ever be honored, because there is no later turn in which that notification could arrive. This is not hypothetical: a prior Hermes session ran Codex through a subagent/Agent-style tool that defaulted to running in the background, stated it would wait for the notification, and then its --print turn ended with Codex still running and no .ai/status.json ever written (the orphaned commit 75edcae incident). The Agent tool and the Task tool are both disallowed for this reason; do not attempt to route around that restriction through any other subagent, plugin agent (including any codex-rescue-style agent), MCP tool, or mechanism that returns before the worker has actually finished. The only acceptable way to run Codex is a direct, blocking Bash call such as `codex exec --dangerously-bypass-approvals-and-sandbox "..."` invoked via the Bash tool, which does not return until Codex exits. Every worker delegation must be synchronous: invoke it in the foreground, wait for it to actually finish before doing anything else procedural, then independently verify its result according to the normal CLAUDE.md Codex workflow by inspecting the diff, running the required checks, and confirming scope. If the result is accepted, stage and commit it yourself exactly as in any other Claude session. Only after the full delegate synchronously -> wait -> verify -> commit-if-accepted cycle is complete may you write the final .ai/status.json and exit. An unfinished, still-running worker is never a valid reason to write SESSION_BOUNDARY or any other status and exit at a natural bounded-task boundary. If a worker genuinely cannot finish within this session, including because it would exceed the session timeout, report that honestly as BLOCKED with the human-facing Japanese reason required below; never paper it over by claiming you will finish it next time.
 
 If a game-design, UX, balance, product, or architecture decision requires a human under CLAUDE.md, do not merely ask the question in prose and stop. Write status "USER_DECISION_REQUIRED". The reason remains one JSON string, but you must author that string itself as natural, self-contained Japanese Discord Markdown in exactly this section shape (with real newlines encoded correctly by JSON):
 ## ⚠️ 人による判断が必要です
@@ -303,15 +303,22 @@ while ($SessionCount -lt $MaxSessions) {
     $ProcessInfo.RedirectStandardInput = $true
 
     # Headless Hermes has no human to approve tools; bypassing prompts keeps orchestration functional while CLAUDE.md, the prompt contract, and status validation still enforce project policy.
-    # Disallowing Task is best-effort risk reduction because the built-in delegation tool name can vary by Claude CLI version; orphan detection below is the primary defense.
+    # Disallowing Task AND Agent is a structural requirement, not best-effort: the Agent tool (e.g. subagent_type codex:codex-rescue)
+    # defaults to run_in_background=true and returns immediately with a completion notification promised for "later" -- but a
+    # --print session has no later turn to receive it. Confirmed root cause of the 75edcae orphaned-worker incident: Claude used
+    # Agent to delegate to Codex in the background, said it would "wait for the notification", and then the --print turn ended,
+    # leaving Codex running detached with no .ai/status.json ever written. Task was already disallowed and did not prevent this,
+    # because Agent is a distinct tool name. Blocking both forces the only remaining delegation path: a direct, synchronous,
+    # foreground `codex exec ...` Bash call, which the Bash tool already executes and blocks on. Orphan detection below remains
+    # a fail-closed backstop, not the primary defense.
     if ($ClaudeCommand.CommandType -eq 'Application') {
         $ProcessInfo.FileName = $ClaudeCommand.Source
-        $ProcessInfo.Arguments = '--print --dangerously-skip-permissions --disallowedTools Task'
+        $ProcessInfo.Arguments = '--print --dangerously-skip-permissions --disallowedTools Task,Agent'
     }
     else {
         $ProcessInfo.FileName = 'powershell.exe'
         $EscapedClaudePath = $ClaudeCommand.Source.Replace('"', '""')
-        $ProcessInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$EscapedClaudePath`" --print --dangerously-skip-permissions --disallowedTools Task"
+        $ProcessInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$EscapedClaudePath`" --print --dangerously-skip-permissions --disallowedTools Task,Agent"
     }
 
     $ClaudeProcess = New-Object System.Diagnostics.Process
