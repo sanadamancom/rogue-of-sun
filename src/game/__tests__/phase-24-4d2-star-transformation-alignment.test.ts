@@ -32,20 +32,20 @@ describe('Phase 24.4d2: star transformation alignment', () => {
 
   describe('result candidates never include S/R/solar_gun/black_armor', () => {
     it('excludes every S/R weapon species from a C-rank weapon transform', () => {
-      const candidates = getTransformCandidatesForItem('sword', 'deep', 1);
+      const candidates = getTransformCandidatesForItem('sword', 26, 'descent');
       expect(candidates).not.toContain(S_RANK_WEAPON);
       expect(candidates).not.toContain(R_RANK_WEAPON);
       expect(candidates).not.toContain('solar_gun');
     });
 
     it('excludes every S/R armor species and black_armor from an armor transform', () => {
-      const candidates = getTransformCandidatesForItem('armor', 'deep', 1);
+      const candidates = getTransformCandidatesForItem('armor', 26, 'descent');
       expect(candidates).not.toContain(S_RANK_ARMOR);
       expect(candidates).not.toContain('black_armor');
     });
 
     it('excludes all 5 enchantment ids from a consumable transform', () => {
-      const candidates = getTransformCandidatesForItem('apple', 'deep', 1);
+      const candidates = getTransformCandidatesForItem('apple', 26, 'descent');
       const enchantmentIds: ItemId[] = [
         'sol_enchantment',
         'flame_enchantment',

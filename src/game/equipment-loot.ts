@@ -167,7 +167,7 @@ export function selectNormalEquipmentDefinition(slot: NormalEquipmentSlot, ratio
     // successful draw (both paths consume exactly the one `rng()` call
     // already made above).
     throw new Error(
-      `selectNormalEquipmentDefinition: no eligible equipment candidates for slot '${slot}' at runDepthTier '${context.runDepthTier}', progress ${context.progress} — this indicates an item-availability.ts metadata configuration error, not a normal run state.`,
+      `selectNormalEquipmentDefinition: no eligible equipment candidates for slot '${slot}' at depth ${context.depth}, leg '${context.leg}' — this indicates an item-availability.ts metadata configuration error, not a normal run state.`,
     );
   }
   let threshold = roll * totalWeight;

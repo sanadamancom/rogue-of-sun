@@ -1,4 +1,4 @@
-import { ItemId, RunDepthTier } from './types';
+import { ItemId } from './types';
 
 /**
  * Phase 24.6b2a1: the required (runDepthTier, progress) pair every
@@ -11,8 +11,10 @@ import { ItemId, RunDepthTier } from './types';
  * `RunConfig` in scope.
  */
 export interface ItemAvailabilityContext {
-  runDepthTier: RunDepthTier;
-  progress: number;
+  /** Absolute floor depth of the current floor. */
+  depth: number;
+  /** Current run leg. */
+  leg: 'descent' | 'ascent';
 }
 
 /**
@@ -23,7 +25,7 @@ export interface ItemAvailabilityContext {
  * card-loot.ts/accessory-loot.ts's pre-selection candidate filters).
  */
 export function isItemEligibleInContext(itemId: ItemId, context: ItemAvailabilityContext): boolean {
-  return isItemEligibleAtProgress(itemId, context.runDepthTier, context.progress);
+  return isItemEligibleAtDepth(itemId, context.depth, context.leg);
 }
 
 /**
@@ -39,10 +41,12 @@ export function isItemEligibleInContext(itemId: ItemId, context: ItemAvailabilit
  * ECONOMY_CLASS_HAS_NO_RUNTIME_EFFECT below.
  */
 export interface ItemAvailability {
-  /** The minimum RunDepthTier a run must have for this item to ever be eligible, regardless of progress. */
-  minimumRunDepth: RunDepthTier;
-  /** The minimum floorProgressRatio(floor, totalFloors) within an eligible-tier run at which this item becomes eligible. Must be finite and in [0, 1]. */
-  unlockProgress: number;
+  /** Absolute floor depth (1-26) at which this item first becomes eligible. */
+  minimumDepth: number;
+  /** Optional absolute floor depth above which this item is no longer eligible. */
+  maximumDepth?: number;
+  /** Optional leg restriction. Absent means eligible on both legs. */
+  leg?: 'descent' | 'ascent';
   /** Phase 24.6b2b budget-design classification only — see this file's module doc comment. Has no effect on eligibility or generation in this phase. */
   economyClass: 'power' | 'sustain' | 'structural' | 'not_applicable';
 }
@@ -52,12 +56,6 @@ export interface ItemAvailability {
  * Used only by isRunDepthEligible's `>=` comparison below — never
  * exported as a general-purpose ranking utility beyond that one use.
  */
-const TIER_ORDER: Readonly<Record<RunDepthTier, number>> = {
-  short: 0,
-  standard: 1,
-  deep: 2,
-};
-
 /**
  * Phase 24.6b2a registry: every one of the 78 ItemIds this game
  * currently defines (item-def.ts's ITEM_DEFINITIONS/ITEM_IDS_IN_ORDER),
@@ -96,98 +94,98 @@ const TIER_ORDER: Readonly<Record<RunDepthTier, number>> = {
  */
 export const ITEM_AVAILABILITY: Readonly<Record<ItemId, ItemAvailability>> = {
   // --- weapons (28) — all short/0 except the 'spear'/'hammer' pool slots ---
-  sword: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  short_sword: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  flamberge: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  magic_sword: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  bushido_blade: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  blood_sword: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  solar_sword: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  dark_sword: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  gram: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  spear: { minimumRunDepth: 'short', unlockProgress: 2 / 3, economyClass: 'power' },
-  glaive: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  corsesca: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  ice_glaive: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  grand_lance: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  blood_spear: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  white_queen: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  black_queen: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  gungnir: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  hammer: { minimumRunDepth: 'short', unlockProgress: 2 / 3, economyClass: 'power' },
-  basic_hammer: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  maul: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  silver_flail: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  battle_axe: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  bloody_mace: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  dawn: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  twilight: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  mjolnir: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  solar_gun: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
+  sword: { minimumDepth: 1, economyClass: 'power' },
+  short_sword: { minimumDepth: 1, economyClass: 'power' },
+  flamberge: { minimumDepth: 1, economyClass: 'power' },
+  magic_sword: { minimumDepth: 1, economyClass: 'power' },
+  bushido_blade: { minimumDepth: 1, economyClass: 'power' },
+  blood_sword: { minimumDepth: 1, economyClass: 'power' },
+  solar_sword: { minimumDepth: 1, economyClass: 'power' },
+  dark_sword: { minimumDepth: 1, economyClass: 'power' },
+  gram: { minimumDepth: 1, economyClass: 'power' },
+  spear: { minimumDepth: 5, economyClass: 'power' },
+  glaive: { minimumDepth: 1, economyClass: 'power' },
+  corsesca: { minimumDepth: 1, economyClass: 'power' },
+  ice_glaive: { minimumDepth: 1, economyClass: 'power' },
+  grand_lance: { minimumDepth: 1, economyClass: 'power' },
+  blood_spear: { minimumDepth: 1, economyClass: 'power' },
+  white_queen: { minimumDepth: 1, economyClass: 'power' },
+  black_queen: { minimumDepth: 1, economyClass: 'power' },
+  gungnir: { minimumDepth: 1, economyClass: 'power' },
+  hammer: { minimumDepth: 9, economyClass: 'power' },
+  basic_hammer: { minimumDepth: 1, economyClass: 'power' },
+  maul: { minimumDepth: 1, economyClass: 'power' },
+  silver_flail: { minimumDepth: 1, economyClass: 'power' },
+  battle_axe: { minimumDepth: 1, economyClass: 'power' },
+  bloody_mace: { minimumDepth: 1, economyClass: 'power' },
+  dawn: { minimumDepth: 1, economyClass: 'power' },
+  twilight: { minimumDepth: 1, economyClass: 'power' },
+  mjolnir: { minimumDepth: 1, economyClass: 'power' },
+  solar_gun: { minimumDepth: 1, economyClass: 'power' },
 
   // --- armor (15) ---
-  armor: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  chain_mail: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  plate_mail: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  samurai_armor: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  mail_of_sol: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  mail_of_dark: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  dragon_scale: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  magic_robe: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  skull_suit: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  poison_guard: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  ninja_suit: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
+  armor: { minimumDepth: 1, economyClass: 'power' },
+  chain_mail: { minimumDepth: 1, economyClass: 'power' },
+  plate_mail: { minimumDepth: 1, economyClass: 'power' },
+  samurai_armor: { minimumDepth: 1, economyClass: 'power' },
+  mail_of_sol: { minimumDepth: 1, economyClass: 'power' },
+  mail_of_dark: { minimumDepth: 1, economyClass: 'power' },
+  dragon_scale: { minimumDepth: 1, economyClass: 'power' },
+  magic_robe: { minimumDepth: 1, economyClass: 'power' },
+  skull_suit: { minimumDepth: 1, economyClass: 'power' },
+  poison_guard: { minimumDepth: 1, economyClass: 'power' },
+  ninja_suit: { minimumDepth: 1, economyClass: 'power' },
   // light_garb/dark_garb/spike_mail/black_armor: no production route reaches
   // these today (24.6b0 audit's NEEDS_DESIGN_DECISION) — metadata only,
   // per this Phase's explicit "route不存在のS/R armorもmetadataだけ保持
   // し、新routeを作らない" instruction. minimumRunDepth:'short' here is
   // inert (there is no route to gate) and is not a claim these are
   // reachable.
-  light_garb: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  dark_garb: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  spike_mail: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  black_armor: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
+  light_garb: { minimumDepth: 19, maximumDepth: 26, leg: 'descent', economyClass: 'power' },
+  dark_garb: { minimumDepth: 19, maximumDepth: 26, leg: 'descent', economyClass: 'power' },
+  spike_mail: { minimumDepth: 19, maximumDepth: 26, leg: 'descent', economyClass: 'power' },
+  black_armor: { minimumDepth: 19, maximumDepth: 25, leg: 'descent', economyClass: 'power' },
 
   // --- accessories (6) ---
-  hot_blooded_headband: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  earth_guard: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  buckler: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  adventurer_boots: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  circlet: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  grigri_glasses: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
+  hot_blooded_headband: { minimumDepth: 1, economyClass: 'power' },
+  earth_guard: { minimumDepth: 1, economyClass: 'power' },
+  buckler: { minimumDepth: 1, economyClass: 'power' },
+  adventurer_boots: { minimumDepth: 1, economyClass: 'power' },
+  circlet: { minimumDepth: 1, economyClass: 'power' },
+  grigri_glasses: { minimumDepth: 1, economyClass: 'power' },
 
   // --- cards (17) — all short/0; card-loot.ts's own fixed rarity weight is unchanged ---
-  high_priestess: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  empress: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  emperor: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  lovers: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  chariot: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  strength: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  wheel_of_fortune: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  justice: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  hanged_man: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  death: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  temperance: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  devil: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  tower: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  star: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  moon: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  sun: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  judgement: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
+  high_priestess: { minimumDepth: 1, economyClass: 'power' },
+  empress: { minimumDepth: 1, economyClass: 'power' },
+  emperor: { minimumDepth: 1, economyClass: 'power' },
+  lovers: { minimumDepth: 1, economyClass: 'power' },
+  chariot: { minimumDepth: 1, economyClass: 'power' },
+  strength: { minimumDepth: 1, economyClass: 'power' },
+  wheel_of_fortune: { minimumDepth: 1, economyClass: 'power' },
+  justice: { minimumDepth: 1, economyClass: 'power' },
+  hanged_man: { minimumDepth: 1, economyClass: 'power' },
+  death: { minimumDepth: 1, economyClass: 'power' },
+  temperance: { minimumDepth: 1, economyClass: 'power' },
+  devil: { minimumDepth: 1, economyClass: 'power' },
+  tower: { minimumDepth: 1, economyClass: 'power' },
+  star: { minimumDepth: 1, economyClass: 'power' },
+  moon: { minimumDepth: 1, economyClass: 'power' },
+  sun: { minimumDepth: 1, economyClass: 'power' },
+  judgement: { minimumDepth: 1, economyClass: 'power' },
 
   // --- consumables/enchantments (12) ---
-  apple: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'sustain' },
-  sun_fruit: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'sustain' },
-  chocolate: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'sustain' },
-  banana: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'sustain' },
-  antidote: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'sustain' },
-  panacea: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'sustain' },
-  clairvoyance_fruit: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'structural' },
-  sol_enchantment: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  flame_enchantment: { minimumRunDepth: 'short', unlockProgress: 0, economyClass: 'power' },
-  frost_enchantment: { minimumRunDepth: 'short', unlockProgress: 2 / 3, economyClass: 'power' },
-  cloud_enchantment: { minimumRunDepth: 'short', unlockProgress: 2 / 3, economyClass: 'power' },
-  earth_enchantment: { minimumRunDepth: 'short', unlockProgress: 1, economyClass: 'power' },
+  apple: { minimumDepth: 1, economyClass: 'sustain' },
+  sun_fruit: { minimumDepth: 1, economyClass: 'sustain' },
+  chocolate: { minimumDepth: 1, economyClass: 'sustain' },
+  banana: { minimumDepth: 1, economyClass: 'sustain' },
+  antidote: { minimumDepth: 1, economyClass: 'sustain' },
+  panacea: { minimumDepth: 1, economyClass: 'sustain' },
+  clairvoyance_fruit: { minimumDepth: 1, economyClass: 'structural' },
+  sol_enchantment: { minimumDepth: 1, economyClass: 'power' },
+  flame_enchantment: { minimumDepth: 1, economyClass: 'power' },
+  frost_enchantment: { minimumDepth: 9, economyClass: 'power' },
+  cloud_enchantment: { minimumDepth: 9, economyClass: 'power' },
+  earth_enchantment: { minimumDepth: 18, economyClass: 'power' },
 };
 
 /**
@@ -203,11 +201,11 @@ export const ITEM_AVAILABILITY: Readonly<Record<ItemId, ItemAvailability>> = {
  * enforcement mechanism.
  */
 for (const [itemId, availability] of Object.entries(ITEM_AVAILABILITY)) {
-  if (!Number.isFinite(availability.unlockProgress) || availability.unlockProgress < 0 || availability.unlockProgress > 1) {
-    throw new RangeError(`ITEM_AVAILABILITY.${itemId}.unlockProgress must be finite and within [0, 1], got ${availability.unlockProgress}`);
+  if (!Number.isInteger(availability.minimumDepth) || availability.minimumDepth < 1 || availability.minimumDepth > 26) {
+    throw new RangeError(`ITEM_AVAILABILITY.${itemId}.minimumDepth must be an integer within [1, 26], got ${availability.minimumDepth}`);
   }
-  if (!(availability.minimumRunDepth in TIER_ORDER)) {
-    throw new RangeError(`ITEM_AVAILABILITY.${itemId}.minimumRunDepth is not a known RunDepthTier, got ${availability.minimumRunDepth}`);
+  if (availability.maximumDepth !== undefined && (!Number.isInteger(availability.maximumDepth) || availability.maximumDepth < availability.minimumDepth || availability.maximumDepth > 26)) {
+    throw new RangeError(`ITEM_AVAILABILITY.${itemId}.maximumDepth must be an integer within [minimumDepth, 26], got ${availability.maximumDepth}`);
   }
 }
 
@@ -220,21 +218,11 @@ export function getItemAvailability(itemId: ItemId): ItemAvailability {
  * `TIER_ORDER[runDepthTier] >= TIER_ORDER[minimumRunDepth]` (task's
  * authoritative_model.eligibility, tier half). Pure, no RNG.
  */
-export function isRunDepthEligible(runDepthTier: RunDepthTier, minimumRunDepth: RunDepthTier): boolean {
-  return TIER_ORDER[runDepthTier] >= TIER_ORDER[minimumRunDepth];
-}
-
-/**
- * The full combined eligibility test (task's authoritative_model.eligibility):
- * `itemId`'s registered tier is reachable from `runDepthTier` AND
- * `progress` has reached `itemId`'s registered unlockProgress. No
- * `maximumProgress` exists (deliberately, per 24.6b0's audit — nothing
- * ever becomes ineligible again at higher progress). Pure, no RNG —
- * consumes nothing from any stream.
- */
-export function isItemEligibleAtProgress(itemId: ItemId, runDepthTier: RunDepthTier, progress: number): boolean {
+export function isItemEligibleAtDepth(itemId: ItemId, depth: number, leg: 'descent' | 'ascent'): boolean {
   const availability = getItemAvailability(itemId);
-  return isRunDepthEligible(runDepthTier, availability.minimumRunDepth) && progress >= availability.unlockProgress;
+  return depth >= availability.minimumDepth
+    && (availability.maximumDepth === undefined || depth <= availability.maximumDepth)
+    && (availability.leg === undefined || availability.leg === leg);
 }
 
 /**
@@ -246,6 +234,6 @@ export function isItemEligibleAtProgress(itemId: ItemId, runDepthTier: RunDepthT
  * their own existing candidate-array ordering contracts unchanged. Pure,
  * no RNG.
  */
-export function filterEligibleItemIds(ids: ReadonlyArray<ItemId>, runDepthTier: RunDepthTier, progress: number): ItemId[] {
-  return ids.filter((id) => isItemEligibleAtProgress(id, runDepthTier, progress));
+export function filterEligibleItemIds(ids: ReadonlyArray<ItemId>, depth: number, leg: 'descent' | 'ascent'): ItemId[] {
+  return ids.filter((id) => isItemEligibleAtDepth(id, depth, leg));
 }

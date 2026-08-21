@@ -1,7 +1,6 @@
-import { ItemId, Inventory, CardId, RunDepthTier } from './types';
+import { ItemId, Inventory, CardId } from './types';
 import { ELEMENT_DISPLAY_NAMES, ELEMENT_GLYPHS } from './element-def';
 import { CARD_DISPLAY_NAMES, CARD_GLYPH, CARD_IDS_IN_ORDER, CARD_DEFINITIONS } from './card-def';
-import { floorProgressRatio } from './equipment-loot';
 import { filterEligibleItemIds } from './item-availability';
 
 /**
@@ -664,9 +663,8 @@ const GROUND_ITEM_POOL_ALL: ReadonlyArray<ItemId> = [
  * compile error rather than silently generating under an unintended
  * (3, 'short') run condition.
  */
-export function getGroundItemPoolForFloor(floor: number, totalFloors: number, runDepthTier: RunDepthTier): ItemId[] {
-  const progress = floorProgressRatio(floor, totalFloors);
-  return filterEligibleItemIds(GROUND_ITEM_POOL_ALL, runDepthTier, progress);
+export function getGroundItemPoolForFloor(floor: number, leg: 'descent' | 'ascent'): ItemId[] {
+  return filterEligibleItemIds(GROUND_ITEM_POOL_ALL, floor, leg);
 }
 
 /**
@@ -770,10 +768,9 @@ export const BASE_GROUND_ITEM_WEIGHT = 10;
 export function getWeightedGroundItemPoolForFloor(
   floor: number,
   excludedIds: ReadonlySet<ItemId> | undefined,
-  totalFloors: number,
-  runDepthTier: RunDepthTier,
+  leg: 'descent' | 'ascent',
 ): WeightedGroundItemCandidate[] {
-  const baseIds = getGroundItemPoolForFloor(floor, totalFloors, runDepthTier).filter((id) => !excludedIds?.has(id));
+  const baseIds = getGroundItemPoolForFloor(floor, leg).filter((id) => !excludedIds?.has(id));
   const baseCandidates: WeightedGroundItemCandidate[] = baseIds.map((id) => ({
     id,
     weight: BASE_GROUND_ITEM_WEIGHT,

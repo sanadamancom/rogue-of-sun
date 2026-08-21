@@ -407,7 +407,7 @@ function buildFloorState(
   // before cards existed — see drawWeightedGroundItemSelection's doc
   // comment.
   const alreadyUnlocked = getAlreadyUnlockedEnchantmentItemIds(carry);
-  const weightedFloorItemPool = getWeightedGroundItemPoolForFloor(floor, alreadyUnlocked, runConfig.totalFloors, runConfig.runDepthTier);
+  const weightedFloorItemPool = getWeightedGroundItemPoolForFloor(floor, alreadyUnlocked, leg);
   const itemSelectionRng = createRng(floorSeed ^ 0x5c2e91d3);
   const drawnItemIds = drawWeightedGroundItemSelection(itemCount, weightedFloorItemPool, itemSelectionRng);
 
@@ -450,7 +450,7 @@ function buildFloorState(
     cardBodyRng,
     accessoryRankRng,
     accessoryItemRng,
-    { runDepthTier: runConfig.runDepthTier, progress: floorProgressRatio(floor, runConfig.totalFloors) },
+    { depth: floor, leg },
   );
 
   // Phase 16.1 early-resource-and-combat-pressure rebalance: floor 1's
@@ -549,8 +549,8 @@ function buildFloorState(
       // へ固定される" contract this same curse roll already followed.
       const resolvedDefinitionId = isNormalEquipmentSlot(itemId)
         ? selectNormalEquipmentDefinition(itemId, equipmentFloorRatio, equipmentDefinitionRng, {
-            runDepthTier: runConfig.runDepthTier,
-            progress: equipmentFloorRatio,
+          depth: floor,
+          leg,
           })
         : itemId;
       const instance = mintEquipmentInstance(nextFloorEquipmentInstanceId, resolvedDefinitionId, cursed);
@@ -650,7 +650,7 @@ function buildFloorState(
       // generation this floor is excluded from the reward pool too.
       const alreadySelectedEnchantments = selectedItemIds.filter((id) => ENCHANTMENT_ITEM_IDS.includes(id));
       const rewardExcludedIds = new Set([...alreadyUnlocked, ...alreadySelectedEnchantments]);
-      const rewardPool = getWeightedGroundItemPoolForFloor(floor, rewardExcludedIds, runConfig.totalFloors, runConfig.runDepthTier);
+      const rewardPool = getWeightedGroundItemPoolForFloor(floor, rewardExcludedIds, leg);
       const drawnRewardItemIds = drawWeightedGroundItemSelection(rewardPositions.length, rewardPool, rewardSelectionRng);
       // Phase 24.4c: same card-substitution pass as normal generation
       // above, continuing the same 3 dedicated card-selection streams
@@ -667,7 +667,7 @@ function buildFloorState(
         cardBodyRng,
         accessoryRankRng,
         accessoryItemRng,
-        { runDepthTier: runConfig.runDepthTier, progress: equipmentFloorRatio },
+        { depth: floor, leg },
       );
       for (let i = 0; i < rewardPositions.length; i++) {
         const rewardItemId = rewardItemIds[i];
@@ -680,8 +680,8 @@ function buildFloorState(
           // (continuing its consumption order, never a separate table).
           const resolvedRewardDefinitionId = isNormalEquipmentSlot(rewardItemId)
             ? selectNormalEquipmentDefinition(rewardItemId, equipmentFloorRatio, equipmentDefinitionRng, {
-                runDepthTier: runConfig.runDepthTier,
-                progress: equipmentFloorRatio,
+                depth: floor,
+                leg,
               })
             : rewardItemId;
           const instance = mintEquipmentInstance(nextFloorEquipmentInstanceId, resolvedRewardDefinitionId, cursed);

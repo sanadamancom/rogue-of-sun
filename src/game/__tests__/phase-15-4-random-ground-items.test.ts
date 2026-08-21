@@ -70,17 +70,17 @@ describe('Phase 15.4b: ground item count distribution', () => {
 
 describe('Phase 15.4b: staged ground item pool', () => {
   it('floor 1 pool has exactly 12 ids', () => {
-    expect(getGroundItemPoolForFloor(1, 3, 'short')).toHaveLength(12);
+    expect(getGroundItemPoolForFloor(1, 'descent')).toHaveLength(12);
   });
 
-  it('floor 2 pool has exactly 16 ids', () => {
-    expect(getGroundItemPoolForFloor(2, 3, 'short')).toHaveLength(16);
+  it('floor 2 keeps the 12 depth-1 ids', () => {
+    expect(getGroundItemPoolForFloor(2, 'descent')).toHaveLength(12);
   });
 
-  it('floor 3 pool has exactly 17 ids (every registered loot-eligible item)', () => {
-    const pool = getGroundItemPoolForFloor(3, 3, 'short');
-    expect(pool).toHaveLength(17);
-    expect(new Set(pool).size).toBe(17); // no duplicate ids within the pool itself
+  it('floor 3 keeps the 12 depth-1 ids', () => {
+    const pool = getGroundItemPoolForFloor(3, 'descent');
+    expect(pool).toHaveLength(12);
+    expect(new Set(pool).size).toBe(12);
     // Phase 20.0a card definition foundation: ITEM_DEFINITIONS now also
     // holds the 17 card ids (deliberately excluded from every
     // GROUND_ITEM_POOL_FLOOR_* array — see item-def.ts's ITEM_IDS_IN_ORDER
@@ -93,7 +93,7 @@ describe('Phase 15.4b: staged ground item pool', () => {
   });
 
   it('floor 1 pool contains exactly the specified ids', () => {
-    expect(new Set(getGroundItemPoolForFloor(1, 3, 'short'))).toEqual(
+    expect(new Set(getGroundItemPoolForFloor(1, 'descent'))).toEqual(
       new Set([
         'apple',
         'sword',
@@ -111,31 +111,31 @@ describe('Phase 15.4b: staged ground item pool', () => {
     );
   });
 
-  it('floor 2 pool adds exactly spear, hammer, frost_enchantment, cloud_enchantment', () => {
-    const floor1 = new Set(getGroundItemPoolForFloor(1, 3, 'short'));
-    const floor2 = new Set(getGroundItemPoolForFloor(2, 3, 'short'));
+  it('floor 2 adds no items', () => {
+    const floor1 = new Set(getGroundItemPoolForFloor(1, 'descent'));
+    const floor2 = new Set(getGroundItemPoolForFloor(2, 'descent'));
     const added = [...floor2].filter((id) => !floor1.has(id));
-    expect(new Set(added)).toEqual(new Set(['spear', 'hammer', 'frost_enchantment', 'cloud_enchantment']));
+    expect(added).toEqual([]);
   });
 
-  it('floor 3 pool adds exactly earth_enchantment', () => {
-    const floor2 = new Set(getGroundItemPoolForFloor(2, 3, 'short'));
-    const floor3 = new Set(getGroundItemPoolForFloor(3, 3, 'short'));
+  it('floor 3 adds no items', () => {
+    const floor2 = new Set(getGroundItemPoolForFloor(2, 'descent'));
+    const floor3 = new Set(getGroundItemPoolForFloor(3, 'descent'));
     const added = [...floor3].filter((id) => !floor2.has(id));
-    expect(added).toEqual(['earth_enchantment']);
+    expect(added).toEqual([]);
   });
 
   it('cumulative inclusion: floor 1 pool is a subset of floor 2, which is a subset of floor 3', () => {
-    const floor1 = getGroundItemPoolForFloor(1, 3, 'short');
-    const floor2 = new Set(getGroundItemPoolForFloor(2, 3, 'short'));
-    const floor3 = new Set(getGroundItemPoolForFloor(3, 3, 'short'));
+    const floor1 = getGroundItemPoolForFloor(1, 'descent');
+    const floor2 = new Set(getGroundItemPoolForFloor(2, 'descent'));
+    const floor3 = new Set(getGroundItemPoolForFloor(3, 'descent'));
     for (const id of floor1) expect(floor2.has(id)).toBe(true);
-    for (const id of getGroundItemPoolForFloor(2, 3, 'short')) expect(floor3.has(id)).toBe(true);
+    for (const id of getGroundItemPoolForFloor(2, 'descent')) expect(floor3.has(id)).toBe(true);
   });
 
-  it('floor numbers below 1 fall back to the floor-1 pool; floor numbers above 3 keep the full floor-3 pool', () => {
-    expect(getGroundItemPoolForFloor(0, 3, 'short')).toEqual(getGroundItemPoolForFloor(1, 3, 'short'));
-    expect(getGroundItemPoolForFloor(4, 3, 'short')).toEqual(getGroundItemPoolForFloor(3, 3, 'short'));
+  it('absolute depth is used directly', () => {
+    expect(getGroundItemPoolForFloor(0, 'descent')).toEqual([]);
+    expect(getGroundItemPoolForFloor(4, 'descent')).toEqual(getGroundItemPoolForFloor(3, 'descent'));
   });
 });
 
@@ -146,12 +146,12 @@ describe('Phase 15.4b: ground item selection (duplicates and enchantment exclusi
       calls++;
       return 0.5;
     };
-    drawGroundItemSelection(6, getGroundItemPoolForFloor(1, 3, 'short'), rng);
+    drawGroundItemSelection(6, getGroundItemPoolForFloor(1, 'descent'), rng);
     expect(calls).toBe(6);
   });
 
   it('never draws the same enchantment id twice within one selection', () => {
-    const pool = getGroundItemPoolForFloor(1, 3, 'short');
+    const pool = getGroundItemPoolForFloor(1, 'descent');
     for (let seed = 0; seed < 200; seed++) {
       const rng = createRng(seed);
       const selection = drawGroundItemSelection(6, pool, rng);
@@ -166,7 +166,7 @@ describe('Phase 15.4b: ground item selection (duplicates and enchantment exclusi
     // With a pool of 11 floor-1 ids and only 6 draws, duplicates are not
     // guaranteed on any single seed — instead, verify across many seeds
     // that at least one ordinary id is drawn more than once somewhere.
-    const pool = getGroundItemPoolForFloor(1, 3, 'short');
+    const pool = getGroundItemPoolForFloor(1, 'descent');
     let sawDuplicateOrdinary = false;
     for (let seed = 0; seed < 300 && !sawDuplicateOrdinary; seed++) {
       const rng = createRng(seed);
@@ -197,7 +197,7 @@ describe('Phase 15.4b: ground item selection (duplicates and enchantment exclusi
   });
 
   it('every id drawn is always a member of the input pool', () => {
-    const pool = getGroundItemPoolForFloor(2, 3, 'short');
+    const pool = getGroundItemPoolForFloor(2, 'descent');
     for (let seed = 0; seed < 50; seed++) {
       const rng = createRng(seed);
       const selection = drawGroundItemSelection(6, pool, rng);

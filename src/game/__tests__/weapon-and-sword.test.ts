@@ -103,9 +103,9 @@ describe('sword placement (Phase 15.4b random ground item generation)', () => {
     // Phase 15.4b removes the old "sword only ever appears on floor 1"
     // guarantee — sword is in GROUND_ITEM_POOL_FLOOR_1 and every later
     // floor's pool is a superset, so it remains a valid candidate.
-    expect(getGroundItemPoolForFloor(1, 3, 'short')).toContain('sword');
-    expect(getGroundItemPoolForFloor(2, 3, 'short')).toContain('sword');
-    expect(getGroundItemPoolForFloor(3, 3, 'short')).toContain('sword');
+    expect(getGroundItemPoolForFloor(1, 'descent')).toContain('sword');
+    expect(getGroundItemPoolForFloor(2, 'descent')).toContain('sword');
+    expect(getGroundItemPoolForFloor(3, 'descent')).toContain('sword');
   });
 
   it('is deterministic: the same seed places the sword at the same coordinate (present or absent alike)', () => {

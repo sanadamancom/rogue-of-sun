@@ -260,9 +260,9 @@ describe('sun fruit use (Phase 09.1)', () => {
 
 describe('sun fruit placement (Phase 15.4b random ground item generation)', () => {
   it('is a valid candidate on floor 1, floor 2, and floor 3 (cumulative pool, no longer floor-1/2-only)', () => {
-    expect(getGroundItemPoolForFloor(1, 3, 'short')).toContain('sun_fruit');
-    expect(getGroundItemPoolForFloor(2, 3, 'short')).toContain('sun_fruit');
-    expect(getGroundItemPoolForFloor(3, 3, 'short')).toContain('sun_fruit');
+    expect(getGroundItemPoolForFloor(1, 'descent')).toContain('sun_fruit');
+    expect(getGroundItemPoolForFloor(2, 'descent')).toContain('sun_fruit');
+    expect(getGroundItemPoolForFloor(3, 'descent')).toContain('sun_fruit');
   });
 
   it('appearance is no longer guaranteed on any floor (Phase 15.4b): it varies across seeds', () => {

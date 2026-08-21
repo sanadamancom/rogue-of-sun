@@ -116,10 +116,9 @@ export function selectEnemyDropItemId(
   floor: number,
   floorSeed: number,
   enemyId: number,
-  totalFloors: number,
-  runDepthTier: import('./types').RunDepthTier,
+  leg: 'descent' | 'ascent',
 ): ItemId {
-  const pool = getGroundItemPoolForFloor(floor, totalFloors, runDepthTier);
+  const pool = getGroundItemPoolForFloor(floor, leg);
   const rng = createEnemyDropRng(floorSeed, enemyId, SALT_ITEM_SELECTION);
   const index = Math.min(pool.length - 1, Math.floor(rng() * pool.length));
   return pool[index];
@@ -156,8 +155,7 @@ export function selectEnemyDropItemIdWithCards(
   floor: number,
   floorSeed: number,
   enemyId: number,
-  totalFloors: number,
-  runDepthTier: import('./types').RunDepthTier,
+  leg: 'descent' | 'ascent',
 ): ItemId {
   const categoryRng = createEnemyDropRng(floorSeed, enemyId, SALT_CARD_CATEGORY);
   const rarityRng = createEnemyDropRng(floorSeed, enemyId, SALT_CARD_RARITY);
@@ -170,10 +168,10 @@ export function selectEnemyDropItemIdWithCards(
     bodyRng,
     accessoryRankRng,
     accessoryItemRng,
-    { runDepthTier, progress: floorProgressRatio(floor, totalFloors) },
+    { depth: floor, leg },
   );
   if (resolved.category !== 'non_card') return resolved.id;
-  return selectEnemyDropItemId(floor, floorSeed, enemyId, totalFloors, runDepthTier);
+  return selectEnemyDropItemId(floor, floorSeed, enemyId, leg);
 }
 
 /**
@@ -193,11 +191,11 @@ export function resolveEnemyDropEquipmentDefinition(
   totalFloors: number,
   floorSeed: number,
   enemyId: number,
-  runDepthTier: import('./types').RunDepthTier,
+  leg: 'descent' | 'ascent',
 ): WeaponId | ArmorId {
   const ratio = floorProgressRatio(floor, totalFloors);
   const rng = createEnemyDropRng(floorSeed, enemyId, SALT_EQUIPMENT_DEFINITION);
-  return selectNormalEquipmentDefinition(slot, ratio, rng, { runDepthTier, progress: ratio });
+  return selectNormalEquipmentDefinition(slot, ratio, rng, { depth: floor, leg });
 }
 
 /**

@@ -8,11 +8,11 @@ import {
 } from './equipment-instance';
 import { ENCHANTMENT_ITEM_IDS, ITEM_DEFINITIONS, ITEM_IDS_IN_ORDER } from './item-def';
 import { getDisplayedItemName, isGeneralItemIdentified } from './item-identification';
-import { NORMAL_RANKS, floorProgressRatio } from './equipment-loot';
+import { NORMAL_RANKS } from './equipment-loot';
 import { WEAPON_DEFINITIONS } from './weapon-def';
 import { ARMOR_DEFINITIONS } from './armor-def';
-import { CardId, EquipmentInstance, GameState, ItemId, RunDepthTier } from './types';
-import { isItemEligibleAtProgress } from './item-availability';
+import { CardId, EquipmentInstance, GameState, ItemId } from './types';
+import { isItemEligibleAtDepth } from './item-availability';
 
 /**
  * Phase 20.0d card target selection foundation. This module is the
@@ -170,7 +170,7 @@ export function getTemperanceCandidates(state: GameState): CardTargetRef[] {
  * progress reaches 2/3 of the run, exactly like they're excluded from
  * ground-item-pool generation before that point.
  */
-export function getTransformCandidatesForItem(itemId: ItemId, runDepthTier: RunDepthTier, progress: number): ItemId[] {
+export function getTransformCandidatesForItem(itemId: ItemId, depth: number, leg: 'descent' | 'ascent'): ItemId[] {
   const category = ITEM_DEFINITIONS[itemId].category;
   return ITEM_IDS_IN_ORDER.filter(
     (candidateId) =>
@@ -179,7 +179,7 @@ export function getTransformCandidatesForItem(itemId: ItemId, runDepthTier: RunD
       !STAR_INELIGIBLE_ITEM_IDS.has(candidateId) &&
       ITEM_DEFINITIONS[candidateId].category === category &&
       isStarEligibleRank(candidateId) &&
-      isItemEligibleAtProgress(candidateId, runDepthTier, progress),
+      isItemEligibleAtDepth(candidateId, depth, leg),
   );
 }
 
@@ -197,8 +197,8 @@ export function getTransformCandidatesForItem(itemId: ItemId, runDepthTier: RunD
  * getTransformCandidatesForItem unchanged (same defaults, same
  * unfiltered pre-24.6b2a behavior when omitted).
  */
-export function hasAlternateTransformCategory(itemId: ItemId, runDepthTier: RunDepthTier, progress: number): boolean {
-  return getTransformCandidatesForItem(itemId, runDepthTier, progress).length > 0;
+export function hasAlternateTransformCategory(itemId: ItemId, depth: number, leg: 'descent' | 'ascent'): boolean {
+  return getTransformCandidatesForItem(itemId, depth, leg).length > 0;
 }
 
 /**
@@ -211,8 +211,7 @@ export function hasAlternateTransformCategory(itemId: ItemId, runDepthTier: RunD
  */
 export function getStarCandidates(state: GameState): CardTargetRef[] {
   const candidates: CardTargetRef[] = [];
-  const runDepthTier = state.runDepthTier;
-  const progress = floorProgressRatio(state.floor, state.totalFloors);
+  const { floor: depth, leg } = state;
 
   for (const itemId of ITEM_IDS_IN_ORDER) {
     if (CARD_ID_SET.has(itemId)) continue;
@@ -227,7 +226,7 @@ export function getStarCandidates(state: GameState): CardTargetRef[] {
     if (def.category === 'weapon' || def.category === 'armor' || def.category === 'accessory') continue; // handled via instances below
     const owned = state.inventory[itemId] ?? 0;
     if (owned <= 0) continue;
-    if (!hasAlternateTransformCategory(itemId, runDepthTier, progress)) continue;
+    if (!hasAlternateTransformCategory(itemId, depth, leg)) continue;
     candidates.push({ kind: 'inventory_item', itemId });
   }
 
@@ -246,7 +245,7 @@ export function getStarCandidates(state: GameState): CardTargetRef[] {
     if (!isWeaponOrArmorId(instance.definitionId)) continue;
     if (STAR_INELIGIBLE_ITEM_IDS.has(instance.definitionId)) continue;
     if (!isStarEligibleRank(instance.definitionId)) continue;
-    if (!hasAlternateTransformCategory(instance.definitionId, runDepthTier, progress)) continue;
+    if (!hasAlternateTransformCategory(instance.definitionId, depth, leg)) continue;
     // Phase 24.4d2: a currently-equipped instance whose discovered curse
     // locks it against ordinary equip-swap/discard/place (Phase 20.0c's
     // isEquippedWeaponCurseLocked/isEquippedArmorCurseLocked) must be

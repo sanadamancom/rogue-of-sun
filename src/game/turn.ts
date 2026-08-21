@@ -37,7 +37,6 @@ import {
   isCardTargetStillValid,
   resolveCardTargetEffect,
 } from './card-target-selection';
-import { floorProgressRatio } from './equipment-loot';
 import {
   createEquipmentInstance,
   createEquipmentInstanceWithCurse,
@@ -521,12 +520,12 @@ function spawnEnemyDropIfAny(state: GameState, target: EnemyActor, events: GameE
   const dropChanceMultiplier = isCircletEquipped(state) ? CIRCLET_ENEMY_DROP_MULTIPLIER_PROVISIONAL : 1;
   if (!rollEnemyDropOccurs(floorSeed, enemyId, dropChanceMultiplier)) return;
 
-  const drawnItemId = selectEnemyDropItemIdWithCards(state.floor, floorSeed, enemyId, state.totalFloors, state.runDepthTier);
+  const drawnItemId = selectEnemyDropItemIdWithCards(state.floor, floorSeed, enemyId, state.leg);
   let finalItemId: ItemId = drawnItemId;
   let resolvedDefinitionId: WeaponId | ArmorId | undefined;
   let cursed = false;
   if (isNormalEquipmentSlot(drawnItemId)) {
-    resolvedDefinitionId = resolveEnemyDropEquipmentDefinition(drawnItemId, state.floor, state.totalFloors, floorSeed, enemyId, state.runDepthTier);
+    resolvedDefinitionId = resolveEnemyDropEquipmentDefinition(drawnItemId, state.floor, state.totalFloors, floorSeed, enemyId, state.leg);
     finalItemId = resolvedDefinitionId;
     cursed = rollEnemyDropCurse(floorSeed, enemyId);
   }
@@ -2358,8 +2357,8 @@ function resolveStarEffect(workingState: GameState, target: import('./card-targe
 
   const candidates = getTransformCandidatesForItem(
     originalItemId,
-    workingState.runDepthTier,
-    floorProgressRatio(workingState.floor, workingState.totalFloors),
+    workingState.floor,
+    workingState.leg,
   );
   if (candidates.length === 0) return { success: false };
 

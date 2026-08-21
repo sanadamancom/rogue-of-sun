@@ -329,7 +329,7 @@ describe('Phase 20.5a: temperance and star', () => {
       const { getWeightedGroundItemPoolForFloor } = await import('../item-def');
       const { CARD_IDS_IN_ORDER } = await import('../card-def');
       for (const floor of [1, 2, 3]) {
-        const pool = getWeightedGroundItemPoolForFloor(floor, undefined, 3, 'short');
+        const pool = getWeightedGroundItemPoolForFloor(floor, undefined, 'descent');
         for (const id of CARD_IDS_IN_ORDER) {
           expect(pool.some((c) => c.id === id)).toBe(false);
         }

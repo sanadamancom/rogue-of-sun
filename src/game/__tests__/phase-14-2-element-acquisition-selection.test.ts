@@ -65,21 +65,23 @@ function faceEastAtEnemy(state: GameState): void {
 }
 
 describe('Phase 14.2/15.4b: floor placement (random ground item generation)', () => {
-  it('flame_enchantment is a candidate from floor 1 onward; frost/cloud from floor 2; earth from floor 3 (cumulative staged pool)', () => {
-    expect(getGroundItemPoolForFloor(1, 3, 'short')).toContain('flame_enchantment');
-    expect(getGroundItemPoolForFloor(1, 3, 'short')).not.toContain('frost_enchantment');
-    expect(getGroundItemPoolForFloor(1, 3, 'short')).not.toContain('cloud_enchantment');
-    expect(getGroundItemPoolForFloor(1, 3, 'short')).not.toContain('earth_enchantment');
+  it('uses canonical absolute depths for enchantments', () => {
+    expect(getGroundItemPoolForFloor(1, 'descent')).toContain('flame_enchantment');
+    expect(getGroundItemPoolForFloor(1, 'descent')).not.toContain('frost_enchantment');
+    expect(getGroundItemPoolForFloor(1, 'descent')).not.toContain('cloud_enchantment');
+    expect(getGroundItemPoolForFloor(1, 'descent')).not.toContain('earth_enchantment');
 
-    expect(getGroundItemPoolForFloor(2, 3, 'short')).toContain('flame_enchantment');
-    expect(getGroundItemPoolForFloor(2, 3, 'short')).toContain('frost_enchantment');
-    expect(getGroundItemPoolForFloor(2, 3, 'short')).toContain('cloud_enchantment');
-    expect(getGroundItemPoolForFloor(2, 3, 'short')).not.toContain('earth_enchantment');
+    expect(getGroundItemPoolForFloor(2, 'descent')).toContain('flame_enchantment');
+    expect(getGroundItemPoolForFloor(2, 'descent')).not.toContain('frost_enchantment');
+    expect(getGroundItemPoolForFloor(2, 'descent')).not.toContain('cloud_enchantment');
+    expect(getGroundItemPoolForFloor(2, 'descent')).not.toContain('earth_enchantment');
 
-    expect(getGroundItemPoolForFloor(3, 3, 'short')).toContain('flame_enchantment');
-    expect(getGroundItemPoolForFloor(3, 3, 'short')).toContain('frost_enchantment');
-    expect(getGroundItemPoolForFloor(3, 3, 'short')).toContain('cloud_enchantment');
-    expect(getGroundItemPoolForFloor(3, 3, 'short')).toContain('earth_enchantment');
+    expect(getGroundItemPoolForFloor(3, 'descent')).toContain('flame_enchantment');
+    expect(getGroundItemPoolForFloor(3, 'descent')).not.toContain('frost_enchantment');
+    expect(getGroundItemPoolForFloor(3, 'descent')).not.toContain('cloud_enchantment');
+    expect(getGroundItemPoolForFloor(3, 'descent')).not.toContain('earth_enchantment');
+    expect(getGroundItemPoolForFloor(9, 'descent')).toContain('frost_enchantment');
+    expect(getGroundItemPoolForFloor(18, 'descent')).toContain('earth_enchantment');
   });
 
   it('no element item is guaranteed on any floor any more (Phase 15.4b): presence varies across seeds', () => {

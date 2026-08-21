@@ -38,24 +38,24 @@ async function mockIneligible(ineligibleIds: ReadonlySet<ItemId>) {
   vi.resetModules();
   vi.doMock('../item-availability', async () => {
     const actual = await vi.importActual<typeof import('../item-availability')>('../item-availability');
-    const isItemEligibleAtProgress = (itemId: ItemId, runDepthTier: any, progress: number): boolean => {
+    const isItemEligibleAtDepth = (itemId: ItemId, depth: number, leg: 'descent' | 'ascent'): boolean => {
       if (ineligibleIds.has(itemId)) return false;
-      return actual.isItemEligibleAtProgress(itemId, runDepthTier, progress);
+      return actual.isItemEligibleAtDepth(itemId, depth, leg);
     };
     const isItemEligibleInContext = (itemId: ItemId, context: ItemAvailabilityContext): boolean =>
-      isItemEligibleAtProgress(itemId, context.runDepthTier, context.progress);
-    const filterEligibleItemIds = (ids: readonly ItemId[], runDepthTier: any, progress: number): ItemId[] =>
-      ids.filter((id) => isItemEligibleAtProgress(id, runDepthTier, progress));
+      isItemEligibleAtDepth(itemId, context.depth, context.leg);
+    const filterEligibleItemIds = (ids: readonly ItemId[], depth: number, leg: 'descent' | 'ascent'): ItemId[] =>
+      ids.filter((id) => isItemEligibleAtDepth(id, depth, leg));
     return {
       ...actual,
-      isItemEligibleAtProgress,
+      isItemEligibleAtDepth,
       isItemEligibleInContext,
       filterEligibleItemIds,
     };
   });
 }
 
-const FULL_CONTEXT: ItemAvailabilityContext = { runDepthTier: 'deep', progress: 1 };
+const FULL_CONTEXT: ItemAvailabilityContext = { depth: 26, leg: 'descent' };
 
 describe('Phase 24.6b2a2: equipment candidate pre-filter (synthetic ineligibility)', () => {
   it('excludes a synthetically-ineligible C/B/A weapon species from getNormalEquipmentCandidates entirely', async () => {
@@ -201,7 +201,7 @@ describe('Phase 24.6b2a2: Star transform candidate pre-filter (synthetic ineligi
   it('excludes a synthetically-ineligible transform-result species', async () => {
     await mockIneligible(new Set(['flamberge']));
     const { getTransformCandidatesForItem } = await import('../card-target-selection');
-    const candidates = getTransformCandidatesForItem('sword', 'deep', 1);
+    const candidates = getTransformCandidatesForItem('sword', 26, 'descent');
     expect(candidates).not.toContain('flamberge');
   });
 
@@ -294,7 +294,7 @@ describe('Phase 24.6b2a2: RNG call-count contract under pre-filtering', () => {
     // guarantee that this function cannot consume RNG, backed here by
     // simply calling it and confirming it returns synchronously with no
     // side effects observable to the caller.
-    const result = filterEligibleItemIds(ids, 'short', 0.5);
+    const result = filterEligibleItemIds(ids, 1, 'descent');
     expect(Array.isArray(result)).toBe(true);
   });
 });

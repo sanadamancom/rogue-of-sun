@@ -135,9 +135,9 @@ describe('banana item definition and placement (Phase 12.1)', () => {
   });
 
   it('is a valid candidate on every floor (in the cumulative pool from floor 1) (Phase 15.4b)', () => {
-    expect(getGroundItemPoolForFloor(1, 3, 'short')).toContain('banana');
-    expect(getGroundItemPoolForFloor(2, 3, 'short')).toContain('banana');
-    expect(getGroundItemPoolForFloor(3, 3, 'short')).toContain('banana');
+    expect(getGroundItemPoolForFloor(1, 'descent')).toContain('banana');
+    expect(getGroundItemPoolForFloor(2, 'descent')).toContain('banana');
+    expect(getGroundItemPoolForFloor(3, 'descent')).toContain('banana');
   });
 
   it('appearance is no longer guaranteed every floor (Phase 15.4b): it varies across seeds', () => {

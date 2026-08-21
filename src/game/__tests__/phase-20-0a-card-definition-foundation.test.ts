@@ -277,7 +277,7 @@ describe('Phase 20.0a: card definition foundation', () => {
 
     it('cards are never included in the floor-1/2/3 ground item pools', () => {
       for (const floor of [1, 2, 3]) {
-        const pool = getGroundItemPoolForFloor(floor, 3, 'short');
+        const pool = getGroundItemPoolForFloor(floor, 'descent');
         for (const id of CARD_IDS_IN_ORDER) {
           expect(pool).not.toContain(id);
         }
@@ -303,10 +303,10 @@ describe('Phase 20.0a: card definition foundation', () => {
 
     it('does not change existing ground-item draw results for a fixed seed (floor 1, count 4)', () => {
       // Regression guard: registering 17 new ItemId members must not
-      // perturb any existing seeded draw. getGroundItemPoolForFloor(1, 3, 'short')'s
+      // perturb any existing seeded draw. getGroundItemPoolForFloor(1, 'descent')'s
       // returned array/order is asserted unchanged, and a fixed-seed
       // drawGroundItemSelection over it is asserted unchanged.
-      const pool = getGroundItemPoolForFloor(1, 3, 'short');
+      const pool = getGroundItemPoolForFloor(1, 'descent');
       expect(pool).toEqual([
         'apple',
         'sword',

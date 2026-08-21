@@ -399,9 +399,9 @@ describe('sol enchantment world placement (Phase 10.1)', () => {
   });
 
   it('sol_enchantment is a valid candidate on floor 1, floor 2, and floor 3 (cumulative pool, no longer floor-1-only) (Phase 15.4b)', () => {
-    expect(getGroundItemPoolForFloor(1, 3, 'short')).toContain('sol_enchantment');
-    expect(getGroundItemPoolForFloor(2, 3, 'short')).toContain('sol_enchantment');
-    expect(getGroundItemPoolForFloor(3, 3, 'short')).toContain('sol_enchantment');
+    expect(getGroundItemPoolForFloor(1, 'descent')).toContain('sol_enchantment');
+    expect(getGroundItemPoolForFloor(2, 'descent')).toContain('sol_enchantment');
+    expect(getGroundItemPoolForFloor(3, 'descent')).toContain('sol_enchantment');
   });
 
   it('is deterministic: the same seed places sol_enchantment at the same position twice', () => {
