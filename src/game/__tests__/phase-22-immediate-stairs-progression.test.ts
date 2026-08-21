@@ -87,6 +87,7 @@ function krakenPullOntoExitState(): GameState {
     floor: 1,
     totalFloors: 3,
     leg: 'descent',
+    otencoState: 'sealed',
     runDepthTier: DEFAULT_RUN_CONFIG.runDepthTier,
     exit: { x: 8, y: 1 },
     regenProgress: 0,

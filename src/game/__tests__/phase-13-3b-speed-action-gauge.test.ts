@@ -60,6 +60,7 @@ function adjacentEnemyState(unspentAbilityPoints = 0): GameState {
     floor: 1,
     totalFloors: 3,
     leg: 'descent',
+    otencoState: 'sealed',
     runDepthTier: DEFAULT_RUN_CONFIG.runDepthTier,
     exit: { x: 99, y: 99 },
     regenProgress: 0,

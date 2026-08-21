@@ -506,6 +506,9 @@ export function formatEvent(event: GameEvent): string {
           : ITEM_DEFINITIONS[event.itemId].displayName);
       return `「${itemName}」を落とした。`;
     }
+    // Dedicated rescue copy is intentionally deferred to the UI/message phase.
+    case 'otenco_rescued':
+      return '';
     default: {
       const exhaustiveCheck: never = event;
       throw new Error(`Unhandled game event: ${JSON.stringify(exhaustiveCheck)}`);

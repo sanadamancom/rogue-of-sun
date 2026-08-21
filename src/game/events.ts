@@ -14,6 +14,7 @@ import { AbilityId, AccessoryId, CardId, Direction8, EffectId, ElementalAffinity
  * render TurnResult.events as-is without re-sorting.
  */
 export type GameEvent =
+  | { type: 'otenco_rescued' }
   // Phase 10.3.2 telemetry-correctness fix: targetId/targetHpBefore/
   // targetHpAfter/attackerId are pure observability additions (see
   // telemetry.ts's history doc for why) — they change no calculation,

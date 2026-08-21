@@ -343,6 +343,7 @@ describe('hidden suppression and reveal-turn participation (regression from Phas
       floor: 2,
     totalFloors: 3,
     leg: 'descent',
+    otencoState: 'sealed',
       runDepthTier: DEFAULT_RUN_CONFIG.runDepthTier,
       exit: { x: 12, y: 3 },
       regenProgress: 0,
