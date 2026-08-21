@@ -77,13 +77,18 @@ function makeTwoRoomMapNoCandidates(): { map: GameMap; start: Vec2; exit: Vec2 }
 }
 
 describe('isMonsterHouseEligibleFloor', () => {
-  it('floor 1 is not eligible', () => {
-    expect(isMonsterHouseEligibleFloor(1)).toBe(false);
+  it('uses the inclusive descent depth range 2 through 26', () => {
+    expect(isMonsterHouseEligibleFloor(1, 'descent')).toBe(false);
+    expect(isMonsterHouseEligibleFloor(2, 'descent')).toBe(true);
+    expect(isMonsterHouseEligibleFloor(26, 'descent')).toBe(true);
+    expect(isMonsterHouseEligibleFloor(27, 'descent')).toBe(false);
   });
 
-  it('floors 2 and 3 are eligible', () => {
-    expect(isMonsterHouseEligibleFloor(2)).toBe(true);
-    expect(isMonsterHouseEligibleFloor(3)).toBe(true);
+  it('never permits a monster house during ascent', () => {
+    expect(isMonsterHouseEligibleFloor(1, 'ascent')).toBe(false);
+    expect(isMonsterHouseEligibleFloor(2, 'ascent')).toBe(false);
+    expect(isMonsterHouseEligibleFloor(26, 'ascent')).toBe(false);
+    expect(isMonsterHouseEligibleFloor(27, 'ascent')).toBe(false);
   });
 });
 
@@ -95,7 +100,19 @@ describe('buildMonsterHouseFloorState: eligibility branch', () => {
       calls++;
       return 0; // would succeed the occurrence roll if consulted
     };
-    const result = buildMonsterHouseFloorState(map, 1, start, exit, rng);
+    const result = buildMonsterHouseFloorState(map, 1, 'descent', start, exit, rng);
+    expect(result).toBeNull();
+    expect(calls).toBe(0);
+  });
+
+  it('returns null and consumes 0 rng calls for an ascent floor at an otherwise eligible depth', () => {
+    const { map, start, exit } = makeFourRoomMap();
+    let calls = 0;
+    const rng = () => {
+      calls++;
+      return 0;
+    };
+    const result = buildMonsterHouseFloorState(map, 2, 'ascent', start, exit, rng);
     expect(result).toBeNull();
     expect(calls).toBe(0);
   });
@@ -112,7 +129,7 @@ describe('buildMonsterHouseFloorState: no-candidates branch', () => {
       calls++;
       return 0;
     };
-    const result = buildMonsterHouseFloorState(map, 2, start, exit, rng);
+    const result = buildMonsterHouseFloorState(map, 2, 'descent', start, exit, rng);
     expect(result).toBeNull();
     expect(calls).toBe(0);
   });
@@ -124,7 +141,7 @@ describe('buildMonsterHouseFloorState: occurrence roll branch', () => {
     const values = [MONSTER_HOUSE_OCCURRENCE_PROBABILITY]; // >= probability: fails
     let index = 0;
     const rng = () => values[index++];
-    const result = buildMonsterHouseFloorState(map, 2, start, exit, rng);
+    const result = buildMonsterHouseFloorState(map, 2, 'descent', start, exit, rng);
     expect(result).toBeNull();
     expect(index).toBe(1);
   });
@@ -134,7 +151,7 @@ describe('buildMonsterHouseFloorState: occurrence roll branch', () => {
     const values = [0, 0.5]; // 0 < probability: succeeds; 0.5 picks a candidate
     let index = 0;
     const rng = () => values[index++];
-    const result = buildMonsterHouseFloorState(map, 2, start, exit, rng);
+    const result = buildMonsterHouseFloorState(map, 2, 'descent', start, exit, rng);
     expect(result).not.toBeNull();
     expect(result?.status).toBe('hidden');
     expect(index).toBe(2);
@@ -146,7 +163,7 @@ describe('buildMonsterHouseFloorState: occurrence roll branch', () => {
     const values = [justBelow, 0.1];
     let index = 0;
     const rng = () => values[index++];
-    const result = buildMonsterHouseFloorState(map, 2, start, exit, rng);
+    const result = buildMonsterHouseFloorState(map, 2, 'descent', start, exit, rng);
     expect(result).not.toBeNull();
   });
 
@@ -155,7 +172,7 @@ describe('buildMonsterHouseFloorState: occurrence roll branch', () => {
     const values = [MONSTER_HOUSE_OCCURRENCE_PROBABILITY];
     let index = 0;
     const rng = () => values[index++];
-    const result = buildMonsterHouseFloorState(map, 2, start, exit, rng);
+    const result = buildMonsterHouseFloorState(map, 2, 'descent', start, exit, rng);
     expect(result).toBeNull();
   });
 
@@ -166,7 +183,7 @@ describe('buildMonsterHouseFloorState: occurrence roll branch', () => {
     const values = [0, 0.99999];
     let index = 0;
     const rng = () => values[index++];
-    const result = buildMonsterHouseFloorState(map, 2, start, exit, rng);
+    const result = buildMonsterHouseFloorState(map, 2, 'descent', start, exit, rng);
     expect(result).not.toBeNull();
     expect(result?.roomIndex).not.toBe(startIndex);
     expect(result?.roomIndex).not.toBe(exitIndex);
@@ -181,7 +198,7 @@ describe('buildMonsterHouseFloorState: occurrence roll branch', () => {
       const values = [rollValue, pickValue];
       let index = 0;
       const rng = () => values[index++];
-      const result = buildMonsterHouseFloorState(map, 2, start, exit, rng);
+      const result = buildMonsterHouseFloorState(map, 2, 'descent', start, exit, rng);
       expect(result).not.toBeNull();
       expect(candidates).toContain(result?.roomIndex);
     }
@@ -192,7 +209,7 @@ describe('buildMonsterHouseFloorState: occurrence roll branch', () => {
     const roomsBefore = JSON.parse(JSON.stringify(map.rooms));
     const startBefore = { ...start };
     const exitBefore = { ...exit };
-    buildMonsterHouseFloorState(map, 2, start, exit, () => 0.01);
+    buildMonsterHouseFloorState(map, 2, 'descent', start, exit, () => 0.01);
     expect(map.rooms).toEqual(roomsBefore);
     expect(start).toEqual(startBefore);
     expect(exit).toEqual(exitBefore);
@@ -229,8 +246,8 @@ describe('buildMonsterHouseFloorState: determinism on generated maps', () => {
         const floorSeed = deriveFloorSeed(seed, floor);
         const placement = choosePlacement(map, createRng(floorSeed ^ 0x51ed270b));
 
-        const first = buildMonsterHouseFloorState(map, floor, placement.start, placement.exit, createMonsterHouseRng(floorSeed, createRng));
-        const second = buildMonsterHouseFloorState(map, floor, placement.start, placement.exit, createMonsterHouseRng(floorSeed, createRng));
+        const first = buildMonsterHouseFloorState(map, floor, 'descent', placement.start, placement.exit, createMonsterHouseRng(floorSeed, createRng));
+        const second = buildMonsterHouseFloorState(map, floor, 'descent', placement.start, placement.exit, createMonsterHouseRng(floorSeed, createRng));
         expect(first).toEqual(second);
       }
     }
@@ -244,7 +261,7 @@ describe('buildMonsterHouseFloorState: determinism on generated maps', () => {
       if (!genResult.map) continue;
       const map = genResult.map;
       const placement = choosePlacement(map, createRng(floorSeed ^ 0x51ed270b));
-      const result = buildMonsterHouseFloorState(map, 1, placement.start, placement.exit, createMonsterHouseRng(floorSeed, createRng));
+      const result = buildMonsterHouseFloorState(map, 1, 'descent', placement.start, placement.exit, createMonsterHouseRng(floorSeed, createRng));
       expect(result).toBeNull();
     }
   });

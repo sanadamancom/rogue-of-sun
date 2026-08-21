@@ -210,8 +210,8 @@ describe('turn behavior unaffected by the notification', () => {
 });
 
 describe('production wiring: real generated floors', () => {
-  it('a real dark monster house floor (seed 3, floor 2) fires the notification exactly once on entry', () => {
-    let state = createInitialState(3);
+  it('a real dark monster house floor (seed 48, floor 2) fires the notification exactly once on entry', () => {
+    let state = createInitialState(48);
     state.enemies.forEach((e) => (e.alive = false));
     state.player.pos = { ...state.exit };
     state = advanceToNextFloor(state);
@@ -255,7 +255,7 @@ describe('production wiring: real generated floors', () => {
 
   it('determinism: notification firing and RNG-dependent generation results are unaffected by repeated builds of the same seed/floor', () => {
     const build = () => {
-      let state = createInitialState(3);
+      let state = createInitialState(48);
       state.enemies.forEach((e) => (e.alive = false));
       state.player.pos = { ...state.exit };
       return advanceToNextFloor(state);

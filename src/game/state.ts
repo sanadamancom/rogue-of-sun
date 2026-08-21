@@ -205,6 +205,7 @@ function buildFloorState(
   enemyCount?: number,
   forcedSpecies?: EnemyType[],
 ): GameState {
+  const leg: GameState['leg'] = 'descent';
   const floorSeed = deriveFloorSeed(runSeed, floor);
   const result = generateMap(floorSeed);
   if (!result.ok || !result.map) {
@@ -242,7 +243,7 @@ function buildFloorState(
   // reveal/entry/enemy/reward/dark-room logic — see monster-house.ts and
   // docs/history/phase-21-2-monster-house-floor-state.md.
   const monsterHouseRng = createMonsterHouseRng(floorSeed, createRng);
-  map.monsterHouse = buildMonsterHouseFloorState(map, floor, placement.start, placement.exit, monsterHouseRng);
+  map.monsterHouse = buildMonsterHouseFloorState(map, floor, leg, placement.start, placement.exit, monsterHouseRng);
 
   const player: Actor = carry
     ? createInitialActor(placement.start, carry.maxHp, carry.attack, carry.defense, carry.accuracy, carry.evasion)
@@ -670,7 +671,7 @@ function buildFloorState(
     seed: floorSeed,
     runSeed,
     floor,
-    leg: 'descent',
+    leg,
     floorVisitOrdinal,
     reinforcementOrdinal: 0,
     totalFloors: runConfig.totalFloors,

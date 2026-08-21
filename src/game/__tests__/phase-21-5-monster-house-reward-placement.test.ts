@@ -58,7 +58,7 @@ describe('selectMonsterHouseRewardPositions: degrade-not-throw capacity contract
 });
 
 describe('production wiring: reward placement on generated floors', () => {
-  const seeds = [1, 2, 3, 4, 5, 10, 20, 42, 100, 12345];
+  const seeds = [1, 2, 3, 4, 5, 10, 20, 40, 42, 100, 12345];
 
   it('monster house occurrence places up to MONSTER_HOUSE_REWARD_COUNT rewards, all inside the target room', () => {
     for (const seed of seeds) {

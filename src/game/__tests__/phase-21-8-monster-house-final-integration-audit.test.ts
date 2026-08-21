@@ -179,9 +179,9 @@ describe('integrated scenario: bright_monster_house (full lifecycle)', () => {
   });
 });
 
-describe('integrated scenario: dark_monster_house (seed 3, floor 2 — known fixture)', () => {
+describe('integrated scenario: dark_monster_house (seed 48, floor 2 — known fixture)', () => {
   it('hidden -> dark visibility maintained -> reveal (1 notification) -> darkRoomIndex unchanged -> visibility leak-free -> reward pickup -> exit/re-entry no re-notify', () => {
-    let state = createInitialState(3);
+    let state = createInitialState(48);
     state.enemies.forEach((e) => (e.alive = false));
     state.player.pos = { ...state.exit };
     state = advanceToNextFloor(state);
@@ -302,7 +302,7 @@ describe('integrated scenario: floor_transition (no state leak)', () => {
 describe('determinism across the full integrated lifecycle', () => {
   it('rebuilding the same seed/floor twice yields identical monsterHouse state, dedicated rosters, and reveal behavior', () => {
     const build = () => {
-      let state = createInitialState(3);
+      let state = createInitialState(48);
       state.enemies.forEach((e) => (e.alive = false));
       state.player.pos = { ...state.exit };
       return advanceToNextFloor(state);

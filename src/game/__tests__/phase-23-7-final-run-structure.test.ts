@@ -5,10 +5,10 @@ import { TOTAL_FLOORS } from '../floor';
 import { ENEMY_COUNT_BY_FLOOR } from '../mapgen';
 import { GROUND_ITEM_COUNT_WEIGHTS } from '../item-def';
 import {
-  MONSTER_HOUSE_ELIGIBLE_FLOORS,
   MONSTER_HOUSE_OCCURRENCE_PROBABILITY,
   MONSTER_HOUSE_REWARD_COUNT,
   computeMonsterHouseEnemyCount,
+  isMonsterHouseEligibleFloor,
 } from '../monster-house';
 import { getEnemyPoolForFloor } from '../enemy-def';
 import { GameState } from '../types';
@@ -74,15 +74,17 @@ describe('Phase 23.7: run constants (final baseline)', () => {
     expect(expectedValue).toBeCloseTo(4.0, 10);
   });
 
-  it('monster house eligible floors are exactly {2, 3}', () => {
-    expect(MONSTER_HOUSE_ELIGIBLE_FLOORS.has(1)).toBe(false);
-    expect(MONSTER_HOUSE_ELIGIBLE_FLOORS.has(2)).toBe(true);
-    expect(MONSTER_HOUSE_ELIGIBLE_FLOORS.has(3)).toBe(true);
-    expect(MONSTER_HOUSE_ELIGIBLE_FLOORS.size).toBe(2);
+  it('monster houses are eligible only on descent depths 2 through 26', () => {
+    expect(isMonsterHouseEligibleFloor(1, 'descent')).toBe(false);
+    expect(isMonsterHouseEligibleFloor(2, 'descent')).toBe(true);
+    expect(isMonsterHouseEligibleFloor(26, 'descent')).toBe(true);
+    expect(isMonsterHouseEligibleFloor(27, 'descent')).toBe(false);
+    expect(isMonsterHouseEligibleFloor(2, 'ascent')).toBe(false);
+    expect(isMonsterHouseEligibleFloor(26, 'ascent')).toBe(false);
   });
 
-  it('monster house occurrence probability is 0.2', () => {
-    expect(MONSTER_HOUSE_OCCURRENCE_PROBABILITY).toBe(0.2);
+  it('monster house occurrence probability is 0.05', () => {
+    expect(MONSTER_HOUSE_OCCURRENCE_PROBABILITY).toBe(0.05);
   });
 
   it('monster house enemy count formula clamps ceil(sqrt(C)) to [4, 8]', () => {

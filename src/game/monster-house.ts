@@ -66,28 +66,25 @@ export function selectMonsterHouseRoom(candidateRoomIndices: number[], rng: () =
 }
 
 /**
- * Phase 21.2 (confirmed as the final baseline by Phase 23.7): floors
- * eligible to roll for a monster house at all. The confirmed 3-floor run
- * structure makes floors 2 and 3 eligible (floor 1 never has one) — see
- * docs/history/phase-23-7-final-run-structure.md's final_run_decision and
- * monster_house sections for the confirmed rationale. Not exported
- * mutable — treat as read-only.
+ * Phase 24.6c3a1: monster houses are a descent-only mechanic, eligible
+ * from depth 2 through 26 inclusive. This supersedes the earlier 3-floor
+ * development baseline.
  */
-export const MONSTER_HOUSE_ELIGIBLE_FLOORS: ReadonlySet<number> = new Set([2, 3]);
+export const MONSTER_HOUSE_MINIMUM_DEPTH = 2;
+export const MONSTER_HOUSE_MAXIMUM_DEPTH = 26;
 
-/** Returns whether `floor` is eligible to roll for a monster house at all (see `MONSTER_HOUSE_ELIGIBLE_FLOORS`). Pure; consumes no RNG. */
-export function isMonsterHouseEligibleFloor(floor: number): boolean {
-  return MONSTER_HOUSE_ELIGIBLE_FLOORS.has(floor);
+/** Returns whether `depth` and `leg` are eligible to roll for a monster house. Pure; consumes no RNG. */
+export function isMonsterHouseEligibleFloor(depth: number, leg: 'descent' | 'ascent'): boolean {
+  return leg === 'descent' && depth >= MONSTER_HOUSE_MINIMUM_DEPTH && depth <= MONSTER_HOUSE_MAXIMUM_DEPTH;
 }
 
 /**
  * Per-floor occurrence probability (independent per eligible floor; no
  * run-wide cap, no minimum guarantee, no dynamic adjustment based on prior
- * rolls). Confirmed as the final 3-floor run baseline by Phase 23.7 (see
- * docs/history/phase-23-7-final-run-structure.md) — not changed by that
- * phase, only locked in as the shipped value.
+ * rolls). Phase 24.6c3a1 supersedes the earlier 3-floor development
+ * baseline with the long-run balance value.
  */
-export const MONSTER_HOUSE_OCCURRENCE_PROBABILITY = 0.2;
+export const MONSTER_HOUSE_OCCURRENCE_PROBABILITY = 0.05;
 
 /**
  * Phase 21.2: derives this floor's independent monster-house RNG stream
@@ -130,12 +127,13 @@ export function createMonsterHouseRng(floorSeed: number, createRngFn: (seed: num
  */
 export function buildMonsterHouseFloorState(
   map: GameMap,
-  floor: number,
+  depth: number,
+  leg: 'descent' | 'ascent',
   start: Vec2,
   exit: Vec2,
   rng: () => number,
 ): MonsterHouseState {
-  if (!isMonsterHouseEligibleFloor(floor)) return null;
+  if (!isMonsterHouseEligibleFloor(depth, leg)) return null;
 
   const candidates = extractMonsterHouseCandidateRooms(map, start, exit);
   if (candidates.length === 0) return null;

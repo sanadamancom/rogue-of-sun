@@ -17,14 +17,14 @@ import { applyMonsterHouseReveal } from '../monster-house';
 // investigation. Used as a concrete fixture for direct verification
 // alongside the broader seed-sweep tests below.
 function buildDarkMonsterHouseFloor2() {
-  let state = createInitialState(3);
+  let state = createInitialState(48);
   state.enemies.forEach((e) => (e.alive = false));
   state.player.pos = { ...state.exit };
   return advanceToNextFloor(state);
 }
 
 describe('dark room can be a monster house target room', () => {
-  it('seed 3 floor 2 is a known dark monster house occurrence', () => {
+  it('seed 48 floor 2 is a known dark monster house occurrence', () => {
     const state = buildDarkMonsterHouseFloor2();
     expect(state.map.monsterHouse).not.toBeNull();
     expect(state.map.darkRoomIndex).not.toBeNull();
