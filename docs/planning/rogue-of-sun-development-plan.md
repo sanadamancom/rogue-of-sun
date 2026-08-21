@@ -733,7 +733,7 @@ Rが最上位ランク。近接武器はC～Aを通常取得、Sを太陽鍛冶�
 | 24.6c2c | floorVisitOrdinal、floorTurn、reinforcementOrdinal、leg別seedと決定的な通常増援を実装 |
 | 24.6c2d | プレイヤー累積EXP table・能力ポイント付与周期を実装 |
 | 24.6c3a | モンスターハウス、罠、日照、map環境をdepthとlegへ接続 |
-| 24.6c3b | 実測上必要な敵だけLv2／Lv3固有能力を追加（`24.6c3b1`：スケルトン・マミー完了。`24.6c3b2`：コウモリ・スパイダー。残り7種はhuman decision（design doc §9参照）によりmeasurement-gatedとし`24.6c4`以降へ送る） |
+| 24.6c3b | 実測上必要な敵だけLv2／Lv3固有能力を追加（`24.6c3b1`：スケルトン・マミー完了、`24.6c3b2`：コウモリ・スパイダー完了。残り7種はhuman decision（design doc §9参照）によりmeasurement-gatedとし`24.6c4`以降へ送る）（完了） |
 | 24.6c4 | 下降限定通常loot、depth availability、通常item RNGへ干渉しない食料不足補正、S防具深層lootを実装 |
 | 24.6c5 | 26F下降＋25F帰還で生成・戦闘・供給を再測定し、定数を調整 |
 | 24.7 | 下降19～25Fの黒の鎧専用封印部屋、番人、撃破時の確定報酬 |
