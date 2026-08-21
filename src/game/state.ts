@@ -204,7 +204,7 @@ export function trapCountForDepth(depth: number): number {
  * (test/dev-only, see below) reuse this same generation path to place all
  * 9 species together without touching normal spawning.
  */
-function buildFloorState(
+export function buildFloorState(
   runSeed: number,
   floor: number,
   turn: number,
@@ -213,10 +213,10 @@ function buildFloorState(
   carry?: CarryOverStats,
   enemyCount?: number,
   forcedSpecies?: EnemyType[],
+  leg: GameState['leg'] = 'descent',
 ): GameState {
-  const leg: GameState['leg'] = 'descent';
   const incomingFoodDroughtFloors = carry?.foodDroughtFloors ?? 0;
-  const floorSeed = deriveFloorSeed(runSeed, floor);
+  const floorSeed = deriveFloorSeed(runSeed, floor, leg);
   const result = generateMap(floorSeed);
   if (!result.ok || !result.map) {
     throw new Error(
@@ -385,6 +385,23 @@ function buildFloorState(
     }
   }
 
+  const alreadyUnlocked = getAlreadyUnlockedEnchantmentItemIds(carry);
+  let selectedItemIds: ItemId[] = [];
+  const cardCategoryRng = createRng(floorSeed ^ 0x2f7b91d4);
+  const cardRarityRng = createRng(floorSeed ^ 0x6c1e83fa);
+  const cardBodyRng = createRng(floorSeed ^ 0x94b2d1c7);
+  const accessoryRankRng = createRng(floorSeed ^ 0xa39f6e52);
+  const accessoryItemRng = createRng(floorSeed ^ 0xe61c8b3d);
+  const itemPlacementRng = createRng(floorSeed ^ 0x91b6d8e4);
+  const equipmentCurseRng = createRng(floorSeed ^ 0xc7d4a19e);
+  const equipmentDefinitionRng = createRng(floorSeed ^ 0xd4e8a273);
+  const equipmentFloorRatio = floorProgressRatio(floor, runConfig.totalFloors);
+  const floorEquipmentInstances: EquipmentInstance[] = carry ? carry.equipmentInstances.map((i) => ({ ...i })) : [];
+  let nextFloorEquipmentInstanceId = carry ? carry.nextEquipmentInstanceId : 0;
+  const groundItems: GroundItem[] = [];
+
+  if (leg === 'descent') {
+
   // Ground item count (Phase 15.4b): drawn once from item-def.ts's
   // GROUND_ITEM_COUNT_WEIGHTS (2-6, expected value 4.0), using its own
   // independent RNG stream so it never perturbs any other stream's
@@ -406,7 +423,6 @@ function buildFloorState(
   // 離する". Still exactly one rng() call per drawn slot, unchanged from
   // before cards existed — see drawWeightedGroundItemSelection's doc
   // comment.
-  const alreadyUnlocked = getAlreadyUnlockedEnchantmentItemIds(carry);
   const weightedFloorItemPool = getWeightedGroundItemPoolForFloor(floor, alreadyUnlocked, leg);
   const itemSelectionRng = createRng(floorSeed ^ 0x5c2e91d3);
   const drawnItemIds = drawWeightedGroundItemSelection(itemCount, weightedFloorItemPool, itemSelectionRng);
@@ -438,12 +454,7 @@ function buildFloorState(
   // itemCountRng/itemSelectionRng/itemPlacementRng/equipmentCurseRng/
   // equipmentDefinitionRng/cardRarityRng/cardBodyRng's own consumption
   // order or count.
-  const cardCategoryRng = createRng(floorSeed ^ 0x2f7b91d4);
-  const cardRarityRng = createRng(floorSeed ^ 0x6c1e83fa);
-  const cardBodyRng = createRng(floorSeed ^ 0x94b2d1c7);
-  const accessoryRankRng = createRng(floorSeed ^ 0xa39f6e52);
-  const accessoryItemRng = createRng(floorSeed ^ 0xe61c8b3d);
-  const selectedItemIds = substituteLootSlots(
+  selectedItemIds = substituteLootSlots(
     drawnItemIds,
     cardCategoryRng,
     cardRarityRng,
@@ -484,7 +495,6 @@ function buildFloorState(
   // relaxed exclusion set: chooseGroundItemPosition throws explicitly if
   // no valid tile exists for a given draw (unchanged from every prior
   // phase's ground-item placement contract).
-  const itemPlacementRng = createRng(floorSeed ^ 0x91b6d8e4);
   // Phase 20.0c: floor-generated weapon/armor individuals are minted
   // here (curse roll included) — never at pickup — so a floor-generated
   // equipment individual's identity and curse result are fixed the
@@ -499,7 +509,6 @@ function buildFloorState(
   // have supplied, so ids never collide across floors and every
   // previously-held individual's attributes survive unchanged into this
   // floor's equipmentInstances before any new ones are appended.
-  const equipmentCurseRng = createRng(floorSeed ^ 0xc7d4a19e);
   // Phase 24.4a: resolves a ground-item pool equipment "slot" ('sword' |
   // 'spear' | 'hammer' | 'armor' | 'solar_gun') into an actual catalog
   // definitionId (e.g. 'flamberge'), weighted by this floor's depth
@@ -509,17 +518,12 @@ function buildFloorState(
   // generation further down), in the same relative order as
   // equipmentCurseRng — never perturbing itemCountRng/itemSelectionRng/
   // itemPlacementRng/equipmentCurseRng's own consumption counts.
-  const equipmentDefinitionRng = createRng(floorSeed ^ 0xd4e8a273);
-  const equipmentFloorRatio = floorProgressRatio(floor, runConfig.totalFloors);
-  const floorEquipmentInstances: EquipmentInstance[] = carry ? carry.equipmentInstances.map((i) => ({ ...i })) : [];
-  let nextFloorEquipmentInstanceId = carry ? carry.nextEquipmentInstanceId : 0;
-  const groundItems: GroundItem[] = [];
   // Phase 24.6c4a food-shortage correction (long-run balance design §12):
   // reserve the guaranteed chocolate's cell before normal placement. Its
   // dedicated stream is created/consumed only when the guarantee fires, so
   // every pre-existing item/equipment/card/accessory stream remains exactly
   // unchanged in both consumption count and order.
-  if (leg === 'descent' && incomingFoodDroughtFloors >= 3) {
+  if (incomingFoodDroughtFloors >= 3) {
     const foodGuaranteePlacementRng = createRng(floorSeed ^ 0x8f31c2a6);
     const pos = chooseGroundItemPosition(
       map,
@@ -576,6 +580,7 @@ function buildFloorState(
     } else {
       groundItems.push({ id: groundItems.length, itemId, pos });
     }
+  }
   }
 
   // Phase 21.4: dedicated monster-house enemies, generated last — after
