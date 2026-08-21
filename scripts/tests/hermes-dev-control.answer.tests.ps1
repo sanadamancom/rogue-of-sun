@@ -1,6 +1,7 @@
 ﻿$ErrorActionPreference = 'Stop'
 
 $ControllerSource = (Resolve-Path (Join-Path $PSScriptRoot '..\hermes-dev-control.ps1')).Path
+$LockIdentitySource = (Resolve-Path (Join-Path $PSScriptRoot '..\hermes-lock-identity.ps1')).Path
 $Fixtures = [System.Collections.Generic.List[string]]::new()
 
 function Assert-True([bool]$Condition, [string]$Message) {
@@ -14,6 +15,7 @@ function New-Fixture {
     New-Item -ItemType Directory -Path $Scripts, $Control -Force | Out-Null
     $FixtureController = Join-Path $Scripts 'hermes-dev-control.ps1'
     Copy-Item -LiteralPath $ControllerSource -Destination $FixtureController
+    Copy-Item -LiteralPath $LockIdentitySource -Destination (Join-Path $Scripts 'hermes-lock-identity.ps1')
     # Process startup on loaded Windows CI hosts can itself exceed 800 ms. The
     # fixture widens only its copied controller's probe so the immediate-exit
     # stub is observed deterministically; production remains exactly 800 ms.
@@ -121,9 +123,11 @@ try {
 
     $Root = New-Fixture
     Set-Pending $Root
-    [ordered]@{ pid = $PID } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Root '.ai\control\lock.json') -Encoding UTF8
+    $SelfProcess = Get-Process -Id $PID
+    [ordered]@{ pid = $PID; processStartTimeUtc = $SelfProcess.StartTime.ToUniversalTime().ToString('o') } |
+        ConvertTo-Json | Set-Content -LiteralPath (Join-Path $Root '.ai\control\lock.json') -Encoding UTF8
     $Result = Invoke-Answer $Root @('-Answer', 'text')
-    Assert-True ($Result.ExitCode -ne 0 -and $Result.Text -match 'orchestrator is still running') 'live orchestrator should fail'
+    Assert-True ($Result.ExitCode -ne 0 -and $Result.Text -match 'orchestrator is still running') 'live orchestrator (verified identity) should fail'
 
     $Root = New-Fixture
     Set-Pending $Root

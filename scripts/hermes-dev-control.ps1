@@ -15,15 +15,13 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+. (Join-Path $PSScriptRoot 'hermes-lock-identity.ps1')
+
 function Fail-Control([string]$Message) { Write-Error "Hermes control: $Message"; exit 1 }
 function Read-JsonFile([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
     try { return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json -ErrorAction Stop }
     catch { Fail-Control "invalid control file '$Path': $($_.Exception.Message)" }
-}
-function Test-LivePid([object]$Lock) {
-    if (-not $Lock -or -not $Lock.pid) { return $false }
-    return $null -ne (Get-Process -Id ([int]$Lock.pid) -ErrorAction SilentlyContinue)
 }
 function Launch-Orchestrator([string]$PromptOverride) {
     $Timestamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
@@ -147,7 +145,7 @@ Record this human decision in the canonical planning/specification/history docum
             Fail-Control 'orchestrator exited immediately after launch; human decision preserved, retry answer'
         }
         Remove-Item -LiteralPath $PendingPath -Force
-        [ordered]@{ pid = $NewProcess.Id; startedAt = [DateTimeOffset]::UtcNow.ToString('o') } | ConvertTo-Json | Set-Content -LiteralPath $LockPath -Encoding UTF8
+        Write-OrchestratorLock -Process $NewProcess -LockPath $LockPath
         Write-Output "Orchestrator started with PID $($NewProcess.Id)."
     }
     finally {
@@ -156,5 +154,5 @@ Record this human decision in the canonical planning/specification/history docum
     exit 0
 }
 
-[ordered]@{ pid = $NewProcess.Id; startedAt = [DateTimeOffset]::UtcNow.ToString('o') } | ConvertTo-Json | Set-Content -LiteralPath $LockPath -Encoding UTF8
+Write-OrchestratorLock -Process $NewProcess -LockPath $LockPath
 Write-Output "Orchestrator started with PID $($NewProcess.Id)."
