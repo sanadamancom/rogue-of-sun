@@ -67,6 +67,61 @@ function Send-HermesNotification {
     catch { Write-Warning "Hermes notification failed: $($_.Exception.Message)" }
 }
 
+function Get-OrphanedCodexWorker {
+    param([datetime]$ClaudeProcessStartTime)
+
+    @(
+        Get-CimInstance Win32_Process | Where-Object {
+            $CandidateProcess = $_
+            if ([string]::IsNullOrWhiteSpace([string]$CandidateProcess.CommandLine) -or
+                $CandidateProcess.CommandLine.IndexOf('codex', [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+                return $false
+            }
+            try {
+                $WmiCreationDate = if ($CandidateProcess.CreationDate -is [datetime]) {
+                    [Management.ManagementDateTimeConverter]::ToDmtfDateTime($CandidateProcess.CreationDate)
+                }
+                else {
+                    [string]$CandidateProcess.CreationDate
+                }
+                $CreationTime = [Management.ManagementDateTimeConverter]::ToDateTime($WmiCreationDate)
+                return $CreationTime -ge $ClaudeProcessStartTime
+            }
+            catch {
+                Write-Warning "Hermes: could not read creation time for possible Codex worker PID $($CandidateProcess.ProcessId): $($_.Exception.Message)"
+                return $false
+            }
+        }
+    )
+}
+
+function Wait-OrphanedCodexWorker {
+    param(
+        [object[]]$Process,
+        [int]$TimeoutSeconds
+    )
+
+    $Deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $RemainingProcessIds = @($Process | ForEach-Object { [int]$_.ProcessId })
+    while ($RemainingProcessIds.Count -gt 0 -and [DateTime]::UtcNow -lt $Deadline) {
+        $RemainingProcessIds = @($RemainingProcessIds | Where-Object {
+            $null -ne (Get-Process -Id $_ -ErrorAction SilentlyContinue)
+        })
+        if ($RemainingProcessIds.Count -gt 0) {
+            $RemainingMilliseconds = [int][Math]::Max(0, ($Deadline - [DateTime]::UtcNow).TotalMilliseconds)
+            Start-Sleep -Milliseconds ([Math]::Min(5000, $RemainingMilliseconds))
+        }
+    }
+    $RemainingProcessIds = @($RemainingProcessIds | Where-Object {
+        $null -ne (Get-Process -Id $_ -ErrorAction SilentlyContinue)
+    })
+
+    [pscustomobject]@{
+        TimedOut = $RemainingProcessIds.Count -gt 0
+        RemainingProcessIds = $RemainingProcessIds
+    }
+}
+
 try {
     $ResolvedRepoDir = (Resolve-Path -LiteralPath $RepoDir -ErrorAction Stop).Path
 }
@@ -248,14 +303,15 @@ while ($SessionCount -lt $MaxSessions) {
     $ProcessInfo.RedirectStandardInput = $true
 
     # Headless Hermes has no human to approve tools; bypassing prompts keeps orchestration functional while CLAUDE.md, the prompt contract, and status validation still enforce project policy.
+    # Disallowing Task is best-effort risk reduction because the built-in delegation tool name can vary by Claude CLI version; orphan detection below is the primary defense.
     if ($ClaudeCommand.CommandType -eq 'Application') {
         $ProcessInfo.FileName = $ClaudeCommand.Source
-        $ProcessInfo.Arguments = '--print --dangerously-skip-permissions'
+        $ProcessInfo.Arguments = '--print --dangerously-skip-permissions --disallowedTools Task'
     }
     else {
         $ProcessInfo.FileName = 'powershell.exe'
         $EscapedClaudePath = $ClaudeCommand.Source.Replace('"', '""')
-        $ProcessInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$EscapedClaudePath`" --print --dangerously-skip-permissions"
+        $ProcessInfo.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$EscapedClaudePath`" --print --dangerously-skip-permissions --disallowedTools Task"
     }
 
     $ClaudeProcess = New-Object System.Diagnostics.Process
@@ -264,6 +320,7 @@ while ($SessionCount -lt $MaxSessions) {
         if (-not $ClaudeProcess.Start()) {
             Stop-HermesWithError "Claude CLI process did not start"
         }
+        $ClaudeProcessStartTime = $ClaudeProcess.StartTime
         $ClaudeProcess.StandardInput.Write($EffectivePrompt)
         $ClaudeProcess.StandardInput.Close()
     }
@@ -284,6 +341,31 @@ while ($SessionCount -lt $MaxSessions) {
     Write-Host "Hermes: Claude CLI exited successfully; reading status file."
 
     if (-not (Test-Path -LiteralPath $StatusPath -PathType Leaf)) {
+        $OrphanedWorkers = @(Get-OrphanedCodexWorker -ClaudeProcessStartTime $ClaudeProcessStartTime)
+        if ($OrphanedWorkers.Count -gt 0) {
+            foreach ($Worker in $OrphanedWorkers) {
+                Write-Host "Hermes: detected possible orphaned Codex worker PID $($Worker.ProcessId): $($Worker.CommandLine)"
+            }
+            $WaitResult = Wait-OrphanedCodexWorker -Process $OrphanedWorkers -TimeoutSeconds $SessionTimeoutSeconds
+            $DetectedProcessText = ($OrphanedWorkers | ForEach-Object {
+                "PID $($_.ProcessId) ($($_.CommandLine))"
+            }) -join '; '
+            if ($WaitResult.TimedOut) {
+                $WaitOutcome = "The wait timed out after $SessionTimeoutSeconds seconds; these processes were still running: $($WaitResult.RemainingProcessIds -join ', ')."
+                $NotificationWaitOutcome = "待機が $SessionTimeoutSeconds 秒でタイムアウトしました。実行中の PID: ``$($WaitResult.RemainingProcessIds -join ', ')``"
+                Write-Host "Hermes: timed out waiting for possible orphaned Codex worker PID(s): $($WaitResult.RemainingProcessIds -join ', ')."
+            }
+            else {
+                $WaitOutcome = 'All detected processes finished while Hermes waited.'
+                $NotificationWaitOutcome = '検出したプロセスは Hermes の待機中にすべて終了しました。'
+                Write-Host 'Hermes: all possible orphaned Codex workers finished.'
+            }
+            $OrphanReason = "Claude exited without writing .ai/status.json. Detected possible orphaned Codex worker process(es): $DetectedProcessText. $WaitOutcome The working tree may contain unverified changes requiring human or Claude review before any further orchestration."
+            Write-ControlState -Status 'orphaned_worker' -Reason $OrphanReason
+            Send-HermesNotification "## ⚠️ 取り残されたバックグラウンド worker を検出しました`n`n**Phase:** ``Hermes orchestration`` / **Task:** ``orphaned worker detection```n`n**問題:**`nClaude セッションが ``.ai/status.json`` を書かずに終了し、Codex と思われるプロセスが実行中でした。`n`n**待機結果:**`n$NotificationWaitOutcome`n`n**必要な対応:**`nworking tree に未検証の変更が残っている可能性があります。次の ``start`` の前に ``hermes-dev-control.ps1 status`` と ``git status`` を確認し、人間または Claude が変更をレビューしてください。"
+            Write-Error 'Hermes fail-closed: Claude CLI did not write .ai/status.json and possible orphaned Codex worker process(es) were detected'
+            exit 1
+        }
         Stop-HermesWithError "Claude CLI did not write .ai/status.json"
     }
 
