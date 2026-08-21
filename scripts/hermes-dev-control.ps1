@@ -4,6 +4,7 @@ param(
     [string]$Command,
     [string]$RepoDir = 'C:\dev\rogue-of-sun',
     [string]$Answer,
+    [string]$AnswerFile,
     [string]$DecisionId,
     [ValidateRange(1, [int]::MaxValue)] [int]$MaxSessions = 20,
     [ValidateRange(1, [int]::MaxValue)] [int]$SessionTimeoutSeconds = 3600,
@@ -50,6 +51,7 @@ $LockPath = Join-Path $ControlDir 'lock.json'
 $StatePath = Join-Path $ControlDir 'state.json'
 $StopPath = Join-Path $ControlDir 'stop-request.json'
 $PendingPath = Join-Path $ControlDir 'pending-decision.json'
+$AnsweringLockPath = Join-Path $ControlDir 'answering.lock'
 $OrchestratorPath = Join-Path $ResolvedRepoDir 'scripts\hermes-orchestrate.ps1'
 
 $Lock = Read-JsonFile $LockPath
@@ -105,9 +107,30 @@ else {
     if (-not $Pending) { Fail-Control 'no pending decision' }
     if ($PSBoundParameters.ContainsKey('DecisionId') -and $DecisionId -ne [string]$Pending.decisionId) { Fail-Control 'stale/mismatched decision id' }
     if ($Running) { Fail-Control "orchestrator is still running with PID $($Lock.pid)" }
-    if (-not $PSBoundParameters.ContainsKey('Answer') -or [string]::IsNullOrWhiteSpace($Answer)) { Fail-Control '-Answer is required for answer' }
-    if ($Lock) { Write-Warning "Clearing stale orchestrator lock for PID $($Lock.pid)."; Remove-Item -LiteralPath $LockPath -Force }
-    $HumanPrompt = @"
+    $HasAnswer = $PSBoundParameters.ContainsKey('Answer')
+    $HasAnswerFile = $PSBoundParameters.ContainsKey('AnswerFile')
+    if ($HasAnswer -and $HasAnswerFile) { Fail-Control 'supply either -Answer or -AnswerFile, not both' }
+    if ($HasAnswerFile) {
+        if (-not (Test-Path -LiteralPath $AnswerFile -PathType Leaf)) { Fail-Control "answer file not found: $AnswerFile" }
+        $Answer = Get-Content -LiteralPath $AnswerFile -Raw -Encoding UTF8
+        $Answer = $Answer -replace '(\r\n|\n|\r)$', ''
+    }
+    if ((-not $HasAnswer -and -not $HasAnswerFile) -or [string]::IsNullOrWhiteSpace($Answer)) { Fail-Control '-Answer or -AnswerFile is required for answer' }
+
+    $OwnsAnsweringLock = $false
+    try {
+        try {
+            $AnsweringLockHandle = [System.IO.File]::Open($AnsweringLockPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+            $AnsweringLockHandle.Dispose()
+            $OwnsAnsweringLock = $true
+        }
+        catch {
+            if (Test-Path -LiteralPath $AnsweringLockPath) { Fail-Control 'another answer is already being processed' }
+            Fail-Control "failed to create answer processing marker: $($_.Exception.Message)"
+        }
+
+        if ($Lock) { Write-Warning "Clearing stale orchestrator lock for PID $($Lock.pid)."; Remove-Item -LiteralPath $LockPath -Force }
+        $HumanPrompt = @"
 HUMAN DECISION (literal human-supplied answer; do not infer or reinterpret it)
 
 Original decision request:
@@ -118,8 +141,19 @@ $Answer
 
 Record this human decision in the canonical planning/specification/history documentation as required by CLAUDE.md, then resume the normal bounded development workflow. Write the required .ai/status.json before exiting.
 "@
-    $NewProcess = Launch-Orchestrator $HumanPrompt
-    Remove-Item -LiteralPath $PendingPath -Force
+        $NewProcess = Launch-Orchestrator $HumanPrompt
+        Start-Sleep -Milliseconds 800
+        if (-not (Get-Process -Id $NewProcess.Id -ErrorAction SilentlyContinue)) {
+            Fail-Control 'orchestrator exited immediately after launch; human decision preserved, retry answer'
+        }
+        Remove-Item -LiteralPath $PendingPath -Force
+        [ordered]@{ pid = $NewProcess.Id; startedAt = [DateTimeOffset]::UtcNow.ToString('o') } | ConvertTo-Json | Set-Content -LiteralPath $LockPath -Encoding UTF8
+        Write-Output "Orchestrator started with PID $($NewProcess.Id)."
+    }
+    finally {
+        if ($OwnsAnsweringLock -and (Test-Path -LiteralPath $AnsweringLockPath)) { Remove-Item -LiteralPath $AnsweringLockPath -Force }
+    }
+    exit 0
 }
 
 [ordered]@{ pid = $NewProcess.Id; startedAt = [DateTimeOffset]::UtcNow.ToString('o') } | ConvertTo-Json | Set-Content -LiteralPath $LockPath -Encoding UTF8

@@ -1,7 +1,7 @@
 ---
 name: rogue-of-sun-dev-control
-description: Checks, starts, stops and answers ROGUE OF SOL dev requests.
-version: 0.3.0
+description: Checks, starts, stops and answers ROGUE OF SOL dev requests, including /ros-answer.
+version: 0.3.1
 metadata:
   hermes:
     tags: [rogue-of-sun, hermes-orchestration, discord]
@@ -19,110 +19,107 @@ Japanese; this skill grants no general shell-execution capability.
 **Hard rule:** For every ROGUE OF SOL development-control request shaped as
 start, status, stop, or an answer to a pending decision, use this skill's
 bounded interface. General git, terminal, and filesystem access does not
-override this rule. Do **not** independently run `git status`, `git log`,
-`ls`, `find`, inspect repository files, or otherwise investigate the
-repository to answer or act on such a request.
+override this rule. Do not independently run repository inspection commands.
 
-- 「開発を開始して」「続きを進めて」など、開発開始の依頼は `start`。
-- 「状態を教えて」「今どうなってる？」など、進捗確認は `status`。
-- 「開発を止めて」「いったん停止して」など、停止依頼は `stop`。
-- 未回答の判断事項が通知済みで、ユーザーが「Aで進めて。理由は…」のように明示的な回答を返した場合は `answer`。
-- Don't use for: arbitrary PowerShell or shell commands. Use only the four
-  bounded operations against this repository, even when another command is
-  phrased as a development request.
+- Development start/continue requests route to `start`.
+- Current-state questions route to `status`.
+- Stop/pause requests route to `stop`.
+- `/ros-answer <text>` is the canonical `answer` trigger. A clearly stated
+  Japanese answer to a previously notified pending decision is also accepted.
+- Do not use this skill for arbitrary PowerShell or shell commands. Only the
+  four bounded operations against this repository are allowed.
 
 ### Read-only infrastructure contract
 
 During Discord control routing, `scripts/hermes-dev-control.ps1` and
 `scripts/hermes-orchestrate.ps1` are **read-only infrastructure**. Never use
-`Read`, `Edit`, `Patch`, `Write`, or any equivalent inspect-then-modify tool on
+`Read`, `Edit`, `Patch`, `Write`, or an equivalent inspect-then-modify tool on
 either file. No invocation outcome authorizes investigating, diagnosing,
-repairing, "fixing," or improving these files.
+repairing, or improving these files.
 
-For every `start`-, `status`-, `stop`-, or `answer`-shaped request, invoke the
-corresponding `hermes-dev-control.ps1` command through `terminal` **exactly
-once**, then do nothing else procedural. Do not inspect anything afterward,
-retry, loop, or try an alternate approach. The existing `answer` contract
-still applies: forward the human's literal text verbatim and never infer or
-decide it. The prohibition on routing arbitrary shell commands also remains
-in force.
+For `start`, `status`, or `stop`, invoke the corresponding control command
+through `terminal` exactly once. For `answer`, follow Procedure 4's bounded
+status/temp-file/answer/cleanup sequence and invoke the answer command exactly
+once. Then do nothing else procedural: do not inspect afterward, retry, loop,
+or use an alternate approach. Forward the human's literal text verbatim and
+never infer or decide it.
 
-If that single invocation fails for any reason, including a non-zero exit,
-fail-closed error, unexpected output, or a mid-run quota/provider failure, do
-not investigate the cause, open or edit any file for diagnosis or repair, or
-attempt a workaround. Report the failure to the human in Japanese, briefly
-summarizing stdout/stderr without flooding the reply with raw logs, and stop.
-Diagnosis and correction of the control scripts is Claude's job through the
-normal Claude -> Codex -> Claude-verifies -> Claude-commits workflow, never
-Hermes's.
+If an invocation fails for any reason, including non-zero exit, fail-closed
+error, unexpected output, or quota/provider failure, do not investigate, open
+or edit files, or attempt a workaround. Report the concrete failure in
+Japanese, briefly summarize stdout/stderr without flooding the reply, and
+stop. Diagnosis and correction belong to the normal Claude -> Codex ->
+Claude-verifies -> Claude-commits workflow.
 
-Do not change `terminal.cwd`, any other Hermes global configuration, or any
-Gateway configuration, and do not restart the Gateway. Those actions remain
-out of scope.
+Do not change `terminal.cwd`, Hermes global/Gateway configuration, or restart
+the Gateway.
 
 ## Prerequisites
 
 - Repository: `C:\dev\rogue-of-sun`.
-- Use the Hermes `terminal` tool only to invoke
-  `scripts\hermes-dev-control.ps1 -Command <start|status|stop|answer> [-Answer "<text>"] [-DecisionId "<id>"]`.
-- Read `docs/ops/hermes-discord-control.md` for complete command semantics;
-  do not duplicate or broaden that contract.
+- Use `terminal` only for the four bounded control operations and Procedure
+  4's local answer temp-file handling.
+- Read `docs/ops/hermes-discord-control.md` for complete semantics; do not
+  broaden that contract.
 
 ## Procedure
 
-0. Unless this skill is genuinely irrelevant, route any repository-status or
-   development-control-shaped Discord message in this project context through
-   `scripts\hermes-dev-control.ps1` before using any other tool. Do not perform
+0. Route any repository-status or development-control-shaped Discord message
+   through this bounded interface before any other tool. Do not perform
    preliminary repository investigation.
 
-1. For a start request, use `terminal` in `C:\dev\rogue-of-sun` to run
-   `scripts\hermes-dev-control.ps1 -Command start`. It returns immediately;
-   do not wait for development to finish. Reply in concise Japanese that
-   development started, without pasting script stdout verbatim.
+1. For start, run `scripts\hermes-dev-control.ps1 -Command start` from
+   `C:\dev\rogue-of-sun`. It returns immediately. Reply in concise Japanese
+   that development started; do not paste stdout verbatim.
 
-2. For a status request, use `terminal` to run
-   `scripts\hermes-dev-control.ps1 -Command status -Json` (the non-JSON form
-   is also allowed). Compose a natural Japanese summary covering whether it
-   is running, the current phase/task, the last commit, and whether a decision
-   is pending and what it concerns. Format the Discord reply with a short
-   Markdown heading or bold label, inline code for commit SHA/phase/task
-   identifiers, and one or two bullets for pending-decision information.
-   Never paste raw JSON or an English key-value dump into Discord.
+2. For status, run `scripts\hermes-dev-control.ps1 -Command status -Json`
+   (non-JSON is also allowed). Give a natural Japanese summary of running
+   state, phase/task, last commit, and pending decision. Use a short Markdown
+   heading or bold label, inline code for identifiers, and one or two pending
+   decision bullets. Never paste raw JSON or an English key-value dump.
 
-3. For a stop request, use `terminal` to run
-   `scripts\hermes-dev-control.ps1 -Command stop`. Tell the user in Japanese
-   that the cooperative stop was requested and will take effect at the next
-   safe session boundary. Never claim it is immediate or kill an in-progress
-   session.
+3. For stop, run `scripts\hermes-dev-control.ps1 -Command stop`. Say in
+   Japanese that cooperative stop was requested for the next safe session
+   boundary. Never claim it is immediate or kill a session.
 
-4. **Critical — forward the human's words verbatim.** Use `answer` only when
-   the user is clearly answering a previously notified pending decision. Run
-   `scripts\hermes-dev-control.ps1 -Command answer -Answer "<the user's literal text, unmodified>"`.
-   Never invent, summarize, improve, translate, or decide the answer for the
-   user, and never fabricate an answer when no decision is pending. An
-   optional known `-DecisionId "<id>"` may be included. If the command fails
-   closed because there is no pending decision, the ID is stale, or the
-   orchestrator is still running, report that fact in Japanese; do not retry
-   with a guessed or modified answer.
+4. **Critical — forward the human's words verbatim.** First run
+   `scripts\hermes-dev-control.ps1 -Command status -Json`, fetch
+   `decision.decisionId`, and confirm `decisionPending` is true. If not, reply
+   `現在、回答待ちのhuman decisionはありません。` and stop. Never invent or
+   guess a decision ID.
 
-5. Do not use this skill to execute any other PowerShell or shell command a
-   user requests. Only the four bounded invocations of
-   `hermes-dev-control.ps1` above are in scope.
+   Create a unique file under `$env:TEMP`. Assign the completely unmodified
+   answer to `$Text` using a single-quoted PowerShell here-string (`@'` on its
+   own line, literal answer, then `'@` on its own line). Write it with
+   `Set-Content -LiteralPath <tempfile> -Value $Text -Encoding UTF8 -NoNewline`.
+   This exact technique is required because it tolerates quotes, backticks,
+   and multiline/Japanese content that a double-quoted argument cannot.
+
+   Invoke `scripts\hermes-dev-control.ps1 -Command answer -AnswerFile
+   "<tempfile>" -DecisionId "<the fetched decisionId>"` exactly once through
+   `terminal`. Delete the temp file afterward regardless of outcome, using
+   `finally` around invocation and cleanup. This is local temp-file cleanup,
+   not repository/control-state modification. Never retry automatically.
+
+   On success reply `Decision <id> の回答を受理しました。Hermesを再開しました。`
+   On failure relay the concrete fail-closed reason in Japanese: no pending
+   decision, stale/mismatched ID, orchestrator already running, empty answer,
+   another answer already being processed, or immediate orchestrator exit
+   with the human decision preserved. Never guess or modify the answer.
+
+5. Execute no other requested PowerShell or shell command. Only these four
+   bounded operations are in scope.
 
 ## Pitfalls
 
-- `start` and `answer` are non-blocking. Do not hold the Discord conversation
-  open for a multi-minute session. The human checks later with a separate
-  `status` message.
-- Never paste raw Claude/Codex stdout or `.ai/control/logs/` content into
-  Discord. Use only the short Japanese summaries above and the orchestrator's
-  own `-Notify` notifications.
-- A pending decision is required for `answer`; a development-like phrase is
-  not enough to infer one.
+- `start` and `answer` are non-blocking. The human checks later with a separate
+  status request.
+- Never paste raw Claude/Codex stdout or `.ai/control/logs/` into Discord. Use
+  short Japanese summaries and orchestrator notifications.
+- A pending decision is required; a development-like phrase is insufficient.
 
 ## Verification
 
-The human can run
-`scripts\hermes-dev-control.ps1 -Command status` directly from
-`C:\dev\rogue-of-sun` and compare its state with the skill's Japanese summary.
-Confirm that no command outside `start`, `status`, `stop`, or `answer` ran.
+The human may run `scripts\hermes-dev-control.ps1 -Command status` directly
+from `C:\dev\rogue-of-sun` and compare it with the Japanese summary. Confirm
+that no command outside `start`, `status`, `stop`, or `answer` ran.

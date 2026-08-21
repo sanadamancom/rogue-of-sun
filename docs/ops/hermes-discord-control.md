@@ -5,13 +5,37 @@
 - `start` rejects a pending decision, a live single-instance lock, or a dirty working tree; clears stale locks and stop requests; then launches the orchestrator detached with notifications enabled.
 - `status` quickly reports the live PID check, last control state, full pending decision, current commit, and dirty-tree state. Add `-Json` for machine-readable output. When the project-local skill turns this data into a Discord reply, it uses a short Markdown heading or bold label, inline code for commit SHA/phase/task identifiers, and one or two bullets for pending-decision information; it never pastes the raw output.
 - `stop` writes a cooperative request. It never kills Claude or changes repository content; the orchestrator honors it between sessions.
-- `answer -Answer <text> [-DecisionId <id>]` rejects missing, stale, or racing decisions, then launches a fresh session with the literal answer explicitly labeled as a human decision. The pending file is removed only after launch succeeds.
+- `answer` accepts exactly one of `-Answer <text>` or `-AnswerFile <path>`, plus optional `-DecisionId <id>`. It rejects missing, stale, or racing decisions, then launches a fresh session with the literal answer explicitly labeled as a human decision. The pending file is removed only after the new process remains alive through the post-launch check.
 
 ## Human-decision round trip
 
 A fresh Claude session writes `USER_DECISION_REQUIRED` with a self-contained reason. The orchestrator persists `.ai/control/pending-decision.json`, notifies Discord with that full reason, and exits. A human reads it and supplies `answer <text>`. A fresh Claude session receives the original reason and the answer explicitly labeled as a human decision, records it in canonical documentation when CLAUDE.md requires that, and resumes normal work. Pending state is cleared only after that handoff launches successfully.
 
 Hermes and this control layer never generate, infer, select, or improve an answer. Only literal text supplied by a human through `answer` is forwarded.
+
+### `/ros-answer` Discord entry point
+
+`/ros-answer <text>` is the canonical Discord entry point for answering a
+pending decision. The skill fetches the current `decisionId` automatically
+with `status -Json`; the human never types or guesses it. A pending decision is
+required. The literal answer is carried through a UTF-8 temp file, and on
+success a fresh orchestrator session receives it and Hermes resumes
+automatically.
+
+`pending-decision.json` is cleared only after the new orchestrator process is
+confirmed still alive 800 ms after launch. It is preserved for retry if launch
+fails or the process exits immediately. Concurrent or duplicate answers are
+rejected through the exclusive `answering.lock` marker, preventing an answer
+from being applied twice; the marker is removed when the invocation finishes.
+
+Fail-closed errors are recoverable. `no pending decision` means there is
+nothing to answer; `stale/mismatched decision id` means status changed;
+`orchestrator is still running` means wait; an empty-answer error means actual
+text is required; `another answer is already being processed` means another
+invocation owns the handoff; and an immediate-exit error means the human
+decision remains pending because the new process died. Check `status`, then
+resend `/ros-answer` with the same or corrected literal answer. The skill never
+retries automatically.
 
 ## Project-local Discord skill
 
