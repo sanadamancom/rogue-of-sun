@@ -405,7 +405,44 @@ while ($SessionCount -lt $MaxSessions) {
             createdAt = [DateTimeOffset]::UtcNow.ToString('o')
         }
         Write-JsonAtomic -Path $PendingDecisionPath -Value $Pending
-        Send-HermesNotification ([string]$SessionStatus.reason)
+        $PublishScriptPath = Join-Path $PSScriptRoot 'hermes-publish-decision-base.ps1'
+        $PublishOutput = @()
+        $PublishExitCode = 1
+        try {
+            $PreviousErrorActionPreference = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            $PublishOutput = @(& powershell.exe -NoProfile -ExecutionPolicy Bypass -File $PublishScriptPath -RepoDir $ResolvedRepoDir -DecisionId $DecisionId -Json 2>&1)
+            $PublishExitCode = $LASTEXITCODE
+            $ErrorActionPreference = $PreviousErrorActionPreference
+        }
+        catch {
+            $ErrorActionPreference = $PreviousErrorActionPreference
+            $PublishOutput = @($_.Exception.Message)
+            $PublishExitCode = 1
+        }
+        $PublishText = (($PublishOutput | ForEach-Object { [string]$_ }) -join "`n").Trim()
+        $PublishResult = $null
+        if ($PublishExitCode -eq 0) {
+            try { $PublishResult = $PublishText | ConvertFrom-Json -ErrorAction Stop }
+            catch { $PublishOutput += "Invalid publish JSON: $($_.Exception.Message)" }
+        }
+        if ($PublishExitCode -eq 0 -and $PublishResult -and $PublishResult.verified -eq $true) {
+            $Pending['published'] = $true
+            $Pending['decisionBranch'] = [string]$PublishResult.decisionBranch
+            Write-JsonAtomic -Path $PendingDecisionPath -Value $Pending
+            $PublishHeader = "## ⚠️ Decision Base Published`n`n**Repository:** ``$($PublishResult.repositorySlug)```n**Branch:** ``$($PublishResult.decisionBranch)```n**Decision Base Commit:** ``$($PublishResult.commitSha)```n**Working Tree:** ``clean```n`n"
+            Send-HermesNotification ($PublishHeader + [string]$SessionStatus.reason)
+        }
+        else {
+            $FailureText = (($PublishOutput | ForEach-Object { [string]$_ }) -join "`n").Trim()
+            if ([string]::IsNullOrWhiteSpace($FailureText)) { $FailureText = "publish process exited with code $PublishExitCode" }
+            if ($FailureText.Length -gt 1000) { $FailureText = $FailureText.Substring(0, 1000) + '...' }
+            $Pending['published'] = $false
+            $Pending['publishFailureReason'] = $FailureText
+            Write-JsonAtomic -Path $PendingDecisionPath -Value $Pending
+            $FailureBlock = "`n`n`n**⚠️ Decision Base publish に失敗しました。ChatGPT はこの commit をまだ参照できません。**`nDecision Base SHA: ``$([string]$SessionStatus.commit_sha)```n失敗理由: $FailureText"
+            Send-HermesNotification ([string]$SessionStatus.reason + $FailureBlock)
+        }
     }
     elseif ($SessionStatus.status -eq 'BLOCKED') {
         Send-HermesNotification ([string]$SessionStatus.reason)

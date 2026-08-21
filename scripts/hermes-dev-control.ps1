@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('start', 'status', 'stop', 'answer')]
+    [ValidateSet('start', 'status', 'stop', 'answer', 'publish-decision-base')]
     [string]$Command,
     [string]$RepoDir = 'C:\dev\rogue-of-sun',
     [string]$Answer,
@@ -79,6 +79,15 @@ if ($Command -eq 'stop') {
     [ordered]@{ requestedAt = [DateTimeOffset]::UtcNow.ToString('o'); requestedByPid = $PID } | ConvertTo-Json | Set-Content -LiteralPath $StopPath -Encoding UTF8
     Write-Output "Cooperative stop requested. Orchestrator running: $Running"
     exit 0
+}
+
+if ($Command -eq 'publish-decision-base') {
+    $Pending = Read-JsonFile $PendingPath
+    if (-not $Pending) { Fail-Control 'no pending decision' }
+    if ($PSBoundParameters.ContainsKey('DecisionId') -and $DecisionId -ne [string]$Pending.decisionId) { Fail-Control 'stale/mismatched decision id' }
+    $PublishScriptPath = Join-Path $ResolvedRepoDir 'scripts\hermes-publish-decision-base.ps1'
+    & $PublishScriptPath -RepoDir $ResolvedRepoDir -DecisionId ([string]$Pending.decisionId) -Json
+    exit $LASTEXITCODE
 }
 
 if ($Command -eq 'start') {

@@ -97,3 +97,5 @@ The project-local skill is the Discord-side natural-language routing layer. Its
 supported mapping exposes only the four bounded commands and never arbitrary
 shell execution. No Hermes installation or `~/.hermes/config.yaml` change is
 part of this repository integration.
+
+See [Hermes Decision Base publishing](hermes-decision-base-publish.md) for how decision notifications expose the exact commit through a dedicated read-only ref.

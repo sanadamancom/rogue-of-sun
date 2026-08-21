@@ -40,3 +40,5 @@ A reason such as `"Need a design decision"` fails this bar because it does not i
 Ordinary test failures, implementation defects, and first-attempt Codex failures are not `BLOCKED` by default. Claude should first use the normal bounded correction workflow and report `BLOCKED` only when that workflow cannot proceed safely.
 
 Hermes trusts only `.ai/status.json` for continuation decisions. It never interprets Claude's prose output to decide whether to continue.
+
+See [Hermes Decision Base publishing](hermes-decision-base-publish.md) for the safety-checked ref published when a user decision is required.
