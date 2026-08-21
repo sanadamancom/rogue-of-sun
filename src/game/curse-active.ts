@@ -94,13 +94,10 @@ export const MUMMY_CURSE_CHANCE_PROVISIONAL = 0.1;
 
 /**
  * Phase 24.4e1 curse_trap's type-selection weights (out of 100), applied
- * only at the 2 existing trap-generation slots (state.ts) in place of
- * their previous hardcoded 'slow_trap'/'poison_trap' literals — the
- * total trap slot count, position RNG streams, and position selection
- * logic are completely untouched; only which TrapType lands in an
- * already-determined slot is now a weighted draw instead of a fixed
- * literal. Provisional values per the task's producer_decisions; final
- * tuning is Phase 24.6/27's job.
+ * at every depth-keyed trap-generation slot (2-4; state.ts). The first
+ * two slots replaced their previous hardcoded 'slow_trap'/'poison_trap'
+ * literals; later slots use the same weighted draw. Provisional values
+ * per the task's producer_decisions; final tuning is Phase 24.6/27's job.
  */
 export const TRAP_TYPE_WEIGHTS: Readonly<Record<TrapType, number>> = {
   slow_trap: 45,

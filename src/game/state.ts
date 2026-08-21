@@ -182,6 +182,13 @@ function getAlreadyUnlockedEnchantmentItemIds(carry?: CarryOverStats): Set<ItemI
   return unlocked;
 }
 
+/** Phase 24.6c3a2 trap slots per current depth, clamped to the designed bands. */
+export function trapCountForDepth(depth: number): number {
+  if (Number.isNaN(depth) || depth <= 10) return 2;
+  if (depth <= 19) return 3;
+  return 4;
+}
+
 /**
  * Builds the GameState for a single floor of a run. Retries via
  * generateMap's own deterministic retry loop; if generation still fails,
@@ -281,8 +288,10 @@ function buildFloorState(
   // trap generation's own RNG streams either (traps are derived above
   // this point, from floorSeed alone, not from anything item-related).
 
-  // Trap placement (Phase 12.2 slow_trap, Phase 12.3 poison_trap): at
-  // most one each, using their own distinct independent RNG streams.
+  // Trap placement (Phase 12.2 slow_trap, Phase 12.3 poison_trap;
+  // Phase 24.6c3a2 depth-keyed slots): 2 slots at depth 1-10, 3 at
+  // depth 11-19, and 4 at depth 20-26, defensively clamped outside it.
+  // Every slot uses distinct position/type RNG streams.
   // Phase 15.4b moves this ahead of ground item generation (previously
   // traps were placed after most, but not all, items) so that ground
   // items can uniformly exclude every trap tile — traps themselves only
@@ -344,6 +353,33 @@ function buildFloorState(
   const trapTypeSlot2Rng = createRng(floorSeed ^ 0x9b1ea472);
   if (poisonTrapPos) {
     traps.push({ id: traps.length, pos: poisonTrapPos, revealed: false, triggered: false, trapType: selectTrapType(trapTypeSlot2Rng) });
+  }
+
+  const trapSlotCount = trapCountForDepth(floor);
+  if (trapSlotCount >= 3) {
+    const trapSlot3Rng = createRng(floorSeed ^ 0x73d5a8c1);
+    const trapSlot3Pos = chooseTrapPosition(
+      map, map.rooms, placement.start, placement.exit,
+      [placement.start, placement.exit, ...placement.enemies, ...traps.map((t) => t.pos)],
+      trapSlot3Rng,
+    );
+    if (trapSlot3Pos) {
+      const trapTypeSlot3Rng = createRng(floorSeed ^ 0xc8462f5b);
+      traps.push({ id: traps.length, pos: trapSlot3Pos, revealed: false, triggered: false, trapType: selectTrapType(trapTypeSlot3Rng) });
+    }
+  }
+
+  if (trapSlotCount >= 4) {
+    const trapSlot4Rng = createRng(floorSeed ^ 0x2be79164);
+    const trapSlot4Pos = chooseTrapPosition(
+      map, map.rooms, placement.start, placement.exit,
+      [placement.start, placement.exit, ...placement.enemies, ...traps.map((t) => t.pos)],
+      trapSlot4Rng,
+    );
+    if (trapSlot4Pos) {
+      const trapTypeSlot4Rng = createRng(floorSeed ^ 0xf52c4a07);
+      traps.push({ id: traps.length, pos: trapSlot4Pos, revealed: false, triggered: false, trapType: selectTrapType(trapTypeSlot4Rng) });
+    }
   }
 
   // Ground item count (Phase 15.4b): drawn once from item-def.ts's
