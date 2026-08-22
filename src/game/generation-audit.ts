@@ -5,7 +5,7 @@ import {
   getEnemyLevelBandForDepth,
   getEnemyPopulationForDepth,
 } from './enemy-depth-bands';
-import { advanceRunFloor, createInitialState } from './state';
+import { advanceRunFloor, buildFloorState, createInitialState } from './state';
 import type { GameState, Vec2 } from './types';
 
 export interface GenerationAuditFloorResult {
@@ -19,6 +19,11 @@ export interface DescentGenerationAuditResult {
   floors: GenerationAuditFloorResult[];
 }
 
+export interface AscentGenerationAuditResult {
+  runSeed: number;
+  floors: GenerationAuditFloorResult[];
+}
+
 const DESCENT_FLOOR_COUNT = 26;
 const LONG_RUN_CONFIG = { totalFloors: DESCENT_FLOOR_COUNT, runDepthTier: 'deep' as const };
 
@@ -26,7 +31,7 @@ function positionKey(pos: Vec2): string {
   return `${pos.x},${pos.y}`;
 }
 
-function auditFloor(state: GameState, expectedOrdinal: number): GenerationAuditFloorResult {
+function auditFloor(state: GameState, expectedOrdinal: number, leg: GameState['leg']): GenerationAuditFloorResult {
   const violations: string[] = [];
   const depth = state.floor;
 
@@ -37,7 +42,7 @@ function auditFloor(state: GameState, expectedOrdinal: number): GenerationAuditF
     violations.push('map rooms are empty');
   }
 
-  const regenerated = generateMap(deriveFloorSeed(state.runSeed, depth, 'descent'));
+  const regenerated = generateMap(deriveFloorSeed(state.runSeed, depth, leg));
   if (!regenerated.ok || regenerated.map === undefined) {
     violations.push(`depth ${depth} map regeneration failed; expected successful generation`);
   } else {
@@ -49,8 +54,13 @@ function auditFloor(state: GameState, expectedOrdinal: number): GenerationAuditF
     }
   }
 
-  if (!state.groundItems.some((item) => item.spawnSource !== 'monster_house')) {
+  if (leg === 'ascent' && state.groundItems.length !== 0) {
+    violations.push(`depth ${depth} has ${state.groundItems.length} ground items; expected none on ascent`);
+  } else if (leg === 'descent' && !state.groundItems.some((item) => item.spawnSource !== 'monster_house')) {
     violations.push(`depth ${depth} has no normal ground item; expected at least one non-monster-house item`);
+  }
+  if (leg === 'ascent' && state.map.monsterHouse != null) {
+    violations.push(`depth ${depth} has a monster house; expected none on ascent`);
   }
 
   const eligibleSpecies = getEligibleEnemySpeciesForDepth(depth).map(({ type }) => type);
@@ -127,12 +137,49 @@ export function runDescentGenerationAudit(runSeed: number): DescentGenerationAud
   const floors: GenerationAuditFloorResult[] = [];
 
   for (let expectedOrdinal = 1; expectedOrdinal <= DESCENT_FLOOR_COUNT; expectedOrdinal++) {
-    floors.push(auditFloor(state, expectedOrdinal));
+    floors.push(auditFloor(state, expectedOrdinal, 'descent'));
     if (expectedOrdinal === DESCENT_FLOOR_COUNT) break;
 
     const nextState = advanceRunFloor(state);
     if (nextState === 'runComplete') {
       floors[floors.length - 1].violations.push('descent route completed before depth 26');
+      break;
+    }
+    state = nextState;
+  }
+
+  return { runSeed, floors };
+}
+
+/** Audits the production-generated ascent route from depth 25 through depth 1. */
+export function runAscentGenerationAudit(runSeed: number): AscentGenerationAuditResult {
+  let state = buildFloorState(
+    runSeed,
+    DESCENT_FLOOR_COUNT - 1,
+    0,
+    DESCENT_FLOOR_COUNT + 1,
+    LONG_RUN_CONFIG,
+    undefined,
+    undefined,
+    undefined,
+    'ascent',
+    'depth',
+  );
+  const floors: GenerationAuditFloorResult[] = [];
+
+  for (let depth = DESCENT_FLOOR_COUNT - 1; depth >= 1; depth--) {
+    const expectedOrdinal = 2 * DESCENT_FLOOR_COUNT - depth;
+    floors.push(auditFloor(state, expectedOrdinal, 'ascent'));
+
+    const nextState = advanceRunFloor(state);
+    if (depth === 1) {
+      if (nextState !== 'runComplete') {
+        floors[floors.length - 1].violations.push('ascent route did not complete after depth 1');
+      }
+      break;
+    }
+    if (nextState === 'runComplete') {
+      floors[floors.length - 1].violations.push('ascent route completed before depth 1');
       break;
     }
     state = nextState;
