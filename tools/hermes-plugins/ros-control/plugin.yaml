@@ -1,0 +1,4 @@
+name: ros-control
+version: 1.0.0
+description: Deterministic, LLM-free slash-command dispatch for ROGUE OF SOL Hermes control (ros-start/status/stop/answer).
+author: rogue-of-sun
