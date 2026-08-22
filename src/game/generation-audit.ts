@@ -1,4 +1,5 @@
-import { bfsDistances } from './mapgen';
+import { deriveFloorSeed } from './floor';
+import { bfsDistances, generateMap } from './mapgen';
 import {
   getEligibleEnemySpeciesForDepth,
   getEnemyLevelBandForDepth,
@@ -34,6 +35,22 @@ function auditFloor(state: GameState, expectedOrdinal: number): GenerationAuditF
   }
   if (state.map.rooms.length === 0) {
     violations.push('map rooms are empty');
+  }
+
+  const regenerated = generateMap(deriveFloorSeed(state.runSeed, depth, 'descent'));
+  if (!regenerated.ok || regenerated.map === undefined) {
+    violations.push(`depth ${depth} map regeneration failed; expected successful generation`);
+  } else {
+    if (JSON.stringify(regenerated.map.terrain) !== JSON.stringify(state.map.terrain)) {
+      violations.push(`depth ${depth} regenerated map terrain differs; expected byte-identical terrain`);
+    }
+    if (JSON.stringify(regenerated.map.rooms) !== JSON.stringify(state.map.rooms)) {
+      violations.push(`depth ${depth} regenerated map rooms differ; expected byte-identical rooms`);
+    }
+  }
+
+  if (!state.groundItems.some((item) => item.spawnSource !== 'monster_house')) {
+    violations.push(`depth ${depth} has no normal ground item; expected at least one non-monster-house item`);
   }
 
   const eligibleSpecies = getEligibleEnemySpeciesForDepth(depth).map(({ type }) => type);
