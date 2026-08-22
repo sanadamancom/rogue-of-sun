@@ -29,6 +29,7 @@ import {
 import { deriveFloorSeed, DEFAULT_RUN_CONFIG, normalizeRunConfig } from './floor';
 import { floorVisitOrdinal, transitionFloor } from './floor-transition';
 import { applyEnemyLevelMultiplier, ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
+import { resolveEnemySpawnsForDepth } from './enemy-depth-bands';
 import {
   createEmptyInventory,
   drawGroundItemCount,
@@ -56,7 +57,7 @@ import {
 } from './progression';
 import { INITIAL_ABILITY_VALUES } from './ability';
 import { normalizeIdentifiedGeneralItemIds } from './item-identification';
-import { Actor, ActiveEffect, AbilityValues, AccessoryId, CardId, ElementId, EnchantmentId, EnemyActor, EnemyType, EquipmentInstance, GameState, GroundItem, Inventory, ItemId, TrapTile, Vec2, WeaponId, ArmorId, Direction8, RunConfig } from './types';
+import { Actor, ActiveEffect, AbilityValues, AccessoryId, CardId, ElementId, EnchantmentId, EnemyActor, EnemyLevel, EnemyType, EquipmentInstance, GameState, GroundItem, Inventory, ItemId, TrapTile, Vec2, WeaponId, ArmorId, Direction8, RunConfig } from './types';
 
 /** Generates a random run seed without relying on Math.random's implicit global state at call sites. */
 export function randomSeed(): number {
@@ -155,11 +156,17 @@ export function chooseSpecies(count: number, rng: () => number, pool: EnemyType[
   return types;
 }
 
-export function buildEnemies(positions: Vec2[], types: EnemyType[], spawnTurn: number, idOffset: number = 0): EnemyActor[] {
+export function buildEnemies(
+  positions: Vec2[],
+  types: EnemyType[],
+  spawnTurn: number,
+  idOffset: number = 0,
+  levels?: EnemyLevel[],
+): EnemyActor[] {
   return positions.map((pos, i) => {
     const type = types[i];
     const def = ENEMY_DEFINITIONS[type];
-    const level = 1;
+    const level = levels?.[i] ?? 1;
     const stats = applyEnemyLevelMultiplier(def, level);
     return createInitialEnemy(type, pos, stats.hp, stats.attack, spawnTurn, idOffset + i, stats.defense, stats.accuracy, stats.evasion, level);
   });
@@ -215,6 +222,7 @@ export function buildFloorState(
   enemyCount?: number,
   forcedSpecies?: EnemyType[],
   leg: GameState['leg'] = 'descent',
+  enemySpawnPath: 'legacy' | 'depth' = 'legacy',
 ): GameState {
   const incomingFoodDroughtFloors = carry?.foodDroughtFloors ?? 0;
   const floorSeed = deriveFloorSeed(runSeed, floor, leg);
@@ -227,6 +235,13 @@ export function buildFloorState(
 
   const map = result.map;
   const placementRng = createRng(floorSeed ^ 0x51ed270b);
+  // The long-run transition path resolves its initial roster from the
+  // canonical depth table on a dedicated stream. The legacy path remains
+  // the default so createInitialState/advanceToNextFloor keep their exact
+  // three-floor spawning contract.
+  const depthSpawns = enemySpawnPath === 'depth'
+    ? resolveEnemySpawnsForDepth(floor, createRng(floorSeed ^ 0xd4b82f19))
+    : null;
   // Phase 15.5: an explicit enemyCount override (roster preview, tests)
   // always wins; otherwise resolve this floor's normal-play count from
   // mapgen.ts's ENEMY_COUNT_BY_FLOOR, falling back to the flat
@@ -234,7 +249,7 @@ export function buildFloorState(
   // (defensive only — TOTAL_FLOORS is 3, so every normal floor is
   // covered). This is the only place normal generation resolves enemy
   // count; choosePlacement itself is unaware of floor numbers.
-  const resolvedEnemyCount = enemyCount ?? ENEMY_COUNT_BY_FLOOR[floor] ?? ENEMY_COUNT_PER_FLOOR;
+  const resolvedEnemyCount = enemyCount ?? depthSpawns?.initialEnemyCount ?? ENEMY_COUNT_BY_FLOOR[floor] ?? ENEMY_COUNT_PER_FLOOR;
   const placement = choosePlacement(map, placementRng, resolvedEnemyCount);
 
   // Phase 17.2: dark-room selection is a pure function of (floorSeed,
@@ -277,9 +292,11 @@ export function buildFloorState(
   // placementRng) so choosing species never perturbs the existing
   // placement-position RNG sequence/determinism.
   const speciesRng = createRng(floorSeed ^ 0x8f3c9d21);
-  const floorPool = getEnemyPoolForFloor(floor);
-  const types = forcedSpecies ?? chooseSpecies(placement.enemies.length, speciesRng, floorPool);
-  const enemies: EnemyActor[] = buildEnemies(placement.enemies, types, turn).map((e) => ({ ...e, spawnSource: 'normal' as const }));
+  const types = forcedSpecies ?? depthSpawns?.spawns.map((spawn) => spawn.type)
+    ?? chooseSpecies(placement.enemies.length, speciesRng, getEnemyPoolForFloor(floor));
+  const levels = forcedSpecies ? undefined : depthSpawns?.spawns.map((spawn) => spawn.level);
+  const enemies: EnemyActor[] = buildEnemies(placement.enemies, types, turn, 0, levels)
+    .map((e) => ({ ...e, spawnSource: 'normal' as const }));
 
   // Phase 15.4b random ground item generation (replaces the previous
   // per-item, per-floor-condition guaranteed-placement blocks — see
@@ -1044,6 +1061,7 @@ export function advanceRunFloor(state: GameState, events?: GameEvent[]): GameSta
     undefined,
     undefined,
     transition.leg,
+    'depth',
   );
   resetPerFloorEquipmentEffectState(nextState);
   if (nextState.equippedAccessoryId === 'grigri_glasses') {
