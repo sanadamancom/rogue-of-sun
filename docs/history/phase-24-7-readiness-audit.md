@@ -97,3 +97,7 @@ guardian instanceのdeath resolutionが成立した1回だけ、対応する封�
 ## 8. readiness結論
 
 既存のdepth/leg availability、EnemyLevel、EquipmentInstance、special-room候補排他、独立RNGの各patternを再利用できるため、architecture上の阻害要因はない。一方、番人species/level policyと封印部屋の最終geometry/interactionはrepositoryから導けないproduct/game-design判断である。これらを解消後、上記slice順でPhase 24.7を開始できる。
+
+## 9. 決定（human decision, 2026-08-22）
+
+上記§3・§4の3件の`NEEDS_DESIGN_DECISION`について、A案（本audit提示の実装候補をそのまま採用）が確定した。番人speciesは既存`golem`再利用、levelは`getEnemyLevelBandForDepth('golem', depth)`のcanonical band/weight、封印部屋geometryは内寸5×5以上の既存leaf room昇格・入口blocking door・撃破前pickup不可。詳細は[`rogue-of-sun-phase24-6c-long-run-balance-design.md`](../planning/rogue-of-sun-phase24-6c-long-run-balance-design.md) §19「`24.7`封印部屋・番人設計の確定」を正本とする。本decisionにより`24.7a`から着手可能。

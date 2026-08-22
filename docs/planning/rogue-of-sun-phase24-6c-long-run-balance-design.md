@@ -427,7 +427,7 @@ Phase 24.6c2では共通statsだけを実装し、通し測定後に必要な種
 
 - S防具3種は下降19～26Fの通常loot。
 - `black_armor`は下降19～25Fの封印部屋event限定。
-- 封印部屋は1run最大1室、専用RNG、番人撃破時の確定報酬。pityなし。
+- 封印部屋は1run最大1室、専用RNG、番人撃破時の確定報酬。pityなし。番人species・level policy・部屋geometry/interactionは§19「`24.7`封印部屋・番人設計の確定」参照。
 - `mail_of_dark`の現行no-op効果は暗い部屋で実効防御+2とする案をPhase 24.6c4で検証する。
 
 ---
@@ -793,3 +793,13 @@ enemy drop候補checkも両legについて`generation-audit.ts`へ追加済み�
 ### §18.3層Aのseed 1～1000 correctness gate実行（2026-08-22）
 
 slice 1～5で実装した全correctness check（map決定性、配置重複なし、通常敵spawn、通常床item／モンスターハウス、増援周期candidate、enemy drop候補、byte-identical再現）を、§18.3が定めるseed 1～1000・下降26＋帰還25の51000 floor全件に対して実行した。日常のfast test suite（`npm test`）はseed 1～50のpilot subsetのまま維持し、`src/game/__tests__/phase-24-6c5-generation-audit.contract.test.ts`（`npm run audit:layer-a`でのみ実行、`vitest.config.ts`のdefault excludeで`npm test`からは除外）としてfull-scale contract checkを追加した。結果はseed 1～1000・両leg・全51000 floorでviolation 0件。Otenco関連checkのみ、前述のとおり`24.8`待ちでscope外のまま残る。
+
+### `24.7`封印部屋・番人設計の確定（human decision, 2026-08-22）
+
+`docs/history/phase-24-7-readiness-audit.md`（docs-only、mode: docs-only、base HEAD `c27e454`）が提起した3件の`NEEDS_DESIGN_DECISION`（番人species、番人level policy、封印部屋geometry/interaction）について、userへ判断を仰いだ結果、readiness auditが提示したA案（既存repository patternの再利用案）をそのまま採用することが確定した。
+
+1. **番人species：既存`golem`を再利用する。** 新規speciesは追加しない。`golem`のcombat／AI／stats（HP 10、attack 12、defense 1、accuracy 90、evasion 0、EXP 3、`golem_charge`）は変更しない。通常spawn roster・通常spawn RNG・通常golem撃破の報酬trigger（`black_armor`付与）とは分離し、`spawnSource`等でguardian専用instanceと識別できる形で通常golemと混同しない実装とする。golemは既存のconstruct/heavy役であり、封鎖された希少防具の番人という役割説明とscopeを変更しない。
+2. **番人level policy：`getEnemyLevelBandForDepth('golem', depth)`のcurrent-depth canonical band／weightをそのまま使う。** 番人専用の固定levelや専用level ruleは新設しない。`applyEnemyLevelMultiplier`・EXP算出・既存combat／AIパスをそのまま通し、新しいstatsやbalance数値を捏造しない（19FはLv1 100%、20～23FはLv1/Lv2 = 30/70、24～25FはLv2/Lv3 = 70/30。readiness audit §3.1参照）。
+3. **封印部屋geometry／interaction：readiness audit §4.1の実装候補をそのまま採用する。** 既存map生成後の内寸5×5以上・room connection graph次数1（leaf room）の通常roomをspecial-roomへ昇格させる方式とし、別map断片の後付けや到達不能な隔離領域は新設しない。入口は実際にblocking doorとして扱い、guardian撃破前は`black_armor`の報酬pickupを物理的に防ぐ（room侵入だけでは報酬を成立させない、§6の報酬契約と整合させる）。room内には通常敵・通常item・罠・stairsを置かず、通常配置側がこのspecial roomを除外する。monster houseとのspecial-room tag排他（readiness audit §4.2）も含めて採用する。
+
+上記により、readiness auditが定めた`24.7a`～`24.7e`のslice順（readiness audit §7参照）で`24.7`の実装に着手できる。`p = 0.05`のprovisional発生率は引き続き`24.7d`のseed 1～1000実測で調整対象とし、本decisionでは固定しない。
