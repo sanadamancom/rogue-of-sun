@@ -27,6 +27,7 @@ import {
   selectMonsterHouseRewardPositions,
 } from './monster-house';
 import { deriveFloorSeed, DEFAULT_RUN_CONFIG, normalizeRunConfig } from './floor';
+import { floorVisitOrdinal, transitionFloor } from './floor-transition';
 import { applyEnemyLevelMultiplier, ENEMY_DEFINITIONS, ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from './enemy-def';
 import {
   createEmptyInventory,
@@ -923,8 +924,8 @@ export function createInitialState(runSeed: number, runConfig?: RunConfig): Game
  * change (this feature's actual game-mechanical effect) must never
  * depend on whether a caller happens to want the message.
  */
-export function advanceToNextFloor(state: GameState, events?: GameEvent[]): GameState {
-  const carry: CarryOverStats = {
+function buildCarryOverStats(state: GameState): CarryOverStats {
+  return {
     hp: state.player.hp,
     maxHp: state.player.maxHp,
     attack: state.player.attack,
@@ -983,6 +984,10 @@ export function advanceToNextFloor(state: GameState, events?: GameEvent[]): Game
     equippedAccessoryId: state.equippedAccessoryId ?? null,
     equippedAccessoryInstanceId: state.equippedAccessoryInstanceId ?? null,
   };
+}
+
+export function advanceToNextFloor(state: GameState, events?: GameEvent[]): GameState {
+  const carry = buildCarryOverStats(state);
   const nextState = buildFloorState(
     state.runSeed,
     state.floor + 1,
@@ -1002,6 +1007,43 @@ export function advanceToNextFloor(state: GameState, events?: GameEvent[]): Game
   // onto nextState, so this reads nextState.equippedAccessoryId (never
   // the pre-transition state's) to decide whether it's still equipped
   // on the new floor.
+  if (nextState.equippedAccessoryId === 'grigri_glasses') {
+    const localEvents: GameEvent[] = [];
+    let revealedCount = 0;
+    for (const trap of nextState.traps ?? []) {
+      if (revealTrap(trap, localEvents, 'grigri_glasses')) revealedCount++;
+    }
+    localEvents.push({ type: 'grigri_glasses_activated', revealedCount });
+    if (events) events.push(...localEvents);
+  }
+  return nextState;
+}
+
+/**
+ * Builds the next floor on the run's descent/ascent route. This is kept
+ * separate from the legacy descent-only advanceToNextFloor wrapper until
+ * the run phase logic is migrated to the long-run structure.
+ */
+export function advanceRunFloor(state: GameState, events?: GameEvent[]): GameState | 'runComplete' {
+  const transition = transitionFloor({
+    depth: state.floor,
+    leg: state.leg,
+    totalFloors: state.totalFloors,
+  });
+  if (transition === 'runComplete') return transition;
+
+  const nextState = buildFloorState(
+    state.runSeed,
+    transition.depth,
+    state.turn,
+    floorVisitOrdinal({ ...transition, totalFloors: state.totalFloors }),
+    { totalFloors: state.totalFloors, runDepthTier: state.runDepthTier },
+    buildCarryOverStats(state),
+    undefined,
+    undefined,
+    transition.leg,
+  );
+  resetPerFloorEquipmentEffectState(nextState);
   if (nextState.equippedAccessoryId === 'grigri_glasses') {
     const localEvents: GameEvent[] = [];
     let revealedCount = 0;
