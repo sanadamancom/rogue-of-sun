@@ -1,5 +1,6 @@
 import {
   choosePlacement,
+  computeStartAndExit,
   chooseGroundItemPosition,
   chooseTrapPosition,
   roomIndexContaining,
@@ -254,7 +255,35 @@ export function buildFloorState(
   // covered). This is the only place normal generation resolves enemy
   // count; choosePlacement itself is unaware of floor numbers.
   const resolvedEnemyCount = enemyCount ?? depthSpawns?.initialEnemyCount ?? ENEMY_COUNT_BY_FLOOR[floor] ?? ENEMY_COUNT_PER_FLOOR;
-  const placement = choosePlacement(map, placementRng, resolvedEnemyCount);
+  const { start, exit } = computeStartAndExit(map);
+
+  /**
+   * Phase 24.7e1: decide and tag this floor's sealed room exactly once using
+   * its independent RNG stream, without perturbing any other stream's
+   * consumption order, and thread the run cap. Computed before
+   * choosePlacement (Phase 24.7e2) so the sealed room's interior cells can
+   * be excluded from normal enemy placement below; reordering when this
+   * independent stream is created never perturbs placementRng's own
+   * consumption count/order. Phase 24.7e2 also excludes these cells from
+   * every trap/ground-item placement further down. Guardian spawning,
+   * rewards, blocking-door enforcement, and telemetry remain deferred to a
+   * later slice.
+   */
+  const sealedRoomRng = createSealedRoomRng(floorSeed, createRng);
+  map.sealedRoom = buildSealedRoomFloorState(
+    map,
+    floor,
+    leg,
+    start,
+    exit,
+    incomingSealedRoomGeneratedThisRun,
+    [],
+    sealedRoomRng,
+  );
+  const sealedRoomExclusionCells: Vec2[] = map.sealedRoom
+    ? computeMonsterHouseCandidateCells(map, map.sealedRoom.roomIndex, [])
+    : [];
+  const placement = choosePlacement(map, placementRng, resolvedEnemyCount, sealedRoomExclusionCells);
 
   // Phase 17.2: dark-room selection is a pure function of (floorSeed,
   // floor, map.rooms, start, exit) — no rng() call, so it cannot perturb
@@ -264,25 +293,6 @@ export function buildFloorState(
   // matches this field's doc comment on GameMap (owned by the map/floor
   // state, not derived ad hoc by the renderer).
   map.darkRoomIndex = chooseDarkRoomIndex(map, floorSeed, floor, placement.start, placement.exit);
-
-  /**
-   * Phase 24.7e1: decide and tag this floor's sealed room exactly once using
-   * its independent RNG stream, without perturbing any other stream's
-   * consumption order, and thread the run cap. Guardian spawning, rewards,
-   * blocking-door enforcement, normal-placement exclusion, and telemetry are
-   * deferred to a later slice.
-   */
-  const sealedRoomRng = createSealedRoomRng(floorSeed, createRng);
-  map.sealedRoom = buildSealedRoomFloorState(
-    map,
-    floor,
-    leg,
-    placement.start,
-    placement.exit,
-    incomingSealedRoomGeneratedThisRun,
-    [],
-    sealedRoomRng,
-  );
 
   // Phase 21.2: monster house state is decided exactly once here, using
   // its own independent RNG stream (createMonsterHouseRng, XOR constant
@@ -356,7 +366,7 @@ export function buildFloorState(
   // ground-item generation stay completely untouched by their existence
   // — dedicated enemies avoid trap/item positions, never the reverse.
   const traps: TrapTile[] = [];
-  const slowTrapExclusions = [placement.start, placement.exit, ...placement.enemies];
+  const slowTrapExclusions = [placement.start, placement.exit, ...placement.enemies, ...sealedRoomExclusionCells];
   const slowTrapRng = createRng(floorSeed ^ 0x1a6f83c5);
   const slowTrapPos = chooseTrapPosition(map, map.rooms, placement.start, placement.exit, slowTrapExclusions, slowTrapRng);
   // Phase 24.4e1: this slot's *position* selection above is completely
@@ -377,7 +387,7 @@ export function buildFloorState(
   // slow_trap's (fixed_specification.poison_trap.placement's "可能なら
   // slow_trapとは別の部屋へ配置する") — unchanged from the pre-15.4b
   // logic, just with a groundItems-free exclusion list (see above).
-  const poisonTrapExclusions = [placement.start, placement.exit, ...placement.enemies, ...traps.map((t) => t.pos)];
+  const poisonTrapExclusions = [placement.start, placement.exit, ...placement.enemies, ...traps.map((t) => t.pos), ...sealedRoomExclusionCells];
   const poisonTrapRng = createRng(floorSeed ^ 0x3f9c5e82);
   const slowTrapRoomIndex = slowTrapPos ? roomIndexContaining(map.rooms, slowTrapPos) : -1;
   const otherRooms = slowTrapRoomIndex === -1 ? map.rooms : map.rooms.filter((_, i) => i !== slowTrapRoomIndex);
@@ -414,7 +424,7 @@ export function buildFloorState(
     const trapSlot3Rng = createRng(floorSeed ^ 0x73d5a8c1);
     const trapSlot3Pos = chooseTrapPosition(
       map, map.rooms, placement.start, placement.exit,
-      [placement.start, placement.exit, ...placement.enemies, ...traps.map((t) => t.pos)],
+      [placement.start, placement.exit, ...placement.enemies, ...traps.map((t) => t.pos), ...sealedRoomExclusionCells],
       trapSlot3Rng,
     );
     if (trapSlot3Pos) {
@@ -427,7 +437,7 @@ export function buildFloorState(
     const trapSlot4Rng = createRng(floorSeed ^ 0x2be79164);
     const trapSlot4Pos = chooseTrapPosition(
       map, map.rooms, placement.start, placement.exit,
-      [placement.start, placement.exit, ...placement.enemies, ...traps.map((t) => t.pos)],
+      [placement.start, placement.exit, ...placement.enemies, ...traps.map((t) => t.pos), ...sealedRoomExclusionCells],
       trapSlot4Rng,
     );
     if (trapSlot4Pos) {
@@ -579,7 +589,7 @@ export function buildFloorState(
     const pos = chooseGroundItemPosition(
       map,
       placement.start,
-      [placement.start, placement.exit, ...placement.enemies, ...traps.map((t) => t.pos)],
+      [placement.start, placement.exit, ...placement.enemies, ...traps.map((t) => t.pos), ...sealedRoomExclusionCells],
       foodGuaranteePlacementRng,
     );
     groundItems.push({ id: groundItems.length, itemId: 'chocolate', pos });
@@ -591,6 +601,7 @@ export function buildFloorState(
       ...placement.enemies,
       ...traps.map((t) => t.pos),
       ...groundItems.map((item) => item.pos),
+      ...sealedRoomExclusionCells,
     ];
     const pos = chooseGroundItemPosition(map, placement.start, exclusions, itemPlacementRng);
     if (isWeaponOrArmorId(itemId)) {

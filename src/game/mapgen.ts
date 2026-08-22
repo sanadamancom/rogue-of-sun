@@ -600,6 +600,35 @@ export const ENEMY_COUNT_BY_FLOOR: Record<number, number> = {
 };
 
 /**
+ * Computes the deterministic start and exit positions for `map` without
+ * consuming RNG. Reused by `choosePlacement` and by Phase 24.7e2 floor
+ * construction so a sealed room can be selected before enemy placement.
+ */
+export function computeStartAndExit(map: GameMap): {
+  start: Vec2;
+  exit: Vec2;
+  distFromStart: Map<string, number>;
+} {
+  const start = roomCenter(map.rooms[0]);
+  const distFromStart = bfsDistances(map, start);
+  const positionKey = (p: Vec2) => `${p.x},${p.y}`;
+
+  let exitRoomIndex = 1 % map.rooms.length;
+  let bestDist = -1;
+  for (let i = 0; i < map.rooms.length; i++) {
+    if (i === 0) continue;
+    const center = roomCenter(map.rooms[i]);
+    const d = distFromStart.get(positionKey(center)) ?? -1;
+    if (d > bestDist) {
+      bestDist = d;
+      exitRoomIndex = i;
+    }
+  }
+
+  return { start, exit: roomCenter(map.rooms[exitRoomIndex]), distFromStart };
+}
+
+/**
  * Chooses start (in the first room), exit (in the room whose center is
  * farthest by floor-path distance from start, guaranteed to be a
  * different room), and `count` enemy tiles that are each reachable, not on
@@ -617,23 +646,10 @@ export function choosePlacement(
   map: GameMap,
   rng: () => number,
   count: number = ENEMY_COUNT_PER_FLOOR,
+  excludeCells: Vec2[] = [],
 ): Placement {
-  const start = roomCenter(map.rooms[0]);
-  const distFromStart = bfsDistances(map, start);
+  const { start, exit, distFromStart } = computeStartAndExit(map);
   const key = (p: Vec2) => `${p.x},${p.y}`;
-
-  let exitRoomIndex = 1 % map.rooms.length;
-  let bestDist = -1;
-  for (let i = 0; i < map.rooms.length; i++) {
-    if (i === 0) continue;
-    const center = roomCenter(map.rooms[i]);
-    const d = distFromStart.get(key(center)) ?? -1;
-    if (d > bestDist) {
-      bestDist = d;
-      exitRoomIndex = i;
-    }
-  }
-  const exit = roomCenter(map.rooms[exitRoomIndex]);
 
   const candidates: Vec2[] = [];
   for (let y = 0; y < map.height; y++) {
@@ -651,9 +667,14 @@ export function choosePlacement(
     }
   }
 
-  if (candidates.length < count) {
+  const excludedKeys = new Set(excludeCells.map(key));
+  const eligibleCandidates = excludeCells.length === 0
+    ? candidates
+    : candidates.filter((candidate) => !excludedKeys.has(key(candidate)));
+
+  if (eligibleCandidates.length < count) {
     throw new Error(
-      `Not enough valid enemy placement candidates: need ${count}, found ${candidates.length}`,
+      `Not enough valid enemy placement candidates: need ${count}, found ${eligibleCandidates.length}`,
     );
   }
 
@@ -661,7 +682,7 @@ export function choosePlacement(
   // remaining candidate and swap it to the front, consuming rng() exactly
   // once per enemy in a fixed order, so results stay reproducible for a
   // given rng sequence regardless of pool size.
-  const pool = candidates.slice();
+  const pool = eligibleCandidates.slice();
   const enemies: Vec2[] = [];
   for (let i = 0; i < count; i++) {
     const remaining = pool.length - i;
