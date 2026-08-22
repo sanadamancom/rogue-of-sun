@@ -40,6 +40,25 @@ describe('Phase 24.6c5 reinforcement cadence candidate audit', () => {
   });
 });
 
+describe('Phase 24.6c5 enemy drop candidate audit', () => {
+  it('finds no enemy drop candidate violations on both legs across seeds 1 through 50', () => {
+    const violations = [];
+    for (let runSeed = 1; runSeed <= 50; runSeed++) {
+      for (const result of [runDescentGenerationAudit(runSeed), runAscentGenerationAudit(runSeed)]) {
+        for (const floor of result.floors) {
+          for (const violation of floor.violations) {
+            if (violation.includes('enemy drop candidate')) {
+              violations.push({ runSeed, depth: floor.depth, violation });
+            }
+          }
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+});
+
 describe('Phase 24.6c5 descent generation audit', () => {
   it('finds no map-determinism or normal-item violations across seeds 1 through 50', () => {
     const violations = [];

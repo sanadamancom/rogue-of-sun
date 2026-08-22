@@ -7,6 +7,7 @@ import {
   resolveSingleEnemySpawnForDepth,
 } from './enemy-depth-bands';
 import { getReinforcementRule } from './reinforcement';
+import { getGroundItemPoolForFloor } from './item-def';
 import { advanceRunFloor, buildFloorState, createInitialState } from './state';
 import type { GameState, Vec2 } from './types';
 
@@ -96,6 +97,12 @@ function auditFloor(state: GameState, expectedOrdinal: number, leg: GameState['l
   const depth = state.floor;
 
   violations.push(...auditReinforcementCadenceCandidates(state.runSeed, depth, leg));
+
+  if ((leg === 'descent' || leg === 'ascent') && getGroundItemPoolForFloor(depth, leg).length === 0) {
+    violations.push(
+      `depth ${depth} leg ${leg} has no enemy drop candidates; expected a non-empty ground item pool`,
+    );
+  }
 
   if (state.map.terrain.length === 0 || state.map.terrain.every((row) => row.length === 0)) {
     violations.push('map terrain is empty');
