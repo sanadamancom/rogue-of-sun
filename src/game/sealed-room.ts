@@ -7,9 +7,10 @@
  * while keeping this module unwired from production floor construction.
  */
 
-import { GameMap, Vec2 } from './types';
+import type { EnemyActor, EnemyLevel, GameMap, Vec2 } from './types';
 import { roomIndexContaining } from './mapgen';
 import { computeMonsterHouseEntryCells } from './monster-house';
+import { getEnemyLevelBandForDepth } from './enemy-depth-bands';
 
 /** Minimum interior width and height required for a sealed-room candidate. */
 export const SEALED_ROOM_MINIMUM_INTERIOR_SIZE = 5;
@@ -70,12 +71,19 @@ export const SEALED_ROOM_OCCURRENCE_PROBABILITY = 0.05;
  * 0x8f31c2a6, sunlight 0x7c3a91e6, monster-house occurrence/selection
  * 0x6b2f4d97, monster-house enemy position 0x2d84b6f1, monster-house enemy
  * species 0x7a19e3c8, monster-house reward position 0x4e7bc218, and
- * monster-house reward selection 0x9f1a5d63. It was also checked against
+ * monster-house reward selection 0x9f1a5d63, and sealed-room guardian level
+ * 0xc13fa9b7. It was also checked against
  * floor-seed-mixed enemy-drop salts 0x5e2f8b41, 0x8b1c4f6d, 0xa47d2c19,
  * 0xd1e9736c, 0x2f7b91d4, 0x6c1e83fa, 0x94b2d1c7, 0xa39f6e52, and
  * 0xe61c8b3d, plus generation-audit salt 0x17c4a9ed.
  */
 export const SEALED_ROOM_RNG_XOR = 0x35ad70e9;
+
+/** Dedicated floor-seed salt for the sealed-room guardian's level roll. */
+export const SEALED_ROOM_GUARDIAN_LEVEL_RNG_XOR = 0xc13fa9b7;
+
+/** Spawn-origin identity reserved for the later production guardian wiring slice. */
+export const SEALED_ROOM_GUARDIAN_SPAWN_SOURCE = 'sealed_room_guardian' as const;
 
 /** Creates this floor's dedicated sealed-room RNG stream. `createRngFn` is injected to avoid a circular import. */
 export function createSealedRoomRng(
@@ -83,6 +91,40 @@ export function createSealedRoomRng(
   createRngFn: (seed: number) => () => number,
 ): () => number {
   return createRngFn(floorSeed ^ SEALED_ROOM_RNG_XOR);
+}
+
+/** Creates an RNG stream independent from sealed-room occurrence and room selection. */
+export function createSealedRoomGuardianLevelRng(
+  floorSeed: number,
+  createRngFn: (seed: number) => () => number,
+): () => number {
+  return createRngFn(floorSeed ^ SEALED_ROOM_GUARDIAN_LEVEL_RNG_XOR);
+}
+
+/** Resolves the canonical golem level for an eligible sealed-room depth. */
+export function resolveSealedRoomGuardianLevel(depth: number, rng: () => number): EnemyLevel {
+  const selection = getEnemyLevelBandForDepth('golem', depth);
+  if (selection === null) {
+    throw new RangeError(`Sealed-room guardian depth is outside the golem appearance window: ${depth}`);
+  }
+
+  const totalWeight = (Object.values(selection.weights) as number[]).reduce((sum, weight) => sum + weight, 0);
+  const roll = rng() * totalWeight;
+  let cumulative = 0;
+  let level: EnemyLevel = 3;
+  for (const candidateLevel of [1, 2, 3] as const) {
+    cumulative += selection.weights[candidateLevel];
+    if (roll < cumulative) {
+      level = candidateLevel;
+      break;
+    }
+  }
+  return level;
+}
+
+/** Returns whether an enemy carries the dedicated sealed-room guardian identity. */
+export function isSealedRoomGuardian(enemy: { spawnSource?: EnemyActor['spawnSource'] }): boolean {
+  return enemy.spawnSource === SEALED_ROOM_GUARDIAN_SPAWN_SOURCE;
 }
 
 export type SealedRoomFloorState = { roomIndex: number } | null;

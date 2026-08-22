@@ -3,6 +3,7 @@ import { ENEMY_COUNT_BY_FLOOR, ENEMY_COUNT_PER_FLOOR, choosePlacement, createRng
 import { advanceToNextFloor, buildRosterPreviewFloorState, createInitialState } from '../state';
 import { ENEMY_TYPES_IN_ORDER, getEnemyPoolForFloor } from '../enemy-def';
 import { deriveFloorSeed } from '../floor';
+import type { EnemyActor } from '../types';
 
 describe('Phase 15.5: ENEMY_COUNT_BY_FLOOR canonical values', () => {
   it('is exactly {1:6, 2:7, 3:8}', () => {
@@ -20,7 +21,7 @@ describe('Phase 15.5: normal generation uses the per-floor count', () => {
   // enemy with spawnSource absent, matching every enemy's default
   // treatment as normal — see monster-house.ts/turn.ts's hidden-check).
   // The expected values themselves (6/7/8) are unchanged.
-  const isNormalEnemy = (e: { spawnSource?: 'normal' | 'monster_house' | 'reinforcement' }) => e.spawnSource !== 'monster_house';
+  const isNormalEnemy = (e: Pick<EnemyActor, 'spawnSource'>) => e.spawnSource !== 'monster_house';
 
   it('floor 1 always generates exactly 6 enemies', () => {
     for (let seed = 0; seed < 60; seed++) {
@@ -171,7 +172,7 @@ describe('Phase 15.5: robustness (1000 seeds per floor, 300 multi-floor runs)', 
     }).not.toThrow();
   });
 
-  const isNormalEnemy = (e: { spawnSource?: 'normal' | 'monster_house' | 'reinforcement' }) => e.spawnSource !== 'monster_house';
+  const isNormalEnemy = (e: Pick<EnemyActor, 'spawnSource'>) => e.spawnSource !== 'monster_house';
 
   it('a full 3-floor run never throws across 300 seeds, and every floor has the correct enemy count', () => {
     for (let seed = 0; seed < 300; seed++) {

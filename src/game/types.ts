@@ -321,9 +321,12 @@ export interface EnemyActor extends Actor {
    * hidden-suppression check): only an enemy explicitly tagged
    * `'monster_house'` can ever be suppressed while its monster house is
    * hidden. Never itself read by combat, AI, or drop logic — purely an
-   * origin tag.
+   * origin tag. `'reinforcement'` identifies a reinforcement enemy, while
+   * `'sealed_room_guardian'` identifies a sealed-room guardian instance
+   * (reserved for Phase 24.7e production wiring). Absent, `'normal'`, and
+   * every other origin remain unaffected.
    */
-  spawnSource?: 'normal' | 'monster_house' | 'reinforcement';
+  spawnSource?: 'normal' | 'monster_house' | 'reinforcement' | 'sealed_room_guardian';
   /**
    * Skeleton-only (Phase 23.1 solar gun element foundation +
    * skeleton revival): which of the two forms this skeleton is
