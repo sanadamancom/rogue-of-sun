@@ -1,5 +1,5 @@
 import { deriveFloorSeed } from './floor';
-import { bfsDistances, createRng, generateMap } from './mapgen';
+import { bfsDistances, choosePlacement, createRng, generateMap } from './mapgen';
 import {
   getEligibleEnemySpeciesForDepth,
   getEnemyLevelBandForDepth,
@@ -10,6 +10,12 @@ import { getReinforcementRule } from './reinforcement';
 import { getGroundItemPoolForFloor } from './item-def';
 import { advanceRunFloor, buildFloorState, createInitialState } from './state';
 import type { GameState, Vec2 } from './types';
+import { buildMonsterHouseFloorState, createMonsterHouseRng } from './monster-house';
+import {
+  buildSealedRoomFloorState,
+  createSealedRoomRng,
+  extractSealedRoomCandidateRooms,
+} from './sealed-room';
 
 export interface GenerationAuditFloorResult {
   depth: number;
@@ -32,6 +38,61 @@ const LONG_RUN_CONFIG = { totalFloors: DESCENT_FLOOR_COUNT, runDepthTier: 'deep'
 const REINFORCEMENT_CANDIDATE_SAMPLE_COUNT = 50;
 // Audit-only salt. This stream is never stored in GameState or used by production generation.
 const REINFORCEMENT_CANDIDATE_AUDIT_SALT = 0x17c4a9ed;
+
+export interface SealedRoomDistributionAuditResult {
+  runSeed: number;
+  generatedFloors: Array<{ depth: number; roomIndex: number; candidateRoomIndices: number[] }>;
+  structuralViolations: string[];
+}
+
+/** Audits one seed's depth 19-25 descent route using canonical generation entry points. */
+export function runSealedRoomDistributionAudit(runSeed: number): SealedRoomDistributionAuditResult {
+  const generatedFloors: SealedRoomDistributionAuditResult['generatedFloors'] = [];
+  const structuralViolations: string[] = [];
+  let alreadyGeneratedThisRun = false;
+
+  for (let depth = 19; depth <= 25; depth++) {
+    const floorSeed = deriveFloorSeed(runSeed, depth, 'descent');
+    const generated = generateMap(floorSeed);
+    if (!generated.ok || generated.map === undefined) {
+      structuralViolations.push(`depth ${depth} map generation failed`);
+      continue;
+    }
+
+    const map = generated.map;
+    const placement = choosePlacement(map, createRng(floorSeed ^ 0x51ed270b), getEnemyPopulationForDepth(depth).initialEnemyCount);
+    const monsterHouse = buildMonsterHouseFloorState(
+      map,
+      depth,
+      'descent',
+      placement.start,
+      placement.exit,
+      createMonsterHouseRng(floorSeed, createRng),
+    );
+    const excludedRoomIndices = monsterHouse === null ? [] : [monsterHouse.roomIndex];
+    const candidates = extractSealedRoomCandidateRooms(map, placement.start, placement.exit, excludedRoomIndices);
+    const sealedRoom = buildSealedRoomFloorState(
+      map,
+      depth,
+      'descent',
+      placement.start,
+      placement.exit,
+      alreadyGeneratedThisRun,
+      excludedRoomIndices,
+      createSealedRoomRng(floorSeed, createRng),
+    );
+    if (sealedRoom === null) continue;
+    if (!candidates.includes(sealedRoom.roomIndex)) {
+      structuralViolations.push(`depth ${depth} selected non-candidate room ${sealedRoom.roomIndex}`);
+    }
+    generatedFloors.push({ depth, roomIndex: sealedRoom.roomIndex, candidateRoomIndices: candidates });
+    alreadyGeneratedThisRun = true;
+    break;
+  }
+
+  if (generatedFloors.length > 1) structuralViolations.push('sealed room generated more than once in one run');
+  return { runSeed, generatedFloors, structuralViolations };
+}
 
 type ReinforcementRuleLookup = typeof getReinforcementRule;
 

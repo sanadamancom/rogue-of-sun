@@ -1449,9 +1449,11 @@ export interface GroundItem {
    * suite, where this field is simply absent — is treated as `'normal'`.
    * Absent/undefined behaves identically to `'normal'`. Never itself read
    * by pickup/inventory/equipment logic — purely an origin tag, mirroring
-   * EnemyActor.spawnSource's Phase 21.4 pattern.
+   * EnemyActor.spawnSource's Phase 21.4 pattern. Phase 24.7d reserves
+   * `'sealed_room_reward'` for the sealed-room guardian's reward ground
+   * item; production generation does not set it until Phase 24.7e.
    */
-  spawnSource?: 'normal' | 'monster_house';
+  spawnSource?: 'normal' | 'monster_house' | 'sealed_room_reward';
 }
 
 export type PlayerAction =

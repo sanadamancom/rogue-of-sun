@@ -7,10 +7,11 @@
  * while keeping this module unwired from production floor construction.
  */
 
-import type { EnemyActor, EnemyLevel, GameMap, Vec2 } from './types';
+import type { EnemyActor, EnemyLevel, EquipmentInstance, GameMap, GroundItem, Vec2 } from './types';
 import { roomIndexContaining } from './mapgen';
 import { computeMonsterHouseEntryCells } from './monster-house';
 import { getEnemyLevelBandForDepth } from './enemy-depth-bands';
+import { mintEquipmentInstance } from './equipment-instance';
 
 /** Minimum interior width and height required for a sealed-room candidate. */
 export const SEALED_ROOM_MINIMUM_INTERIOR_SIZE = 5;
@@ -125,6 +126,29 @@ export function resolveSealedRoomGuardianLevel(depth: number, rng: () => number)
 /** Returns whether an enemy carries the dedicated sealed-room guardian identity. */
 export function isSealedRoomGuardian(enemy: { spawnSource?: EnemyActor['spawnSource'] }): boolean {
   return enemy.spawnSource === SEALED_ROOM_GUARDIAN_SPAWN_SOURCE;
+}
+
+/** Mints the guardian's deterministic one-individual reward after its defeat. */
+export function generateSealedRoomGuardianReward(
+  nextEquipmentInstanceId: number,
+  nextGroundItemId: number,
+  rewardPosition: Vec2,
+  guardianDefeated: boolean,
+  alreadyGenerated: boolean,
+): { instance: EquipmentInstance; groundItem: GroundItem } | null {
+  if (!guardianDefeated || alreadyGenerated) return null;
+
+  const instance = mintEquipmentInstance(nextEquipmentInstanceId, 'black_armor');
+  return {
+    instance,
+    groundItem: {
+      id: nextGroundItemId,
+      itemId: 'black_armor',
+      pos: rewardPosition,
+      equipmentInstanceId: instance.instanceId,
+      spawnSource: 'sealed_room_reward',
+    },
+  };
 }
 
 export type SealedRoomFloorState = { roomIndex: number } | null;

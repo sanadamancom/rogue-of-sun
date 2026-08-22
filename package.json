@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "audit:layer-a": "vitest run src/game/__tests__/phase-24-6c5-generation-audit.contract.test.ts",
+    "audit:sealed-room": "vitest run src/game/__tests__/phase-24-7d-sealed-room-distribution.contract.test.ts",
     "typecheck": "tsc -b --noEmit"
   },
   "devDependencies": {

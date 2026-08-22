@@ -304,7 +304,9 @@ export type RunEventPayload =
   | { type: 'curse_lock_rejected'; operation: 'unequip' | 'equip_swap' | 'place' | 'discard' | 'solar_forge' | 'star_transform'; equipmentInstanceId?: string; itemId?: WeaponId | ArmorId }
   | { type: 'equipment_uncursed'; source: 'temperance'; equipmentInstanceId: string; itemId: WeaponId | ArmorId }
   | { type: 'cursed_equipment_discarded'; equipmentInstanceId: string; itemId: WeaponId | ArmorId; action: 'place' | 'discard' }
-  | { type: 'cursed_equipment_floor_transition' };
+  | { type: 'cursed_equipment_floor_transition' }
+  /** Reserved for Phase 24.7e production wiring; no code path emits it in this slice. */
+  | { type: 'sealed_room_reward_generated'; equipmentInstanceId: string; itemId: 'black_armor' };
 
 export type RunEvent = RunEventCommon & RunEventPayload;
 
