@@ -1,0 +1,75 @@
+/**
+ * Phase 24.7a: sealed-room eligibility and floor-state decision.
+ *
+ * Pure, Phaser-independent logic only - not wired into production floor
+ * construction, GameState, save schema, telemetry, UI, or turn processing.
+ * Candidate-room extraction is deliberately deferred to Phase 24.7b; callers
+ * provide the already-computed candidate room indices.
+ */
+
+/** Sealed rooms are descent-only, from depth 19 through 25 inclusive. */
+export const SEALED_ROOM_MINIMUM_DEPTH = 19;
+export const SEALED_ROOM_MAXIMUM_DEPTH = 25;
+
+/** Returns whether `depth` and `leg` are eligible to roll for a sealed room. Pure; consumes no RNG. */
+export function isSealedRoomEligibleFloor(depth: number, leg: 'descent' | 'ascent'): boolean {
+  return leg === 'descent' && depth >= SEALED_ROOM_MINIMUM_DEPTH && depth <= SEALED_ROOM_MAXIMUM_DEPTH;
+}
+
+/** Provisional per-eligible-floor occurrence probability (Phase 24.7a). */
+export const SEALED_ROOM_OCCURRENCE_PROBABILITY = 0.05;
+
+/**
+ * Phase 24.7a: derives this floor's independent sealed-room RNG stream from
+ * `floorSeed`, using a dedicated XOR constant checked against every existing
+ * floor-seed-derived stream salt: placement 0x51ed270b, depth enemy roster
+ * 0xd4b82f19, species 0x8f3c9d21, slow trap 0x1a6f83c5, trap type slot 1
+ * 0x6a3fc19d, poison trap 0x3f9c5e82, trap type slot 2 0x9b1ea472,
+ * trap slot 3 0x73d5a8c1, trap type slot 3 0xc8462f5b, trap slot 4
+ * 0x2be79164, trap type slot 4 0xf52c4a07, card category 0x2f7b91d4,
+ * card rarity 0x6c1e83fa, card body 0x94b2d1c7, accessory rank
+ * 0xa39f6e52, accessory item 0xe61c8b3d, item placement 0x91b6d8e4,
+ * equipment curse 0xc7d4a19e, equipment definition 0xd4e8a273, item count
+ * 0xa3c17f05, item selection 0x5c2e91d3, food-guarantee placement
+ * 0x8f31c2a6, sunlight 0x7c3a91e6, monster-house occurrence/selection
+ * 0x6b2f4d97, monster-house enemy position 0x2d84b6f1, monster-house enemy
+ * species 0x7a19e3c8, monster-house reward position 0x4e7bc218, and
+ * monster-house reward selection 0x9f1a5d63. It was also checked against
+ * floor-seed-mixed enemy-drop salts 0x5e2f8b41, 0x8b1c4f6d, 0xa47d2c19,
+ * 0xd1e9736c, 0x2f7b91d4, 0x6c1e83fa, 0x94b2d1c7, 0xa39f6e52, and
+ * 0xe61c8b3d, plus generation-audit salt 0x17c4a9ed.
+ */
+export const SEALED_ROOM_RNG_XOR = 0x35ad70e9;
+
+/** Creates this floor's dedicated sealed-room RNG stream. `createRngFn` is injected to avoid a circular import. */
+export function createSealedRoomRng(
+  floorSeed: number,
+  createRngFn: (seed: number) => () => number,
+): () => number {
+  return createRngFn(floorSeed ^ SEALED_ROOM_RNG_XOR);
+}
+
+export type SealedRoomFloorState = { roomIndex: number } | null;
+
+/**
+ * Decides this floor's sealed-room state in the fixed order: eligibility,
+ * run-wide cap, candidate availability, occurrence roll, then uniform room
+ * selection. Ineligible, already-satisfied, and candidate-empty cases consume
+ * no RNG; a failed roll consumes one call and a successful decision two.
+ */
+export function decideSealedRoomFloorState(
+  depth: number,
+  leg: 'descent' | 'ascent',
+  alreadyGeneratedThisRun: boolean,
+  candidateRoomIndices: number[],
+  rng: () => number,
+): SealedRoomFloorState {
+  if (!isSealedRoomEligibleFloor(depth, leg)) return null;
+  if (alreadyGeneratedThisRun) return null;
+  if (candidateRoomIndices.length === 0) return null;
+
+  if (rng() >= SEALED_ROOM_OCCURRENCE_PROBABILITY) return null;
+
+  const pickIndex = Math.floor(rng() * candidateRoomIndices.length);
+  return { roomIndex: candidateRoomIndices[pickIndex] };
+}
