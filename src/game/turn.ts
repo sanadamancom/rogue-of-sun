@@ -28,6 +28,7 @@ import { GameEvent } from './events';
 import { applyExperienceGain, getLevel } from './progression';
 import { roomIndexContaining, createRng, ENEMY_COUNT_BY_FLOOR, ENEMY_COUNT_PER_FLOOR } from './mapgen';
 import { getReinforcementRule } from './reinforcement';
+import { getEnemyPopulationForDepth, resolveSingleEnemySpawnForDepth } from './enemy-depth-bands';
 import { getPowerDamageBonus, getPlayerSpeed, getElementalMindBonus, getAbilities, BODY_MAX_HP_PER_RANK, MIND_MAX_SOL_PER_RANK } from './ability';
 import { markGeneralItemIdentified, getDisplayedItemName } from './item-identification';
 import { CARD_DEFINITIONS, CARD_IDS_IN_ORDER } from './card-def';
@@ -5135,7 +5136,9 @@ export function resolveRegularReinforcement(state: GameState, events: GameEvent[
   const ordinal = (state.reinforcementOrdinal ?? 0) + 1;
   state.reinforcementOrdinal = ordinal;
 
-  const initialCount = ENEMY_COUNT_BY_FLOOR[state.floor] ?? ENEMY_COUNT_PER_FLOOR;
+  const initialCount = state.runDepthTier === 'short'
+    ? ENEMY_COUNT_BY_FLOOR[state.floor] ?? ENEMY_COUNT_PER_FLOOR
+    : getEnemyPopulationForDepth(state.floor).initialEnemyCount;
   const aliveCount = state.enemies.filter((enemy) => enemy.alive && enemy.spawnSource !== 'monster_house').length;
   if (aliveCount >= initialCount + rule.capBonus) return;
 
@@ -5174,14 +5177,23 @@ export function resolveRegularReinforcement(state: GameState, events: GameEvent[
   const legSalt = state.leg === 'ascent' ? 0x9e3779b9 : 0;
   const rngSeed = (state.seed ^ Math.imul(state.floor, 0x85ebca6b) ^ Math.imul(ordinal, 0xc2b2ae35) ^ legSalt ^ REINFORCEMENT_RNG_SALT) >>> 0;
   const rng = createRng(rngSeed);
-  const pool = getEnemyPoolForFloor(state.floor);
-  if (pool.length === 0) return;
-  const enemyType = pool[Math.floor(rng() * pool.length)];
+  let enemyType: EnemyType;
+  let enemyLevel: EnemyLevel;
+  if (state.runDepthTier === 'short') {
+    const pool = getEnemyPoolForFloor(state.floor);
+    if (pool.length === 0) return;
+    enemyType = pool[Math.floor(rng() * pool.length)];
+    enemyLevel = 1;
+  } else {
+    const spawn = resolveSingleEnemySpawnForDepth(state.floor, rng);
+    enemyType = spawn.type;
+    enemyLevel = spawn.level;
+  }
   const pos = candidates[Math.floor(rng() * candidates.length)];
   const def = ENEMY_DEFINITIONS[enemyType];
-  const stats = applyEnemyLevelMultiplier(def, 1);
+  const stats = applyEnemyLevelMultiplier(def, enemyLevel);
   const nextId = state.enemies.reduce((max, enemy) => Math.max(max, enemy.id ?? -1), -1) + 1;
-  const enemy = createInitialEnemy(enemyType, pos, stats.hp, stats.attack, state.turn, nextId, stats.defense, stats.accuracy, stats.evasion, 1);
+  const enemy = createInitialEnemy(enemyType, pos, stats.hp, stats.attack, state.turn, nextId, stats.defense, stats.accuracy, stats.evasion, enemyLevel);
   enemy.spawnSource = 'reinforcement';
   state.enemies.push(enemy);
   events.push({ type: 'reinforcement_spawned', floor: state.floor, enemyType, reinforcementOrdinal: ordinal });
