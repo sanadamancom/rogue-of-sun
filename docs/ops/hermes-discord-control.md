@@ -98,10 +98,13 @@ already attempted, why bounded correction cannot continue, and the human
 action needed.
 
 Other notifications use lightweight Discord Markdown: `##` headings for
-development start, committed task, and cooperative stop; `###` headings for
-implementing, verification, and session turnover; and a short bold failure
-label for orchestration errors. Phase, task, and commit SHA identifiers use
-inline code. Messages remain mobile-readable and normally only a few lines.
+orchestrator launch, Claude session execution, committed task, and cooperative
+stop; `###` headings for implementing, verification, and session turnover; and
+a failure heading or short bold label for orchestration errors. Orchestrator
+launch and Claude session execution do not claim that development or a
+specific task has started. Phase, task, and commit SHA identifiers use inline
+code only after live repository/canonical-document inspection confirms them.
+Messages remain mobile-readable and normally only a few lines.
 No Discord-bound message includes raw stdout, full diffs, full test listings,
 or unbounded content, and every message stays comfortably below Discord's
 message-length limit.

@@ -15,11 +15,19 @@ $ErrorActionPreference = "Stop" # All process and protocol anomalies fail closed
 . (Join-Path $PSScriptRoot 'hermes-message-fragments.ps1')
 
 function Stop-HermesWithError {
-    param([string]$Message)
+    param(
+        [string]$Message,
+        [switch]$UnconfirmedSessionAttempt
+    )
     if ($script:ControlStatePath) {
         Write-ControlState -Status "failed" -Reason $Message
     }
-    Send-HermesNotification "**失敗**`n`n理由: ``$Message``"
+    if ($UnconfirmedSessionAttempt) {
+        Send-HermesNotification "## ❌ セッション開始試行に失敗しました`n`nClaude セッションは正常完了せず、確認済みの Phase / Task の進行、判断、コミットはありません。`n理由: ``$Message``"
+    }
+    else {
+        Send-HermesNotification "**失敗**`n`n理由: ``$Message``"
+    }
     Write-Error "Hermes fail-closed: $Message"
     exit 1
 }
@@ -147,7 +155,7 @@ $HermesCommand = Get-Command hermes -ErrorAction SilentlyContinue
 $script:HermesCommandPath = if ($HermesCommand) { $HermesCommand.Source } else { $null }
 if ($Notify -and $script:HermesCommandPath) {
     $SessionNotificationContract = @"
-Notifications are enabled for this session. You may send at most 3 short Japanese Discord Markdown progress notifications, and only at these checkpoints: (1) immediately after identifying the bounded phase/task, (2) immediately after delegating to Codex and before waiting for it, and (3) immediately after tests/build verification completes, with only a pass/fail summary. For checkpoints (1) and (2), use the heading "### 🔨 実装中", put phase/task identifier-like tokens in inline code, and add only 1-2 short lines. For checkpoint (3), use the heading "### 🧪 検証中", followed by only a short pass/fail summary in 1-2 lines. Use the Hermes terminal tool to invoke exactly:
+Notifications are enabled for this session. You may send at most 3 short Japanese Discord Markdown progress notifications, and only at these checkpoints: (1) after inspecting the live repository and canonical documents and identifying and confirming the bounded phase/task from that inspection, (2) immediately after delegating that confirmed task to Codex and before waiting for it, and (3) immediately after tests/build verification actually completes, with only a pass/fail summary. Before checkpoint (1), inspect current git state and the applicable canonical documents directly. Never use .ai/control/state.json, a pre-existing .ai/status.json, stale roadmap headings, prior-session metadata, or assumptions from conversation history as evidence that a phase/task is current or confirmed. For checkpoints (1) and (2), use the heading "### 🔨 実装中", put the live-inspection-confirmed phase/task identifier-like tokens in inline code, phrase the text only as work currently in progress, and add only 1-2 short lines. Those checkpoints must never assert that a task has been completed, a decision has been applied, or a commit has been completed; those facts may be described only after they actually happen, at checkpoint (3) where applicable or in the orchestrator's post-status notifications. For checkpoint (3), use the heading "### 🧪 検証中", followed by only a short pass/fail summary in 1-2 lines. Use the Hermes terminal tool to invoke exactly:
 & '$($script:HermesCommandPath)' send --to '$NotifyTarget' --quiet '<short Discord Markdown message>'
 Do not send at any other checkpoint. Never include raw Claude/Codex stdout, full diffs, full test output, or long English narration. These messages are purely informational Discord narration: they do not update .ai/status.json or .ai/control/state.json, carry no machine-protocol meaning, and never replace the required final .ai/status.json write. The orchestrator's own notifications remain separate and unchanged.
 "@
@@ -276,7 +284,7 @@ $KnownStatuses = @("CONTINUE", "SESSION_BOUNDARY", "USER_DECISION_REQUIRED", "BL
 $PreviousCommitSha = $null
 try { $PreviousCommitSha = (& git -C $ResolvedRepoDir log -1 --format=%H 2>$null) } catch {}
 Write-ControlState -Status "running" -Reason "orchestration started"
-Send-HermesNotification "## 🚀 開発開始`n`nROGUE OF SOL の開発を開始しました。"
+Send-HermesNotification "## 🚀 オーケストレーター起動`n`nHermes オーケストレーターを起動しました。Claude セッションの開始を準備しています。"
 
 while ($SessionCount -lt $MaxSessions) {
     if (Test-Path -LiteralPath $StopRequestPath) {
@@ -332,6 +340,7 @@ while ($SessionCount -lt $MaxSessions) {
             Stop-HermesWithError "Claude CLI process did not start"
         }
         $ClaudeProcessStartTime = $ClaudeProcess.StartTime
+        Send-HermesNotification "## ▶️ Claude セッション実行中`n`nClaude CLI セッションを起動しました。作業対象の Phase / Task はまだ確認済みではありません。"
         $ClaudeProcess.StandardInput.Write($EffectivePrompt)
         $ClaudeProcess.StandardInput.Close()
     }
@@ -347,7 +356,7 @@ while ($SessionCount -lt $MaxSessions) {
     }
 
     if ($ClaudeProcess.ExitCode -ne 0) {
-        Stop-HermesWithError "Claude CLI exited with code $($ClaudeProcess.ExitCode)"
+        Stop-HermesWithError "Claude CLI exited with code $($ClaudeProcess.ExitCode)" -UnconfirmedSessionAttempt:(-not (Test-Path -LiteralPath $StatusPath -PathType Leaf))
     }
     Write-Host "Hermes: Claude CLI exited successfully; reading status file."
 
