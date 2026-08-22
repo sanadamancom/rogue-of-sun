@@ -20,7 +20,7 @@ $ErrorActionPreference = 'Stop'
 function Fail-Control([string]$Message) { Write-Error "Hermes control: $Message"; exit 1 }
 function Read-JsonFile([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $null }
-    try { return Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json -ErrorAction Stop }
+    try { return Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop }
     catch { Fail-Control "invalid control file '$Path': $($_.Exception.Message)" }
 }
 function Launch-Orchestrator([string]$PromptOverride) {
