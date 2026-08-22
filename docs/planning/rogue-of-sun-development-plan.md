@@ -958,7 +958,7 @@ Phase 23～27完了時。
 - プレイヤー必要EXPはSFC型の累積tableとし、現行`level * 5`および敵EXP 1～3の圧縮値は24.6c2dで置換する。単純な一律倍率にはしない
 - 選定済み武器・防具の最終balance値と同ランク内の抽選重み
 - S防具3種の下降19～26F通常lootにおけるrank weight
-- 黒の鎧専用封印部屋の1階ごとの固定判定確率、番人の種類・戦闘性能（下降19～25F、1ラン最大1室、専用RNG、撃破時確定報酬は方針確定）
+- 黒の鎧専用封印部屋の1階ごとの固定判定確率、番人の種類・戦闘性能（下降19～25F、1ラン最大1室、専用RNG、撃破時確定報酬は方針確定）。readiness audit完了（[`phase-24-7-readiness-audit.md`](../history/phase-24-7-readiness-audit.md)）。番人species/level policyと封印部屋geometry/interactionは`NEEDS_DESIGN_DECISION`のため、本項目は未確定のまま維持する
 - Rランク武器の実到達率。集中時に到達可能としつつ標準結果にはしない
 - モンスターハウスの完成版発生率、敵数、報酬数、暗い部屋との発生比率
 - 中断saveの将来schema migration方針。初期版の安定保存境界、1slot one-shot再開、死亡後復元なしは確定済み
