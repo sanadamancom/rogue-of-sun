@@ -101,3 +101,50 @@ export function getEnemyPopulationForDepth(depth: number): EnemyPopulationForDep
   }
   return ENEMY_POPULATION_BY_DEPTH[depth];
 }
+
+export interface ResolvedEnemySpawn {
+  readonly type: EnemyType;
+  readonly level: EnemyLevel;
+}
+
+export interface EnemySpawnSetForDepth {
+  readonly initialEnemyCount: number;
+  readonly spawns: ResolvedEnemySpawn[];
+}
+
+/** Resolves the canonical initial enemy spawn set for a production depth. */
+export function resolveEnemySpawnsForDepth(depth: number, rng: () => number): EnemySpawnSetForDepth {
+  const { initialEnemyCount } = getEnemyPopulationForDepth(depth);
+  const species = getEligibleEnemySpeciesForDepth(depth);
+  const spawns: ResolvedEnemySpawn[] = [];
+
+  for (let i = 0; i < initialEnemyCount; i++) {
+    const speciesRoll = rng();
+    let speciesCumulative = 0;
+    let type = species[species.length - 1].type;
+    for (const candidate of species) {
+      speciesCumulative += candidate.normalizedWeight;
+      if (speciesRoll < speciesCumulative) {
+        type = candidate.type;
+        break;
+      }
+    }
+
+    const levelWeights = getEnemyLevelBandForDepth(type, depth)!.weights;
+    const totalLevelWeight = (Object.values(levelWeights) as number[]).reduce((sum, weight) => sum + weight, 0);
+    const levelRoll = rng() * totalLevelWeight;
+    let levelCumulative = 0;
+    let level: EnemyLevel = 3;
+    for (const candidateLevel of [1, 2, 3] as const) {
+      levelCumulative += levelWeights[candidateLevel];
+      if (levelRoll < levelCumulative) {
+        level = candidateLevel;
+        break;
+      }
+    }
+
+    spawns.push({ type, level });
+  }
+
+  return { initialEnemyCount, spawns };
+}
