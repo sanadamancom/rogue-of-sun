@@ -14,6 +14,7 @@ import { GameEvent } from './events';
 import { selectTrapType } from './curse-active';
 import { chooseDarkRoomIndex } from './dark-rooms';
 import { buildMonsterHouseFloorState, createMonsterHouseRng } from './monster-house';
+import { buildSealedRoomFloorState, createSealedRoomRng } from './sealed-room';
 import {
   chooseMonsterHouseEnemyTypes,
   computeMonsterHouseCandidateCells,
@@ -89,6 +90,8 @@ interface CarryOverStats {
   poisonTickProgress: number;
   /** Phase 24.6c4a food-shortage correction counter; see types.ts's GameState.foodDroughtFloors doc comment. */
   foodDroughtFloors: number;
+  /** Phase 24.7e1 run-wide sealed-room cap; see types.ts's GameState.sealedRoomGeneratedThisRun doc comment. */
+  sealedRoomGeneratedThisRun?: boolean;
   hungerLowWarned: boolean;
   hungerZeroWarned: boolean;
   activeEffects: ActiveEffect[];
@@ -225,6 +228,7 @@ export function buildFloorState(
   enemySpawnPath: 'legacy' | 'depth' = 'legacy',
 ): GameState {
   const incomingFoodDroughtFloors = carry?.foodDroughtFloors ?? 0;
+  const incomingSealedRoomGeneratedThisRun = carry?.sealedRoomGeneratedThisRun ?? false;
   const floorSeed = deriveFloorSeed(runSeed, floor, leg);
   const result = generateMap(floorSeed);
   if (!result.ok || !result.map) {
@@ -261,6 +265,25 @@ export function buildFloorState(
   // state, not derived ad hoc by the renderer).
   map.darkRoomIndex = chooseDarkRoomIndex(map, floorSeed, floor, placement.start, placement.exit);
 
+  /**
+   * Phase 24.7e1: decide and tag this floor's sealed room exactly once using
+   * its independent RNG stream, without perturbing any other stream's
+   * consumption order, and thread the run cap. Guardian spawning, rewards,
+   * blocking-door enforcement, normal-placement exclusion, and telemetry are
+   * deferred to a later slice.
+   */
+  const sealedRoomRng = createSealedRoomRng(floorSeed, createRng);
+  map.sealedRoom = buildSealedRoomFloorState(
+    map,
+    floor,
+    leg,
+    placement.start,
+    placement.exit,
+    incomingSealedRoomGeneratedThisRun,
+    [],
+    sealedRoomRng,
+  );
+
   // Phase 21.2: monster house state is decided exactly once here, using
   // its own independent RNG stream (createMonsterHouseRng, XOR constant
   // 0x6b2f4d97 — distinct from every other floorSeed-derived stream in
@@ -269,7 +292,17 @@ export function buildFloorState(
   // reveal/entry/enemy/reward/dark-room logic — see monster-house.ts and
   // docs/history/phase-21-2-monster-house-floor-state.md.
   const monsterHouseRng = createMonsterHouseRng(floorSeed, createRng);
-  map.monsterHouse = buildMonsterHouseFloorState(map, floor, leg, placement.start, placement.exit, monsterHouseRng);
+  map.monsterHouse = buildMonsterHouseFloorState(
+    map,
+    floor,
+    leg,
+    placement.start,
+    placement.exit,
+    monsterHouseRng,
+    map.sealedRoom ? [map.sealedRoom.roomIndex] : [],
+  );
+
+  const sealedRoomGeneratedThisRun = incomingSealedRoomGeneratedThisRun || map.sealedRoom !== null;
 
   const player: Actor = carry
     ? createInitialActor(placement.start, carry.maxHp, carry.attack, carry.defense, carry.accuracy, carry.evasion)
@@ -758,6 +791,7 @@ export function buildFloorState(
     foodDroughtFloors: leg === 'descent'
       ? (groundItems.some((item) => item.itemId === 'chocolate') ? 0 : incomingFoodDroughtFloors + 1)
       : incomingFoodDroughtFloors,
+    sealedRoomGeneratedThisRun,
     totalFloors: runConfig.totalFloors,
     runDepthTier: runConfig.runDepthTier,
     exit: placement.exit,
@@ -977,6 +1011,7 @@ function buildCarryOverStats(state: GameState): CarryOverStats {
     starvationProgress: state.starvationProgress ?? 0,
     poisonTickProgress: state.poisonTickProgress ?? 0,
     foodDroughtFloors: state.foodDroughtFloors ?? 0,
+    sealedRoomGeneratedThisRun: state.sealedRoomGeneratedThisRun ?? false,
     hungerLowWarned: state.hungerLowWarned ?? false,
     hungerZeroWarned: state.hungerZeroWarned ?? false,
     activeEffects: state.activeEffects ?? [],

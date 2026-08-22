@@ -7,7 +7,7 @@
  * while keeping this module unwired from production floor construction.
  */
 
-import type { EnemyActor, EnemyLevel, EquipmentInstance, GameMap, GroundItem, Vec2 } from './types';
+import type { EnemyActor, EnemyLevel, EquipmentInstance, GameMap, GroundItem, SealedRoomState, Vec2 } from './types';
 import { roomIndexContaining } from './mapgen';
 import { computeMonsterHouseEntryCells } from './monster-house';
 import { getEnemyLevelBandForDepth } from './enemy-depth-bands';
@@ -151,7 +151,7 @@ export function generateSealedRoomGuardianReward(
   };
 }
 
-export type SealedRoomFloorState = { roomIndex: number } | null;
+export type SealedRoomFloorState = SealedRoomState;
 
 /**
  * Decides this floor's sealed-room state in the fixed order: eligibility,

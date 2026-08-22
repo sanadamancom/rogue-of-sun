@@ -61,6 +61,16 @@ export interface Room {
  */
 export type MonsterHouseState = { roomIndex: number; status: 'hidden' | 'revealed' } | null;
 
+/**
+ * Phase 24.7e1: a floor's sealed-room state, decided by buildFloorState via
+ * sealed-room.ts's `buildSealedRoomFloorState`. When present, `roomIndex` is
+ * always a valid index into `rooms`, never the start, exit, or monster-house
+ * room. Sealed rooms are restricted to descent depths 19-25 by
+ * `isSealedRoomEligibleFloor` and are decided at most once per run via the
+ * `sealedRoomGeneratedThisRun` cap.
+ */
+export type SealedRoomState = { roomIndex: number } | null;
+
 export interface GameMap {
   width: number;
   height: number;
@@ -95,6 +105,15 @@ export interface GameMap {
    * monster-house.ts.
    */
   monsterHouse?: MonsterHouseState;
+  /**
+   * Phase 24.7e1: this floor's sealed-room state, decided exactly once at
+   * floor-build time by sealed-room.ts's `buildSealedRoomFloorState` (see
+   * state.ts's buildFloorState), immediately before the monster-house decision
+   * so this room can be excluded from monster-house candidates. Optional so
+   * pre-Phase-24.7e1 GameMap literals and fixtures remain compatible; absence
+   * behaves exactly like no sealed room this floor.
+   */
+  sealedRoom?: SealedRoomState;
 }
 
 export interface Actor {
@@ -713,6 +732,12 @@ export interface GameState {
    * additive optional field for legacy states.
    */
   foodDroughtFloors?: number;
+  /**
+   * Phase 24.7e1 run-wide sealed-room cap. Absent means no sealed room has yet
+   * been generated this run (the same as false). Set to true as soon as one
+   * floor generates a sealed room and never reset within that run.
+   */
+  sealedRoomGeneratedThisRun?: boolean;
   /**
    * Phase 11.3 hunger: whether the "hunger reached 20 or below" warning
    * has already been shown for the current low-hunger dip (cleared once
