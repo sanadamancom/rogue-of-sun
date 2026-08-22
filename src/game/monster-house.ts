@@ -33,7 +33,12 @@ import { getEnemyPoolForFloor } from './enemy-def';
  * floor/frequency exclusions are explicitly out of scope for Phase 21.1 —
  * see the module doc comment and phase-21-1 history doc.
  */
-export function extractMonsterHouseCandidateRooms(map: GameMap, start: Vec2, exit: Vec2): number[] {
+export function extractMonsterHouseCandidateRooms(
+  map: GameMap,
+  start: Vec2,
+  exit: Vec2,
+  excludeRoomIndices: number[] = [],
+): number[] {
   const startRoomIndex = roomIndexContaining(map.rooms, start);
   if (startRoomIndex === -1) {
     throw new Error('extractMonsterHouseCandidateRooms: start position is not inside any room');
@@ -46,6 +51,7 @@ export function extractMonsterHouseCandidateRooms(map: GameMap, start: Vec2, exi
   const candidates: number[] = [];
   for (let i = 0; i < map.rooms.length; i++) {
     if (i === startRoomIndex || i === exitRoomIndex) continue;
+    if (excludeRoomIndices.includes(i)) continue;
     candidates.push(i);
   }
   return candidates;
@@ -132,10 +138,11 @@ export function buildMonsterHouseFloorState(
   start: Vec2,
   exit: Vec2,
   rng: () => number,
+  excludeRoomIndices: number[] = [],
 ): MonsterHouseState {
   if (!isMonsterHouseEligibleFloor(depth, leg)) return null;
 
-  const candidates = extractMonsterHouseCandidateRooms(map, start, exit);
+  const candidates = extractMonsterHouseCandidateRooms(map, start, exit, excludeRoomIndices);
   if (candidates.length === 0) return null;
 
   const roll = rng();

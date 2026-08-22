@@ -3,9 +3,45 @@
  *
  * Pure, Phaser-independent logic only - not wired into production floor
  * construction, GameState, save schema, telemetry, UI, or turn processing.
- * Candidate-room extraction is deliberately deferred to Phase 24.7b; callers
- * provide the already-computed candidate room indices.
+ * Phase 24.7b adds pure candidate-room extraction and a convenience wrapper,
+ * while keeping this module unwired from production floor construction.
  */
+
+import { GameMap, Vec2 } from './types';
+import { roomIndexContaining } from './mapgen';
+import { computeMonsterHouseEntryCells } from './monster-house';
+
+/** Minimum interior width and height required for a sealed-room candidate. */
+export const SEALED_ROOM_MINIMUM_INTERIOR_SIZE = 5;
+
+/** Returns eligible leaf-room indices in ascending order without consuming RNG. */
+export function extractSealedRoomCandidateRooms(
+  map: GameMap,
+  start: Vec2,
+  exit: Vec2,
+  excludeRoomIndices: number[],
+): number[] {
+  const startRoomIndex = roomIndexContaining(map.rooms, start);
+  if (startRoomIndex === -1) {
+    throw new Error('extractSealedRoomCandidateRooms: start position is not inside any room');
+  }
+  const exitRoomIndex = roomIndexContaining(map.rooms, exit);
+  if (exitRoomIndex === -1) {
+    throw new Error('extractSealedRoomCandidateRooms: exit position is not inside any room');
+  }
+
+  const candidates: number[] = [];
+  for (let i = 0; i < map.rooms.length; i++) {
+    if (i === startRoomIndex) continue;
+    if (i === exitRoomIndex) continue;
+    if (excludeRoomIndices.includes(i)) continue;
+    const room = map.rooms[i];
+    if (room.width < SEALED_ROOM_MINIMUM_INTERIOR_SIZE || room.height < SEALED_ROOM_MINIMUM_INTERIOR_SIZE) continue;
+    if (computeMonsterHouseEntryCells(map, i).length !== 1) continue;
+    candidates.push(i);
+  }
+  return candidates;
+}
 
 /** Sealed rooms are descent-only, from depth 19 through 25 inclusive. */
 export const SEALED_ROOM_MINIMUM_DEPTH = 19;
@@ -72,4 +108,21 @@ export function decideSealedRoomFloorState(
 
   const pickIndex = Math.floor(rng() * candidateRoomIndices.length);
   return { roomIndex: candidateRoomIndices[pickIndex] };
+}
+
+/** Extracts candidates and decides sealed-room state with eligibility/run-cap short-circuiting. */
+export function buildSealedRoomFloorState(
+  map: GameMap,
+  depth: number,
+  leg: 'descent' | 'ascent',
+  start: Vec2,
+  exit: Vec2,
+  alreadyGeneratedThisRun: boolean,
+  excludeRoomIndices: number[],
+  rng: () => number,
+): SealedRoomFloorState {
+  if (!isSealedRoomEligibleFloor(depth, leg)) return null;
+  if (alreadyGeneratedThisRun) return null;
+  const candidates = extractSealedRoomCandidateRooms(map, start, exit, excludeRoomIndices);
+  return decideSealedRoomFloorState(depth, leg, alreadyGeneratedThisRun, candidates, rng);
 }
