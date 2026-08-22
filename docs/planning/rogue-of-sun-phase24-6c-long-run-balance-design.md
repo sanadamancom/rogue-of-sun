@@ -525,10 +525,10 @@ Phase 24.6c2では共通statsだけを実装し、通し測定後に必要な種
 | 24.6c4b | item availabilityを`minimumDepth`／任意`maximumDepth`／leg契約へ移行（§19「24.6c4のスコープ決定」参照） | あり |
 | 24.6c4c | 下降限定の通常床loot（floor生成APIをleg分岐、ascentは通常loot・モンスターハウスなしのpure/bounded実装） | あり |
 | 24.6c4d | S防具3種（`light_garb`／`dark_garb`／`spike_mail`）の下降19～26F深層loot route | あり |
-| 24.6c4e | 26F production run structureのpre-simulation統合（`transitionFloor`本接続、depth 1～26、descent／ascent、24.6c2b敵depth／level／count tableのproduction spawn接続、51 floor visit経路。save／UI／HUDは含まない。§19「24.6c4のスコープ決定」参照） | あり |
+| 24.6c4e | 26F production run structureのpre-simulation統合（`transitionFloor`本接続、depth 1～26、descent／ascent、24.6c2b敵depth／level／count tableのproduction spawn接続、51 floor visit経路。save／UI／HUDは含まない。`otencoState`は常に`sealed`固定でsealed→rescued接触救出mechanicは含まない。§19「24.6c4のスコープ決定」および「24.6c4eのスコープ確定」参照） | あり |
 | 24.6c5 | 26F下降＋25F帰還simulationと定数調整（`24.6c4e`完了後の実production run structureに対して実施） | 原則定数のみ |
 | 24.7 | 黒の鎧専用封印部屋と番人 | あり |
-| 24.8 | 26F目標配置・救出、階段状態機械、帰還、1F脱出、同行描画、中断save、統合試験 | あり |
+| 24.8 | 26F目標配置・救出（`otencoState`のsealed→rescued接触救出mechanic本体）、階段状態機械、帰還、1F脱出、同行描画、中断save、統合試験（§19「24.6c4eのスコープ確定」参照） | あり |
 
 ---
 
@@ -715,6 +715,7 @@ correctness違反、全policy timeout、policy間の期待順序逆転、特定�
 - 26F救出はfloor遷移関数を呼ばず、現在state内の`otencoState`と`otencoPos`だけを更新する。
 - 既存3F test互換が必要な期間は旧関数を薄いwrapperとして残せるが、production経路は新しい状態機械を使用する。
 - おてんこさまの追従座標は描画側の一時stateとし、save対象のActor listや衝突判定へ追加しない。
+- 上記3点（`transitionFloor`集約、`depth`・`leg`・`otencoState`からの状態機械導出、`otencoState`／`otencoPos`更新）は`24.6c4e`単独ではなく`24.6c4e`と`24.8`を合わせた最終形の設計であり、Phase別の実装境界は本節末尾「24.6c4eのスコープ確定（human decision, 2026-08-22）」を参照する。
 - 探索済みtileは現行GameState外にあるため、save payloadのview stateとして明示的に保存する。これを未探索へresetして再開させない。
 - telemetryは観測専用とし、event作成、JSON化、download有無によってRNGやGameStateを変更しない。
 - save serializerはGameState型の暗黙JSON化へ依存せず、schema version付きpayloadとvalidatorを専用moduleに置く。
@@ -743,3 +744,13 @@ correctness違反、全policy timeout、policy間の期待順序逆転、特定�
 5. **`24.8`のスコープは変更しない。** 26Fのおてんこさま配置・接触救出の詳細UI、同行描画、1slot one-shot中断save、browser統合、実プレイbalance監査は引き続き`24.8`が担う。
 6. **S防具・R防具・`mail_of_dark`のitem設計自体に変更はない。** `light_garb`／`dark_garb`／`spike_mail`は既存の`armor-def.ts`で定義済みのcanonical S防具3種であり、`24.6c4d`はこの3種を19～26Fの通常loot routeへ接続するのみで、新規itemの追加や既存stats・effectIdの変更は行わない。`black_armor`はR rank、下降19～25Fの封印部屋event限定のまま`24.7`で接続する（§13参照）。`mail_of_dark`の暗い部屋+2効果検証（§13、line 431相当）は`24.6c4`内のmeasurement-gated項目のまま残り、`24.6c4b`のblockerにはしない。
 7. **次のbounded taskは`24.6c4b`とする。**
+
+### 24.6c4eのスコープ確定（human decision, 2026-08-22）
+
+`24.6c4e1`（Otenco決定的配置と`otencoState`のsealed／rescued救出状態機械、commit `1306f04`）実装後、本節冒頭（§19）が示す「`depth`・`leg`・`otencoState`から状態機械を導出する」という設計と、`24.6c4e`のスコープ（`transitionFloor`本接続・depth 1～26 descent／ascent・`24.6c2b`敵spawn table production接続）および`24.8`のスコープ（おてんこさま配置・救出・帰還leg・1F脱出）との間で、Otenco関連mechanicがどちらのPhaseに属するか齟齬が生じたため、userへ判断を仰いだ結果、以下が確定した。
+
+1. **`1306f04`は復元しない。** `9a04c85`によるrevertを最終形として確定する。`24.6c4e1`という区分は`24.6c4e`のcanonical sub-phaseとして扱わない。
+2. **`24.6c4e`は`transitionFloor`状態機械（descent／ascent、depth 1～26、`24.6c2b`敵spawn table production接続）のみを引き続き担う。** `otencoState`という型・fieldをGameStateに含めること自体は許容するが、`24.6c4e`のproduction runでは`otencoState`を常に`sealed`固定とし、`sealed`→`rescued`への遷移ロジック、接触判定、救出interactionは実装しない。
+3. **`otencoState`のsealed→rescued接触救出mechanic本体は`24.8`が担う。** Otencoの決定的配置、プレイヤー接触時の`sealed`→`rescued`遷移、rescued後に26F同floorの階段へ戻ってからascent legへ移行する状態遷移、1Fからの地上脱出（帰還leg完了→clear）までの一連のinteractionを`24.8`でまとめて実装する。
+4. **本節冒頭（§19の1～3点目）の記述は、`24.6c4e`と`24.8`を合わせた最終形の設計を指す。** 個別Phaseの実装境界は本項および`development-plan.md`のPhase別行を参照する。
+5. **development-plan.mdのPhase `24.6c4e`および`24.8`の行にこの決定を反映する。**
