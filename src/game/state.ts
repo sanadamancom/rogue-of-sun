@@ -921,7 +921,19 @@ export function buildFloorState(
  * invalid input).
  */
 export function createInitialState(runSeed: number, runConfig?: RunConfig): GameState {
-  return buildFloorState(runSeed, 1, 0, 1, runConfig ? normalizeRunConfig(runConfig) : DEFAULT_RUN_CONFIG);
+  const normalizedConfig = runConfig ? normalizeRunConfig(runConfig) : DEFAULT_RUN_CONFIG;
+  return buildFloorState(
+    runSeed,
+    1,
+    0,
+    1,
+    normalizedConfig,
+    undefined,
+    undefined,
+    undefined,
+    'descent',
+    normalizedConfig.runDepthTier === 'short' ? 'legacy' : 'depth',
+  );
 }
 
 /**

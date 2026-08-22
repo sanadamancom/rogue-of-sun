@@ -764,3 +764,14 @@ correctness違反、全policy timeout、policy間の期待順序逆転、特定�
 3. **production run（`advanceRunFloor`等）では`otencoState`を常に`"sealed"`固定で呼び出す。** Otencoの決定的配置・接触判定・`sealed`→`rescued`遷移トリガー自体（interaction本体）は引き続き`24.8`が担い、`24.6c4e`では実装しない。固定`sealed`のため、`24.8`が遷移トリガーを実装するまでの間、現時点のproduction runは26Fで（rescueされないまま）滞留する挙動を暫定として許容する。
 4. **development-plan.mdのPhase `24.8`の記述に、leg・1Fまでのascent状態遷移構造は`24.6c4e`で実装済みであることを明記する。** `24.8`はOtenco決定的配置・接触判定・`sealed`→`rescued`遷移トリガー（interaction本体）の実装に専念する。
 5. **`1306f04`のrevert（`9a04c85`）を最終形とする前回の決定（本節1項、2026-08-22）は変更しない。**
+
+### `createInitialState`のdepth 1 enemySpawnPathバグ修正（human decision, 2026-08-22）
+
+`24.6c5`slice 2（generation audit harnessへのenemy spawn correctness gate追加）着手時、`createInitialState`（`src/game/state.ts`）が渡された`runConfig`の内容に関わらず常にfloor 1を`buildFloorState`のdefault引数`enemySpawnPath: 'legacy'`で生成しており、`{ totalFloors: 26, runDepthTier: 'deep' }`のような26F production run configを渡してもdepth 1が`24.6c2b`の canonical depth table（`getEligibleEnemySpeciesForDepth`／`resolveEnemySpawnsForDepth`）ではなくlegacy 3-floor poolから敵を生成する不整合が判明した。`advanceRunFloor`（depth 2以降）は`24.6c4e`slice 5で既に`enemySpawnPath: 'depth'`固定接続済みのため、depth 1だけが取り残されていた。
+
+これは`24.6c5`のbalance判断ではなく、`24.6c4e`が完了させたはずのproduction wiringの実装漏れ（bug）であるため、userへ判断を仰いだ結果、以下のとおり確定した。
+
+1. **A案を採用する。** `createInitialState`を、`24.6c4e`のproduction wiring bug fixとして修正する。`24.6c5`のbalance/定数調整task（slice 2以降）とは独立したbug fixであり、修正は本slice着手前に先行して行う。
+2. **修正方針：** `createInitialState`は渡された`runConfig`を`normalizeRunConfig`で正規化した後、`normalizedConfig.runDepthTier !== 'short'`のときだけfloor 1の生成に`enemySpawnPath: 'depth'`を使う（`'short'`のときは従来どおり`'legacy'`）。`DEFAULT_RUN_CONFIG.runDepthTier`は`'short'`のため、`createInitialState(seed)`という引数なしの呼び出しは今までと完全に同一の結果を返す。`buildFloorState`のdefault引数値・`advanceToNextFloor`・`advanceRunFloor`は変更しない。
+3. **regression test方針：** 複数seedについて、(a) 引数なし／`'short'` runConfigでのfloor 1敵生成が修正前と完全一致すること、(b) `{ totalFloors: 26, runDepthTier: 'deep' }`でのfloor 1敵species・levelが`getEligibleEnemySpeciesForDepth(1)`／`getEnemyLevelBandForDepth`が示すdepth 1 canonical tableと一致すること（`skeleton`等depth 1 window外の種が出現しないこと含む）、を確認する。
+4. **`24.6c5`のslice番号・スコープ自体は変更しない。** 本bug fixはslice 2着手前の前提修正として扱い、slice 2（generation audit harnessへのenemy spawn correctness gate追加）は本修正後のproduction wiringに対して実施する。
