@@ -8,6 +8,8 @@ This automatic push is allowed only for `USER_DECISION_REQUIRED`. It is never us
 
 The published commit is the full `commit_sha` recorded in `.ai/control/pending-decision.json` when the decision status was written. Local `HEAD` may later move beyond that commit, for example because of control-layer commits, so pushing `HEAD` would not reliably expose the Decision Base. A new per-decision ref makes the exact commit reachable without moving the development branch, `main`, or `master`, and without force-pushing.
 
+For a `USER_DECISION_REQUIRED` status, `commit_sha` must be the current reviewed `HEAD` at the moment the session stops, even when the session made no new commits of its own, so it is never legitimately null for this status.
+
 ## Safety checks
 
 The standalone publisher fails closed unless the repository exists and is a git repository; the pending file is valid, has the required status and matching decision ID, and contains a full lowercase 40-character SHA; the working tree is clean; `HEAD` is attached to a development branch other than `main` or `master`; the commit exists and is an ancestor of `HEAD`; and the configured remote is reachable. It derives an owner/repository slug from the remote URL, inspects the exact decision ref, and refuses to overwrite it if it points elsewhere. A new ref is pushed without force, then read back and required to match the requested SHA exactly. No check failure triggers a workaround, alternate ref, retry with force, or success report.

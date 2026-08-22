@@ -31,6 +31,12 @@ catch {
     exit 1
 }
 
+if ($Status -ceq 'USER_DECISION_REQUIRED' -and
+    (-not $PSBoundParameters.ContainsKey('CommitSha') -or [string]::IsNullOrWhiteSpace($CommitSha))) {
+    Write-Error 'hermes-write-status: USER_DECISION_REQUIRED requires -CommitSha (the current reviewed HEAD)'
+    exit 1
+}
+
 $AiDir = Join-Path $ResolvedRepoDir ".ai"
 if (-not (Test-Path -LiteralPath $AiDir)) {
     New-Item -ItemType Directory -Path $AiDir -Force | Out-Null
