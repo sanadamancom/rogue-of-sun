@@ -739,7 +739,7 @@ Rが最上位ランク。近接武器はC～Aを通常取得、Sを太陽鍛冶�
 | 24.6c4c | 下降限定の通常床loot（leg分岐によるpure／bounded実装）（完了） |
 | 24.6c4d | S防具3種（`light_garb`／`dark_garb`／`spike_mail`）の下降19～26F深層loot route（完了） |
 | 24.6c4e | 26F production run structureのpre-simulation統合（`transitionFloor`本接続、depth 1～26、descent／ascent、24.6c2b敵depth／level／count tableのproduction spawn接続。save／UI／HUDは含まない。human decision, 2026-08-21により`24.6c4`と`24.6c5`の間に新設。`otencoState`のsealed→rescued遷移トリガー本体（Otenco配置・接触判定）は含まないが、`transitionFloor`は`otencoState`をread-only入力として受け取り、depth=26でのdescent→ascent切替を`rescued`時のみ行う状態機械とrescued後のascent leg～1F～runComplete構造を実装する（human decision, 2026-08-22により`24.6c4e1`／commit `1306f04`はrevert（commit `9a04c85`）を最終形として確定した上で、同日の補足決定によりB案：`otencoState`のread-only pass-through gatingとascent leg構造は`24.6c4e`に含める。design doc §19「24.6c4eのスコープ確定」「24.6c4eスコープの補足確定」参照）。production run呼び出しでは`otencoState`を常に`sealed`固定とする。完了。`createInitialState`がfloor 1で`runConfig`を無視し常にlegacy enemy spawn poolを使っていた実装漏れを、`24.6c5`slice 2着手前のbug fixとしてhuman decision, 2026-08-22により修正（design doc §19「`createInitialState`のdepth 1 enemySpawnPathバグ修正」参照）） |
-| 24.6c5 | 26F下降＋25F帰還で生成・戦闘・供給を再測定し、定数を調整（`24.6c4e`完了後の実production run structureに対して実施。slice 1完了、slice 2進行中） |
+| 24.6c5 | 26F下降＋25F帰還で生成・戦闘・供給を再測定し、定数を調整（`24.6c4e`完了後の実production run structureに対して実施。slice 1・slice 2完了、slice 3未着手） |
 | 24.7 | 下降19～25Fの黒の鎧専用封印部屋、番人、撃破時の確定報酬 |
 | 24.8 | 26Fのおてんこさま配置・救出（Otenco決定的配置・接触判定・`otencoState`のsealed→rescued遷移トリガー本体）、帰還leg、1F脱出、同行描画、1slot one-shot中断save、main統合checkpoint、実プレイbalance監査（human decision, 2026-08-22。ascent leg～1Fまでの状態遷移構造自体は`24.6c4e`で実装済みであり、`24.8`はOtenco配置・接触判定・`sealed`→`rescued`遷移トリガーの実装に専念する。design doc §19「24.6c4eのスコープ確定」「24.6c4eスコープの補足確定」参照） |
 

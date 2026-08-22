@@ -6,6 +6,21 @@ import type { GameState } from '../types';
 const longRunConfig = { totalFloors: 26, runDepthTier: 'deep' as const };
 
 describe('Phase 24.6c5 descent generation audit', () => {
+  it('finds no enemy-spawn violations across all depths for seeds 1 through 50', () => {
+    const enemySpawnViolations = [];
+    for (let runSeed = 1; runSeed <= 50; runSeed++) {
+      for (const floor of runDescentGenerationAudit(runSeed).floors) {
+        for (const violation of floor.violations) {
+          if (violation.includes('enemy')) {
+            enemySpawnViolations.push({ runSeed, depth: floor.depth, violation });
+          }
+        }
+      }
+    }
+
+    expect(enemySpawnViolations).toEqual([]);
+  });
+
   it('finds no generation violations for pilot run seeds 1 through 50', () => {
     const violations = [];
     for (let runSeed = 1; runSeed <= 50; runSeed++) {

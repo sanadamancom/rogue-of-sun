@@ -1,4 +1,9 @@
 import { bfsDistances } from './mapgen';
+import {
+  getEligibleEnemySpeciesForDepth,
+  getEnemyLevelBandForDepth,
+  getEnemyPopulationForDepth,
+} from './enemy-depth-bands';
 import { advanceRunFloor, createInitialState } from './state';
 import type { GameState, Vec2 } from './types';
 
@@ -22,12 +27,45 @@ function positionKey(pos: Vec2): string {
 
 function auditFloor(state: GameState, expectedOrdinal: number): GenerationAuditFloorResult {
   const violations: string[] = [];
+  const depth = state.floor;
 
   if (state.map.terrain.length === 0 || state.map.terrain.every((row) => row.length === 0)) {
     violations.push('map terrain is empty');
   }
   if (state.map.rooms.length === 0) {
     violations.push('map rooms are empty');
+  }
+
+  const eligibleSpecies = getEligibleEnemySpeciesForDepth(depth).map(({ type }) => type);
+  const eligibleSpeciesSet = new Set(eligibleSpecies);
+  const initialEnemies = state.enemies
+    .map((enemy, index) => ({ enemy, index }))
+    .filter(({ enemy }) => enemy.spawnSource === 'normal');
+  for (const { enemy, index } of initialEnemies) {
+    if (!eligibleSpeciesSet.has(enemy.type)) {
+      violations.push(
+        `depth ${depth} enemy[${index}] type ${enemy.type} level ${enemy.level} is ineligible; expected one of ${eligibleSpecies.join(', ')}`,
+      );
+    }
+
+    const levelBand = getEnemyLevelBandForDepth(enemy.type, depth);
+    if (levelBand === null) {
+      violations.push(
+        `depth ${depth} enemy[${index}] type ${enemy.type} level ${enemy.level} has no level band; expected a non-null level band`,
+      );
+    } else if (levelBand.weights[enemy.level] <= 0) {
+      const expectedLevels = ([1, 2, 3] as const).filter((level) => levelBand.weights[level] > 0);
+      violations.push(
+        `depth ${depth} enemy[${index}] type ${enemy.type} level ${enemy.level} is outside ${levelBand.band}; expected one of levels ${expectedLevels.join(', ')}`,
+      );
+    }
+  }
+
+  const expectedEnemyCount = getEnemyPopulationForDepth(depth).initialEnemyCount;
+  if (initialEnemies.length !== expectedEnemyCount) {
+    violations.push(
+      `depth ${depth} initial enemy count is ${initialEnemies.length}; expected ${expectedEnemyCount}`,
+    );
   }
 
   const distances = bfsDistances(state.map, state.player.pos);
@@ -60,7 +98,7 @@ function auditFloor(state: GameState, expectedOrdinal: number): GenerationAuditF
   }
 
   return {
-    depth: state.floor,
+    depth,
     floorVisitOrdinal: state.floorVisitOrdinal,
     violations,
   };
