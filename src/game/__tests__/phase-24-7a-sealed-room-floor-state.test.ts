@@ -5,6 +5,7 @@ import {
   decideSealedRoomFloorState,
   isSealedRoomEligibleFloor,
   SEALED_ROOM_OCCURRENCE_PROBABILITY,
+  SEALED_ROOM_GUARDIAN_POSITION_RNG_XOR,
   SEALED_ROOM_RNG_XOR,
 } from '../sealed-room';
 
@@ -71,7 +72,7 @@ describe('SEALED_ROOM_RNG_XOR', () => {
       0xe61c8b3d, 0x91b6d8e4, 0xc7d4a19e, 0xd4e8a273, 0xa3c17f05,
       0x5c2e91d3, 0x8f31c2a6, 0x7c3a91e6, 0x6b2f4d97, 0x2d84b6f1,
       0x7a19e3c8, 0x4e7bc218, 0x9f1a5d63, 0x5e2f8b41, 0x8b1c4f6d,
-      0xa47d2c19, 0xd1e9736c, 0x17c4a9ed,
+      0xa47d2c19, 0xd1e9736c, 0x17c4a9ed, SEALED_ROOM_GUARDIAN_POSITION_RNG_XOR,
     ];
     expect(existingSalts).not.toContain(SEALED_ROOM_RNG_XOR);
   });

@@ -72,8 +72,8 @@ export const SEALED_ROOM_OCCURRENCE_PROBABILITY = 0.05;
  * 0x8f31c2a6, sunlight 0x7c3a91e6, monster-house occurrence/selection
  * 0x6b2f4d97, monster-house enemy position 0x2d84b6f1, monster-house enemy
  * species 0x7a19e3c8, monster-house reward position 0x4e7bc218, and
- * monster-house reward selection 0x9f1a5d63, and sealed-room guardian level
- * 0xc13fa9b7. It was also checked against
+ * monster-house reward selection 0x9f1a5d63, sealed-room guardian level
+ * 0xc13fa9b7, and sealed-room guardian position 0xb74e2c61. It was also checked against
  * floor-seed-mixed enemy-drop salts 0x5e2f8b41, 0x8b1c4f6d, 0xa47d2c19,
  * 0xd1e9736c, 0x2f7b91d4, 0x6c1e83fa, 0x94b2d1c7, 0xa39f6e52, and
  * 0xe61c8b3d, plus generation-audit salt 0x17c4a9ed.
@@ -82,6 +82,9 @@ export const SEALED_ROOM_RNG_XOR = 0x35ad70e9;
 
 /** Dedicated floor-seed salt for the sealed-room guardian's level roll. */
 export const SEALED_ROOM_GUARDIAN_LEVEL_RNG_XOR = 0xc13fa9b7;
+
+/** Dedicated floor-seed salt for the sealed-room guardian's position roll. */
+export const SEALED_ROOM_GUARDIAN_POSITION_RNG_XOR = 0xb74e2c61;
 
 /** Spawn-origin identity reserved for the later production guardian wiring slice. */
 export const SEALED_ROOM_GUARDIAN_SPAWN_SOURCE = 'sealed_room_guardian' as const;
@@ -100,6 +103,14 @@ export function createSealedRoomGuardianLevelRng(
   createRngFn: (seed: number) => () => number,
 ): () => number {
   return createRngFn(floorSeed ^ SEALED_ROOM_GUARDIAN_LEVEL_RNG_XOR);
+}
+
+/** Creates an RNG stream independent from the guardian's level roll. */
+export function createSealedRoomGuardianPositionRng(
+  floorSeed: number,
+  createRngFn: (seed: number) => () => number,
+): () => number {
+  return createRngFn(floorSeed ^ SEALED_ROOM_GUARDIAN_POSITION_RNG_XOR);
 }
 
 /** Resolves the canonical golem level for an eligible sealed-room depth. */

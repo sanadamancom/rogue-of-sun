@@ -15,7 +15,14 @@ import { GameEvent } from './events';
 import { selectTrapType } from './curse-active';
 import { chooseDarkRoomIndex } from './dark-rooms';
 import { buildMonsterHouseFloorState, createMonsterHouseRng } from './monster-house';
-import { buildSealedRoomFloorState, createSealedRoomRng } from './sealed-room';
+import {
+  buildSealedRoomFloorState,
+  createSealedRoomGuardianLevelRng,
+  createSealedRoomGuardianPositionRng,
+  createSealedRoomRng,
+  resolveSealedRoomGuardianLevel,
+  SEALED_ROOM_GUARDIAN_SPAWN_SOURCE,
+} from './sealed-room';
 import {
   chooseMonsterHouseEnemyTypes,
   computeMonsterHouseCandidateCells,
@@ -780,6 +787,41 @@ export function buildFloorState(
         }
       }
     }
+  }
+
+  // Phase 24.7e3: append the sealed-room guardian only after all normal and
+  // monster-house generation has finished. Its dedicated position and level
+  // streams cannot perturb any pre-existing floor-generation stream.
+  if (map.sealedRoom) {
+    const occupiedExclusions: Vec2[] = [
+      placement.start,
+      placement.exit,
+      ...enemies.map((enemy) => enemy.pos),
+      ...traps.map((trap) => trap.pos),
+      ...groundItems.map((item) => item.pos),
+    ];
+    const candidateCells = computeMonsterHouseCandidateCells(
+      map,
+      map.sealedRoom.roomIndex,
+      occupiedExclusions,
+    );
+    const guardianPosition = selectMonsterHouseEnemyPositions(
+      candidateCells,
+      1,
+      createSealedRoomGuardianPositionRng(floorSeed, createRng),
+    );
+    const guardianLevel = resolveSealedRoomGuardianLevel(
+      floor,
+      createSealedRoomGuardianLevelRng(floorSeed, createRng),
+    );
+    const guardian = buildEnemies(
+      guardianPosition,
+      ['golem'],
+      turn,
+      enemies.length,
+      [guardianLevel],
+    ).map((enemy) => ({ ...enemy, spawnSource: SEALED_ROOM_GUARDIAN_SPAWN_SOURCE }));
+    enemies.push(...guardian);
   }
 
   const state: GameState = {

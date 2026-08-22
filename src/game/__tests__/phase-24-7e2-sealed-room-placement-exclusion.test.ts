@@ -63,7 +63,7 @@ describe('Phase 24.7e2 sealed-room normal-placement exclusion', () => {
         );
         const isInside = (pos: { x: number; y: number }) => interiorKeys.has(positionKey(pos));
 
-        expect(state.enemies.some((enemy) => isInside(enemy.pos))).toBe(false);
+        expect(state.enemies.some((enemy) => enemy.spawnSource !== 'sealed_room_guardian' && isInside(enemy.pos))).toBe(false);
         expect((state.traps ?? []).some((trap) => isInside(trap.pos))).toBe(false);
         expect(state.groundItems.some((item) => isInside(item.pos))).toBe(false);
         expect(state.enemies.filter((enemy) => enemy.spawnSource === 'normal')).toHaveLength(
