@@ -5354,12 +5354,6 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
     (state.player.pos.x !== posBeforeAction.x || state.player.pos.y !== posBeforeAction.y);
   const reachedExitThisMove =
     actualMoveHappened && state.player.pos.x === state.exit.x && state.player.pos.y === state.exit.y;
-  const reachedOtenco =
-    actualMoveHappened &&
-    state.otencoState === 'sealed' &&
-    state.otencoPos !== undefined &&
-    state.player.pos.x === state.otencoPos.x &&
-    state.player.pos.y === state.otencoPos.y;
   const trapsTriggeredThisAction = (state.traps ?? []).filter(
     (t) => t.triggered && !trapsTriggeredBeforeAction.has(t.id),
   );
@@ -5542,10 +5536,6 @@ export function processTurn(state: GameState, action: PlayerAction): TurnResult 
 
   if (playerDefeated) {
     state.phase = 'gameover';
-  } else if (reachedOtenco) {
-    state.otencoState = 'rescued';
-    state.otencoPos = undefined;
-    events.push({ type: 'otenco_rescued' });
   } else if (reachedExit) {
     state.phase = state.floor >= state.totalFloors ? 'victory' : 'floor_cleared';
   }

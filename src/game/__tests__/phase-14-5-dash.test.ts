@@ -23,7 +23,6 @@ function freshState(map: GameMap, playerPos: { x: number; y: number }, overrides
     floor: 1,
     totalFloors: 3,
     leg: 'descent',
-    otencoState: 'sealed',
     exit: map.exit,
     regenProgress: 0,
     webs: [],

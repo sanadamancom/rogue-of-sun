@@ -51,7 +51,6 @@ function freshState(overrides?: Partial<GameState>): GameState {
     floor: 1,
     totalFloors: 3,
     leg: 'descent',
-    otencoState: 'sealed',
     floorVisitOrdinal: 1,
     reinforcementOrdinal: 0,
     runDepthTier: DEFAULT_RUN_CONFIG.runDepthTier,

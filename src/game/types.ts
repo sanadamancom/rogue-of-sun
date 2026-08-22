@@ -518,8 +518,6 @@ export interface TrapTile {
  */
 export type RunDepthTier = 'short' | 'standard' | 'deep';
 
-export type OtencoState = 'sealed' | 'rescued';
-
 /**
  * Phase 24.6b1/24.6b1a: the small run-creation input a run is started
  * with (createInitialState's optional second argument). Not stored on
@@ -557,10 +555,6 @@ export interface GameState {
    * this stable field is reserved for telemetry and future phases.
    */
   leg: 'descent' | 'ascent';
-  /** Rescue progression; initialized sealed until the later floor-transition phase carries it. */
-  otencoState: OtencoState;
-  /** Floor-local objective coordinate, present only on sealed descent floor 26. */
-  otencoPos?: Vec2;
   /** 1-indexed count of floor visits during this run, independent of depth. */
   floorVisitOrdinal?: number;
   /** Number of reinforcement spawns triggered on this floor. */

@@ -38,7 +38,6 @@ function freshState(overrides?: Partial<GameState>): GameState {
     floor: 1,
     totalFloors: 3,
     leg: 'descent',
-    otencoState: 'sealed',
     exit: { x: 99, y: 99 },
     regenProgress: 0,
     webs: [],
