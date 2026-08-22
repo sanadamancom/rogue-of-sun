@@ -1029,8 +1029,10 @@ export function advanceRunFloor(state: GameState, events?: GameEvent[]): GameSta
     depth: state.floor,
     leg: state.leg,
     totalFloors: state.totalFloors,
+    otencoState: 'sealed',
   });
   if (transition === 'runComplete') return transition;
+  if (transition.depth === state.floor && transition.leg === state.leg) return state;
 
   const nextState = buildFloorState(
     state.runSeed,

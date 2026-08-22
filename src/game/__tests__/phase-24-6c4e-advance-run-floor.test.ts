@@ -15,12 +15,13 @@ describe('Phase 24.6c4e advanceRunFloor', () => {
     expect(next).toMatchObject({ floor: 2, leg: 'descent', floorVisitOrdinal: 2 });
   });
 
-  it('flips from descent to ascent at the deepest floor', () => {
+  it('stays on the deepest descent floor while Otenco is sealed', () => {
     const state = createInitialState(102, config);
     state.floor = 3;
     state.floorVisitOrdinal = 3;
     const next = expectState(advanceRunFloor(state));
-    expect(next).toMatchObject({ floor: 2, leg: 'ascent', floorVisitOrdinal: 4 });
+    expect(next).toBe(state);
+    expect(next).toMatchObject({ floor: 3, leg: 'descent', floorVisitOrdinal: 3 });
   });
 
   it('advances an ascent floor toward the surface', () => {

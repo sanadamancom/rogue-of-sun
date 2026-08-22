@@ -1,4 +1,5 @@
 export type Leg = 'descent' | 'ascent';
+export type OtencoState = 'sealed' | 'rescued';
 
 type FloorPosition = {
   depth: number;
@@ -15,13 +16,15 @@ function validateFloorPosition({ depth, leg, totalFloors }: FloorPosition): void
   }
 }
 
-export function transitionFloor(input: FloorPosition): { depth: number; leg: Leg } | 'runComplete' {
+export function transitionFloor(input: FloorPosition & { otencoState: OtencoState }): { depth: number; leg: Leg } | 'runComplete' {
   validateFloorPosition(input);
 
-  const { depth, leg, totalFloors } = input;
+  const { depth, leg, totalFloors, otencoState } = input;
   if (leg === 'descent') {
     return depth === totalFloors
-      ? { depth: totalFloors - 1, leg: 'ascent' }
+      ? otencoState === 'rescued'
+        ? { depth: totalFloors - 1, leg: 'ascent' }
+        : { depth, leg: 'descent' }
       : { depth: depth + 1, leg: 'descent' };
   }
 

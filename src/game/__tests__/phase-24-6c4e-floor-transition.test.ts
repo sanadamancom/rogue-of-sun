@@ -3,30 +3,43 @@ import { floorVisitOrdinal, transitionFloor, type Leg } from '../floor-transitio
 
 describe('Phase 24.6c4e floor transition', () => {
   it.each([
-    [{ depth: 1, leg: 'descent', totalFloors: 26 }, { depth: 2, leg: 'descent' }],
-    [{ depth: 14, leg: 'descent', totalFloors: 26 }, { depth: 15, leg: 'descent' }],
-    [{ depth: 26, leg: 'descent', totalFloors: 26 }, { depth: 25, leg: 'ascent' }],
-    [{ depth: 14, leg: 'ascent', totalFloors: 26 }, { depth: 13, leg: 'ascent' }],
-    [{ depth: 1, leg: 'ascent', totalFloors: 26 }, 'runComplete'],
+    [{ depth: 1, leg: 'descent', totalFloors: 26, otencoState: 'rescued' }, { depth: 2, leg: 'descent' }],
+    [{ depth: 14, leg: 'descent', totalFloors: 26, otencoState: 'rescued' }, { depth: 15, leg: 'descent' }],
+    [{ depth: 26, leg: 'descent', totalFloors: 26, otencoState: 'rescued' }, { depth: 25, leg: 'ascent' }],
+    [{ depth: 14, leg: 'ascent', totalFloors: 26, otencoState: 'rescued' }, { depth: 13, leg: 'ascent' }],
+    [{ depth: 1, leg: 'ascent', totalFloors: 26, otencoState: 'rescued' }, 'runComplete'],
   ] as const)('transitions $0', (input, expected) => {
     expect(transitionFloor(input)).toEqual(expected);
   });
 
   it('uses the same state machine for a three-floor run', () => {
-    expect(transitionFloor({ depth: 1, leg: 'descent', totalFloors: 3 })).toEqual({ depth: 2, leg: 'descent' });
-    expect(transitionFloor({ depth: 2, leg: 'descent', totalFloors: 3 })).toEqual({ depth: 3, leg: 'descent' });
-    expect(transitionFloor({ depth: 3, leg: 'descent', totalFloors: 3 })).toEqual({ depth: 2, leg: 'ascent' });
-    expect(transitionFloor({ depth: 2, leg: 'ascent', totalFloors: 3 })).toEqual({ depth: 1, leg: 'ascent' });
-    expect(transitionFloor({ depth: 1, leg: 'ascent', totalFloors: 3 })).toBe('runComplete');
+    expect(transitionFloor({ depth: 1, leg: 'descent', totalFloors: 3, otencoState: 'rescued' })).toEqual({ depth: 2, leg: 'descent' });
+    expect(transitionFloor({ depth: 2, leg: 'descent', totalFloors: 3, otencoState: 'rescued' })).toEqual({ depth: 3, leg: 'descent' });
+    expect(transitionFloor({ depth: 3, leg: 'descent', totalFloors: 3, otencoState: 'rescued' })).toEqual({ depth: 2, leg: 'ascent' });
+    expect(transitionFloor({ depth: 2, leg: 'ascent', totalFloors: 3, otencoState: 'rescued' })).toEqual({ depth: 1, leg: 'ascent' });
+    expect(transitionFloor({ depth: 1, leg: 'ascent', totalFloors: 3, otencoState: 'rescued' })).toBe('runComplete');
+  });
+
+  it.each([26, 3])('blocks the deepest descent while sealed in a %i-floor run', (totalFloors) => {
+    expect(transitionFloor({ depth: totalFloors, leg: 'descent', totalFloors, otencoState: 'sealed' })).toEqual({
+      depth: totalFloors,
+      leg: 'descent',
+    });
+  });
+
+  it('advances a non-boundary descent regardless of Otenco state', () => {
+    const position = { depth: 14, leg: 'descent' as const, totalFloors: 26 };
+    expect(transitionFloor({ ...position, otencoState: 'sealed' })).toEqual({ depth: 15, leg: 'descent' });
+    expect(transitionFloor({ ...position, otencoState: 'rescued' })).toEqual({ depth: 15, leg: 'descent' });
   });
 
   it.each(['descent', 'ascent'] as const)('rejects a one-floor run on the %s leg', (leg) => {
-    expect(() => transitionFloor({ depth: 1, leg, totalFloors: 1 })).toThrow(RangeError);
+    expect(() => transitionFloor({ depth: 1, leg, totalFloors: 1, otencoState: 'rescued' })).toThrow(RangeError);
   });
 
   it.each(['descent', 'ascent'] as const)('rejects out-of-range depths on the %s leg', (leg) => {
     for (const depth of [0, -1, 27]) {
-      expect(() => transitionFloor({ depth, leg, totalFloors: 26 })).toThrowError(
+      expect(() => transitionFloor({ depth, leg, totalFloors: 26, otencoState: 'rescued' })).toThrowError(
         new RangeError(`Invalid depth=${depth}, leg=${leg}, totalFloors=26`),
       );
     }
@@ -52,7 +65,7 @@ describe('Phase 24.6c4e floor visit ordinal', () => {
         ...position,
         ordinal: floorVisitOrdinal({ ...position, totalFloors: 5 }),
       });
-      const next = transitionFloor({ ...position, totalFloors: 5 });
+      const next = transitionFloor({ ...position, totalFloors: 5, otencoState: 'rescued' });
       if (next === 'runComplete') break;
       position = next;
     }
