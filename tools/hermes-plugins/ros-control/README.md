@@ -26,6 +26,6 @@ Copy-Item -Recurse -Force tools\hermes-plugins\ros-control "$env:USERPROFILE\.he
 hermes gateway restart
 ```
 
-Once `hermes plugins list` and an actual `/ros-status` round trip confirm the plugin works, remove only `quick_commands.ros-start`, `quick_commands.ros-status`, and `quick_commands.ros-stop` from `~/.hermes/config.yaml`. They are redundant shadowed duplicates because plugin commands take precedence; leave every other `quick_commands` entry untouched.
+After confirming the plugin is loaded (`hermes plugins list`) and working (`/ros-status` returns a response), the operator may optionally edit `~/.hermes/config.yaml` by hand to delete the now-redundant `quick_commands.ros-start`, `quick_commands.ros-status`, and `quick_commands.ros-stop` entries, since plugin commands already take precedence over them. This is a manual cleanup step performed by the operator, not an action taken by the plugin itself; leave every other `quick_commands` entry untouched.
 
 This plugin requires `C:\dev\rogue-of-sun\scripts\hermes-dev-control.ps1` at its fixed absolute path. It is specific to this repository checkout and is not portable.

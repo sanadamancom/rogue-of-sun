@@ -22,6 +22,23 @@ PENDING_STATUS = json.dumps(
 )
 
 
+def _init_fixture_git_repo(root):
+    """Create a minimal committed git repo at *root* for the one real
+    end-to-end test below. hermes-dev-control.ps1 requires `git log -1` to
+    succeed, so this fixture setup is load-bearing, not incidental — it is
+    kept in a single helper so it is the one place test fixtures shell out
+    to git rather than four separate call sites.
+    """
+    for args in (
+        ["git", "init", "-q", root],
+        ["git", "-C", root, "config", "user.email", "fixture@example.invalid"],
+        ["git", "-C", root, "config", "user.name", "Fixture"],
+        ["git", "-C", root, "add", "."],
+        ["git", "-C", root, "commit", "-qm", "fixture"],
+    ):
+        subprocess.run(args, check=True)
+
+
 class ControlTests(unittest.TestCase):
     @patch("control.run_control")
     def test_ros_answer_empty_string(self, run_control):
@@ -51,7 +68,7 @@ class ControlTests(unittest.TestCase):
     def test_ros_answer_no_pending(self, run_control):
         self.assertEqual(control.handle_ros_answer("answer"), "no pending decision")
         run_control.assert_called_once_with(
-            ["-Command", "status", "-Json"], control.DEFAULT_REPO_DIR
+            ["-Command", "status", "-Json"], control.DEFAULT_REPO_DIR, timeout=30
         )
 
     @patch("control.run_control", return_value=(1, "", "git status failed"))
@@ -143,7 +160,7 @@ class ControlTests(unittest.TestCase):
     def test_ros_start_success(self, run_control):
         self.assertIn("start requested", control.handle_ros_start("ignored"))
         run_control.assert_called_once_with(
-            ["-Command", "start"], control.DEFAULT_REPO_DIR
+            ["-Command", "start"], control.DEFAULT_REPO_DIR, timeout=30
         )
 
     @patch("control.run_control", return_value=(1, "", "start error"))
@@ -154,7 +171,7 @@ class ControlTests(unittest.TestCase):
     def test_ros_status_success(self, run_control):
         self.assertEqual(control.handle_ros_status(""), '{"running":false}')
         run_control.assert_called_once_with(
-            ["-Command", "status", "-Json"], control.DEFAULT_REPO_DIR
+            ["-Command", "status", "-Json"], control.DEFAULT_REPO_DIR, timeout=30
         )
 
     @patch("control.run_control", return_value=(1, "status error", ""))
@@ -167,12 +184,23 @@ class ControlTests(unittest.TestCase):
     def test_ros_stop_success(self, run_control):
         self.assertIn("stop requested", control.handle_ros_stop("ignored"))
         run_control.assert_called_once_with(
-            ["-Command", "stop"], control.DEFAULT_REPO_DIR
+            ["-Command", "stop"], control.DEFAULT_REPO_DIR, timeout=30
         )
 
     @patch("control.run_control", return_value=(1, "", "stop error"))
     def test_ros_stop_failure(self, run_control):
         self.assertEqual(control.handle_ros_stop(""), "ros-stop failed: stop error")
+
+    def test_dispatch_rejects_unlisted_operation(self):
+        with self.assertRaises(ValueError):
+            control.dispatch("rm -rf")
+
+    @patch("control.run_control", return_value=(0, "ok", ""))
+    def test_dispatch_only_reaches_run_control_via_allowlisted_args(self, run_control):
+        control.dispatch("start")
+        run_control.assert_called_once_with(
+            ["-Command", "start"], control.DEFAULT_REPO_DIR, timeout=30
+        )
 
     def test_run_control_uses_argv_list_not_shell(self):
         source = Path(inspect.getsourcefile(control)).read_text(encoding="utf-8")
@@ -205,11 +233,7 @@ class ControlTests(unittest.TestCase):
             (scripts / "hermes-orchestrate.ps1").write_text(
                 "param([string]$RepoDir)\n", encoding="utf-8"
             )
-            subprocess.run(["git", "init", "-q", root], check=True)
-            subprocess.run(["git", "-C", root, "config", "user.email", "fixture@example.invalid"], check=True)
-            subprocess.run(["git", "-C", root, "config", "user.name", "Fixture"], check=True)
-            subprocess.run(["git", "-C", root, "add", "."], check=True)
-            subprocess.run(["git", "-C", root, "commit", "-qm", "fixture"], check=True)
+            _init_fixture_git_repo(root)
 
             returncode, stdout, stderr = control.run_control(
                 ["-Command", "status", "-Json"], repo_dir=root
