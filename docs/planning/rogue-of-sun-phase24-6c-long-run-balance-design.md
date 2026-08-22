@@ -525,10 +525,10 @@ Phase 24.6c2では共通statsだけを実装し、通し測定後に必要な種
 | 24.6c4b | item availabilityを`minimumDepth`／任意`maximumDepth`／leg契約へ移行（§19「24.6c4のスコープ決定」参照） | あり |
 | 24.6c4c | 下降限定の通常床loot（floor生成APIをleg分岐、ascentは通常loot・モンスターハウスなしのpure/bounded実装） | あり |
 | 24.6c4d | S防具3種（`light_garb`／`dark_garb`／`spike_mail`）の下降19～26F深層loot route | あり |
-| 24.6c4e | 26F production run structureのpre-simulation統合（`transitionFloor`本接続、depth 1～26、descent／ascent、24.6c2b敵depth／level／count tableのproduction spawn接続、51 floor visit経路。save／UI／HUDは含まない。`otencoState`は常に`sealed`固定でsealed→rescued接触救出mechanicは含まない。§19「24.6c4のスコープ決定」および「24.6c4eのスコープ確定」参照） | あり |
+| 24.6c4e | 26F production run structureのpre-simulation統合（`transitionFloor`本接続、depth 1～26、descent／ascent、24.6c2b敵depth／level／count tableのproduction spawn接続、51 floor visit経路。save／UI／HUDは含まない。`transitionFloor`は`otencoState`をread-only入力として受け取り、depth=26でのdescent→ascent切替を`rescued`時のみ行う状態機械とrescued後のascent leg～1F～runComplete構造を含むが、sealed→rescued遷移トリガー本体（Otenco配置・接触判定）は含まず、production run呼び出しでは`otencoState`を常に`sealed`固定とする。§19「24.6c4のスコープ決定」「24.6c4eのスコープ確定」「24.6c4eスコープの補足確定」参照） | あり |
 | 24.6c5 | 26F下降＋25F帰還simulationと定数調整（`24.6c4e`完了後の実production run structureに対して実施） | 原則定数のみ |
 | 24.7 | 黒の鎧専用封印部屋と番人 | あり |
-| 24.8 | 26F目標配置・救出（`otencoState`のsealed→rescued接触救出mechanic本体）、階段状態機械、帰還、1F脱出、同行描画、中断save、統合試験（§19「24.6c4eのスコープ確定」参照） | あり |
+| 24.8 | 26F目標配置・救出（Otenco決定的配置・接触判定・`otencoState`のsealed→rescued遷移トリガー本体）、帰還、1F脱出、同行描画、中断save、統合試験。ascent leg～1Fの状態遷移構造自体は`24.6c4e`で実装済み（§19「24.6c4eのスコープ確定」「24.6c4eスコープの補足確定」参照） | あり |
 
 ---
 
@@ -754,3 +754,13 @@ correctness違反、全policy timeout、policy間の期待順序逆転、特定�
 3. **`otencoState`のsealed→rescued接触救出mechanic本体は`24.8`が担う。** Otencoの決定的配置、プレイヤー接触時の`sealed`→`rescued`遷移、rescued後に26F同floorの階段へ戻ってからascent legへ移行する状態遷移、1Fからの地上脱出（帰還leg完了→clear）までの一連のinteractionを`24.8`でまとめて実装する。
 4. **本節冒頭（§19の1～3点目）の記述は、`24.6c4e`と`24.8`を合わせた最終形の設計を指す。** 個別Phaseの実装境界は本項および`development-plan.md`のPhase別行を参照する。
 5. **development-plan.mdのPhase `24.6c4e`および`24.8`の行にこの決定を反映する。**
+
+### 24.6c4eスコープの補足確定（human decision, 2026-08-22 追補）
+
+上記「24.6c4eのスコープ確定」決定後、`otencoState`を`24.6c4e`のproduction状態機械から完全に除外するか、read-only pass-throughとして含めるかについて再度userへ判断を仰いだ結果、以下のとおり補足確定した。
+
+1. **B案を採用する。** `24.6c4e`は引き続き`9a04c85`の方向（`otencoState`のsealed→rescued遷移ロジック、接触判定、救出interaction本体は実装しない）を維持するが、`transitionFloor`が`otencoState: "sealed" | "rescued"`をread-onlyの入力として受け取り、depth=26でのdescent→ascent切替を`otencoState === "rescued"`のときだけ行う状態機械（§3 line 74の設計どおり：救出前は`leg = descent`のまま26Fに留まる）を`24.6c4e`のスコープに含める。
+2. **rescued後のascent leg（26F→25F→…→1F→runComplete）の状態遷移構造自体は`24.6c4e`で実装してよい。** 既存の`transitionFloor`のascent側分岐（depth-1、depth===1でrunComplete）は変更を要しないが、この構造が「`otencoState`が`rescued`である前提で機能する」ことを`24.6c4e`のtestで明示する。
+3. **production run（`advanceRunFloor`等）では`otencoState`を常に`"sealed"`固定で呼び出す。** Otencoの決定的配置・接触判定・`sealed`→`rescued`遷移トリガー自体（interaction本体）は引き続き`24.8`が担い、`24.6c4e`では実装しない。固定`sealed`のため、`24.8`が遷移トリガーを実装するまでの間、現時点のproduction runは26Fで（rescueされないまま）滞留する挙動を暫定として許容する。
+4. **development-plan.mdのPhase `24.8`の記述に、leg・1Fまでのascent状態遷移構造は`24.6c4e`で実装済みであることを明記する。** `24.8`はOtenco決定的配置・接触判定・`sealed`→`rescued`遷移トリガー（interaction本体）の実装に専念する。
+5. **`1306f04`のrevert（`9a04c85`）を最終形とする前回の決定（本節1項、2026-08-22）は変更しない。**
