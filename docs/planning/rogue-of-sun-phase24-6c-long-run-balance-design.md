@@ -789,3 +789,7 @@ correctness違反、全policy timeout、policy間の期待順序逆転、特定�
 
 上記bug fix完了後、slice 5のうち増援周期candidate checkを`src/game/generation-audit.ts`へ追加した（完了）。層Aは§18.1のとおりplayer actionを持たないため`floorTurn`が進まず、`resolveRegularReinforcement`のcadence gateが実際に発火するlive spawnをlayer Aで観測することはできない。そのため、(a) `getReinforcementRule(depth).cadenceTurns`が`getEnemyPopulationForDepth(depth).reinforcementIntervalTurns`と一致すること、(b) audit専用RNG stream（production streamとは独立したsalt由来。stateやRNG消費・byte-identical判定に影響しない）で`resolveSingleEnemySpawnForDepth(depth, rng)`を複数回sampleし、candidateの種族がdepthのeligible種族集合内、levelがdepthのlevel帯内であること、の2点をdescent・ascent両legの全audit対象depthについて確認する「candidate構造check」として実装した。enemy drop候補・おてんこさま関連checkはslice 5の残作業として未着手のまま残る。
 enemy drop候補checkも両legについて`generation-audit.ts`へ追加済みであり、残るslice 5項目のOtenco関連checkは、layer Aのsimulation stateにOtenco配置がまだなくproduction run structureが`otencoState`を`'sealed'`固定としているため現時点ではscope外とし、Otencoの決定的配置・接触判定を担う`24.8`（本docの「24.6c4eのスコープ確定」参照）が完了するまで実装できない。
+
+### §18.3層Aのseed 1～1000 correctness gate実行（2026-08-22）
+
+slice 1～5で実装した全correctness check（map決定性、配置重複なし、通常敵spawn、通常床item／モンスターハウス、増援周期candidate、enemy drop候補、byte-identical再現）を、§18.3が定めるseed 1～1000・下降26＋帰還25の51000 floor全件に対して実行した。日常のfast test suite（`npm test`）はseed 1～50のpilot subsetのまま維持し、`src/game/__tests__/phase-24-6c5-generation-audit.contract.test.ts`（`npm run audit:layer-a`でのみ実行、`vitest.config.ts`のdefault excludeで`npm test`からは除外）としてfull-scale contract checkを追加した。結果はseed 1～1000・両leg・全51000 floorでviolation 0件。Otenco関連checkのみ、前述のとおり`24.8`待ちでscope外のまま残る。

@@ -8,6 +8,7 @@
     "build": "tsc -b --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "audit:layer-a": "vitest run src/game/__tests__/phase-24-6c5-generation-audit.contract.test.ts",
     "typecheck": "tsc -b --noEmit"
   },
   "devDependencies": {
