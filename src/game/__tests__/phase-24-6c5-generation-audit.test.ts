@@ -1,10 +1,44 @@
 import { describe, expect, it } from 'vitest';
 import { deriveFloorSeed } from '../floor';
-import { runAscentGenerationAudit, runDescentGenerationAudit } from '../generation-audit';
+import {
+  auditReinforcementCadenceCandidates,
+  runAscentGenerationAudit,
+  runDescentGenerationAudit,
+} from '../generation-audit';
 import { advanceRunFloor, buildFloorState, createInitialState } from '../state';
 import type { GameState } from '../types';
 
 const longRunConfig = { totalFloors: 26, runDepthTier: 'deep' as const };
+
+describe('Phase 24.6c5 reinforcement cadence candidate audit', () => {
+  it('finds no reinforcement violations on both legs across seeds 1 through 50', () => {
+    const violations = [];
+    for (let runSeed = 1; runSeed <= 50; runSeed++) {
+      for (const result of [runDescentGenerationAudit(runSeed), runAscentGenerationAudit(runSeed)]) {
+        for (const floor of result.floors) {
+          for (const violation of floor.violations) {
+            if (violation.includes('reinforcement')) {
+              violations.push({ runSeed, depth: floor.depth, violation });
+            }
+          }
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
+  it('reports a canonical cadence mismatch with the depth and both cadence values', () => {
+    const violations = auditReinforcementCadenceCandidates(
+      24610,
+      9,
+      'descent',
+      () => ({ cadenceTurns: 81, capBonus: 2 }),
+    );
+
+    expect(violations).toContain('depth 9 reinforcement cadence is 81 turns; expected 80 turns');
+  });
+});
 
 describe('Phase 24.6c5 descent generation audit', () => {
   it('finds no map-determinism or normal-item violations across seeds 1 through 50', () => {

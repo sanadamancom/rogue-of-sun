@@ -1,10 +1,12 @@
 import { deriveFloorSeed } from './floor';
-import { bfsDistances, generateMap } from './mapgen';
+import { bfsDistances, createRng, generateMap } from './mapgen';
 import {
   getEligibleEnemySpeciesForDepth,
   getEnemyLevelBandForDepth,
   getEnemyPopulationForDepth,
+  resolveSingleEnemySpawnForDepth,
 } from './enemy-depth-bands';
+import { getReinforcementRule } from './reinforcement';
 import { advanceRunFloor, buildFloorState, createInitialState } from './state';
 import type { GameState, Vec2 } from './types';
 
@@ -26,6 +28,64 @@ export interface AscentGenerationAuditResult {
 
 const DESCENT_FLOOR_COUNT = 26;
 const LONG_RUN_CONFIG = { totalFloors: DESCENT_FLOOR_COUNT, runDepthTier: 'deep' as const };
+const REINFORCEMENT_CANDIDATE_SAMPLE_COUNT = 50;
+// Audit-only salt. This stream is never stored in GameState or used by production generation.
+const REINFORCEMENT_CANDIDATE_AUDIT_SALT = 0x17c4a9ed;
+
+type ReinforcementRuleLookup = typeof getReinforcementRule;
+
+function deriveReinforcementCandidateAuditSeed(
+  runSeed: number,
+  depth: number,
+  leg: 'descent' | 'ascent',
+): number {
+  const legValue = leg === 'ascent' ? 2 : 1;
+  return (
+    Math.imul(runSeed ^ REINFORCEMENT_CANDIDATE_AUDIT_SALT, 0x27d4eb2d) ^
+    Math.imul(depth, 0x165667b1) ^
+    Math.imul(legValue, 0x7feb352d)
+  ) >>> 0;
+}
+
+/** Audits the canonical cadence and sampled reinforcement candidates without mutating a run. */
+export function auditReinforcementCadenceCandidates(
+  runSeed: number,
+  depth: number,
+  leg: GameState['leg'],
+  reinforcementRuleLookup: ReinforcementRuleLookup = getReinforcementRule,
+): string[] {
+  if (leg !== 'descent' && leg !== 'ascent') return [];
+
+  const violations: string[] = [];
+  const population = getEnemyPopulationForDepth(depth);
+  const cadenceTurns = reinforcementRuleLookup(depth).cadenceTurns;
+  if (cadenceTurns !== population.reinforcementIntervalTurns) {
+    violations.push(
+      `depth ${depth} reinforcement cadence is ${cadenceTurns} turns; expected ${population.reinforcementIntervalTurns} turns`,
+    );
+  }
+
+  const eligibleSpecies = getEligibleEnemySpeciesForDepth(depth).map(({ type }) => type);
+  const eligibleSpeciesSet = new Set(eligibleSpecies);
+  const rng = createRng(deriveReinforcementCandidateAuditSeed(runSeed, depth, leg));
+  for (let sampleIndex = 0; sampleIndex < REINFORCEMENT_CANDIDATE_SAMPLE_COUNT; sampleIndex++) {
+    const candidate = resolveSingleEnemySpawnForDepth(depth, rng);
+    if (!eligibleSpeciesSet.has(candidate.type)) {
+      violations.push(
+        `depth ${depth} reinforcement candidate[${sampleIndex}] type ${candidate.type} level ${candidate.level} is ineligible; expected one of ${eligibleSpecies.join(', ')}`,
+      );
+    }
+
+    const levelBand = getEnemyLevelBandForDepth(candidate.type, depth);
+    if (levelBand === null || levelBand.weights[candidate.level] <= 0) {
+      violations.push(
+        `depth ${depth} reinforcement candidate[${sampleIndex}] type ${candidate.type} level ${candidate.level} has zero level weight`,
+      );
+    }
+  }
+
+  return violations;
+}
 
 function positionKey(pos: Vec2): string {
   return `${pos.x},${pos.y}`;
@@ -34,6 +94,8 @@ function positionKey(pos: Vec2): string {
 function auditFloor(state: GameState, expectedOrdinal: number, leg: GameState['leg']): GenerationAuditFloorResult {
   const violations: string[] = [];
   const depth = state.floor;
+
+  violations.push(...auditReinforcementCadenceCandidates(state.runSeed, depth, leg));
 
   if (state.map.terrain.length === 0 || state.map.terrain.every((row) => row.length === 0)) {
     violations.push('map terrain is empty');
